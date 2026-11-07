@@ -22,8 +22,9 @@ class ShortPipe(io.BytesIO):
 
 
 class Process:
-    def __init__(self, **pipes):
-        self.__dict__.update(pipes)
+    def __init__(self, *, stdin=None, stdout=None):
+        self.stdin = stdin
+        self.stdout = stdout
         self.terminated = False
 
     def poll(self):
@@ -35,18 +36,23 @@ class Process:
 
 def test_pool_preserves_frame_order_and_padding_with_partial_io():
     source = np.arange(7 * 2 * 3 * 3, dtype=np.uint8).reshape(7, 2, 3, 3)
-    decoder, encoder = Process(stdout=ShortPipe(source.tobytes())), Process(stdin=ShortPipe())
+    decoder, encoder = (
+        Process(stdout=ShortPipe(source.tobytes())),
+        Process(stdin=ShortPipe()),
+    )
     processor = SimpleNamespace(output_buffer=None)
     digest = hashlib.sha256()
     addresses = set()
-    with PooledVideoIO(decoder, encoder, (2, 3, 3), (2, 3, 3), (2, 4, 3),
-                      2, processor=processor) as pool:
+    with PooledVideoIO(
+        decoder, encoder, (2, 3, 3), (2, 3, 3), (2, 4, 3), 2, processor=processor
+    ) as pool:
         for frame in pool.frames():
             addresses.add(frame.ctypes.data)
             np.copyto(processor.output_buffer, 255 - frame)
             pool.submit(processor.output_buffer, digest)
         pool.finish()
     expected = np.pad(255 - source, ((0, 0), (0, 0), (0, 1), (0, 0)), mode="edge")
+    assert encoder.stdin is not None
     assert encoder.stdin.getvalue() == expected.tobytes()
     assert digest.hexdigest() == hashlib.sha256(expected.tobytes()).hexdigest()
     assert len(addresses) <= 2
@@ -57,8 +63,9 @@ def test_pool_preserves_frame_order_and_padding_with_partial_io():
 def test_pool_propagates_decoder_failure_and_stops_workers():
     decoder = Process(stdout=ShortPipe(bytes(19)))
     encoder = Process(stdin=ShortPipe())
+    pool = PooledVideoIO(decoder, encoder, (2, 3, 3), (2, 3, 3), (2, 3, 3), 2)
     with pytest.raises(ValueError, match="incomplete"):
-        with PooledVideoIO(decoder, encoder, (2, 3, 3), (2, 3, 3), (2, 3, 3), 2) as pool:
+        with pool:
             for frame in pool.frames():
                 pool.submit(frame, hashlib.sha256())
             pool.finish()
@@ -73,8 +80,9 @@ def test_pool_propagates_encoder_failure_without_reusing_its_slot():
 
     decoder = Process(stdout=ShortPipe(bytes(5 * 18)))
     encoder = Process(stdin=BrokenPipe())
+    pool = PooledVideoIO(decoder, encoder, (2, 3, 3), (2, 3, 3), (2, 3, 3), 2)
     with pytest.raises(BrokenPipeError, match="controlled"):
-        with PooledVideoIO(decoder, encoder, (2, 3, 3), (2, 3, 3), (2, 3, 3), 2) as pool:
+        with pool:
             for frame in pool.frames():
                 pool.submit(frame, hashlib.sha256())
             pool.finish()

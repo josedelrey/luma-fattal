@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import overload
+
 import numpy as np
 from PIL import Image
 
@@ -17,6 +19,28 @@ def _prepare_pillow_input(image: Image.Image, config: Config) -> Image.Image:
         config.image.decode_sampling,
     )
     return prepare_image(image, config.image)
+
+
+@overload
+def apply_filter(
+    image: Image.Image,
+    variant: int | None = None,
+    params: FilterParams | None = None,
+    *,
+    profile: str | None = None,
+    config: Config | None = None,
+) -> Image.Image: ...
+
+
+@overload
+def apply_filter(
+    image: np.ndarray,
+    variant: int | None = None,
+    params: FilterParams | None = None,
+    *,
+    profile: str | None = None,
+    config: Config | None = None,
+) -> np.ndarray: ...
 
 
 def apply_filter(
@@ -82,6 +106,7 @@ def apply_filter(
     else:
         result = apply_core(array, variant, params, config.numerics)
     if pil_input:
+        assert isinstance(image, Image.Image)
         output = Image.fromarray(result)
         if config.image.color_space == "srgb":
             output.info["icc_profile"] = image.info["icc_profile"]
@@ -93,7 +118,9 @@ def apply_filter(
     return result
 
 
-def process_frames(frames, *, config: Config, source_cleanup=None, solver=None, frame_processor=None):
+def process_frames(
+    frames, *, config: Config, source_cleanup=None, solver=None, frame_processor=None
+):
     """Yield processed decoded RGB8 frames lazily, in input order.
 
     The caller supplies RGB arrays after decoding and color interpretation.
@@ -129,11 +156,18 @@ def process_frames(frames, *, config: Config, source_cleanup=None, solver=None, 
                 from .processing import process_pixels
 
                 yield process_pixels(
-                    frame, int(config.filter[-1]), config.parameters,
-                    config.processing, config.numerics, **options,
+                    frame,
+                    int(config.filter[-1]),
+                    config.parameters,
+                    config.processing,
+                    config.numerics,
+                    **options,
                 )
             else:
                 yield apply_core(
-                    frame, int(config.filter[-1]), config.parameters, config.numerics,
+                    frame,
+                    int(config.filter[-1]),
+                    config.parameters,
+                    config.numerics,
                     **options,
                 )

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, fields, replace
-from fractions import Fraction
 import json
 import math
+import re
+import tomllib
+from dataclasses import asdict, dataclass, field, fields, replace
+from fractions import Fraction
 from numbers import Real
 from pathlib import Path
-import tomllib
-import re
 
 import numpy as np
 import yaml
@@ -174,7 +174,7 @@ class FilterParams:
                 isinstance(value, bool)
                 or not isinstance(value, Real)
                 or not math.isfinite(value)
-                or not 0 <= value <= 100
+                or not 0 <= float(value) <= 100
             ):
                 raise ValueError(f"{name} must be finite and between 0 and 100")
         if self.alpha == 0:
@@ -182,7 +182,9 @@ class FilterParams:
         with np.errstate(under="ignore"):
             scaled_alpha = np.float32(self.alpha) / np.float32(100)
         if scaled_alpha == 0:
-            raise ValueError("alpha must remain positive in float32 after division by 100")
+            raise ValueError(
+                "alpha must remain positive in float32 after division by 100"
+            )
         if self.black_level >= self.white_level:
             raise ValueError("black_level must be below white_level")
         _finite("output_gamma", self.output_gamma, 0, math.inf, exclusive_min=True)
@@ -206,7 +208,9 @@ class ProcessingConfig:
     def __post_init__(self):
         _choice("device_class", self.device_class, DEVICE_MAX_EDGES)
         _choice(
-            "working_resampler", self.working_resampler, ("nearest", "bilinear", "bicubic")
+            "working_resampler",
+            self.working_resampler,
+            ("nearest", "bilinear", "bicubic"),
         )
         if self.max_edge is not None:
             _integer("max_edge", self.max_edge, 2)
@@ -355,13 +359,23 @@ class VideoConfig:
         _choice("video validation_mode", self.validation_mode, ("scan", "stream"))
         _choice("video encoder", self.encoder, ("libx264", "h264_nvenc"))
         _integer("video nvenc_cq", self.nvenc_cq, 0, 51)
-        _choice("video nvenc_preset", self.nvenc_preset,
-                ("p1", "p2", "p3", "p4", "p5", "p6", "p7"))
+        _choice(
+            "video nvenc_preset",
+            self.nvenc_preset,
+            ("p1", "p2", "p3", "p4", "p5", "p6", "p7"),
+        )
         if type(self.crf) is not int or not 0 <= self.crf <= 51:
             raise ValueError("Video crf must be an integer between 0 and 51")
         if self.preset not in (
-            "ultrafast", "superfast", "veryfast", "faster", "fast",
-            "medium", "slow", "slower", "veryslow",
+            "ultrafast",
+            "superfast",
+            "veryfast",
+            "faster",
+            "fast",
+            "medium",
+            "slow",
+            "slower",
+            "veryslow",
         ):
             raise ValueError("Unsupported H.264 preset")
         if self.deblock not in ("off", "weak4", "weak8"):
@@ -370,10 +384,17 @@ class VideoConfig:
             raise ValueError("Video deband must be off or gentle")
         _finite("video denoise", self.denoise, 0, 1)
         _finite("video flat_cleanup", self.flat_cleanup, 0, 1)
-        _choice("video flat_cleanup_mode", self.flat_cleanup_mode,
-                ("standard", "multiscale"))
-        _finite("video flat_cleanup_coarse_strength",
-                self.flat_cleanup_coarse_strength, 0, 1)
+        _choice(
+            "video flat_cleanup_mode",
+            self.flat_cleanup_mode,
+            ("standard", "multiscale"),
+        )
+        _finite(
+            "video flat_cleanup_coarse_strength",
+            self.flat_cleanup_coarse_strength,
+            0,
+            1,
+        )
         _finite("video flat_cleanup_sigma", self.flat_cleanup_sigma, 0.01, 16)
         _finite("video pre_noise_rms", self.pre_noise_rms, 0, 4)
         _choice("video pre_noise_kind", self.pre_noise_kind, ("highpass", "fbm"))
@@ -384,10 +405,15 @@ class VideoConfig:
         _choice("video input_range", self.input_range, ("auto", "limited", "full"))
         if self.frame_rate != "auto":
             try:
-                if not isinstance(self.frame_rate, str) or Fraction(self.frame_rate) <= 0:
+                if (
+                    not isinstance(self.frame_rate, str)
+                    or Fraction(self.frame_rate) <= 0
+                ):
                     raise ValueError
             except (ValueError, ZeroDivisionError) as error:
-                raise ValueError("Video frame_rate must be auto or a positive rate string") from error
+                raise ValueError(
+                    "Video frame_rate must be auto or a positive rate string"
+                ) from error
             object.__setattr__(self, "frame_rate", str(Fraction(self.frame_rate)))
 
 
@@ -506,7 +532,14 @@ class Config:
             raise ValueError("Inherited configuration must be an object")
         merged = parent.copy()
         for name, value in own.items():
-            if name in ("parameters", "processing", "image", "output", "numerics", "video"):
+            if name in (
+                "parameters",
+                "processing",
+                "image",
+                "output",
+                "numerics",
+                "video",
+            ):
                 inherited = parent.get(name, {})
                 if not isinstance(value, dict) or not isinstance(inherited, dict):
                     raise ValueError(f"Inherited {name} section must be an object")

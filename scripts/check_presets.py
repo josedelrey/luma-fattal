@@ -10,14 +10,14 @@ This checker never regenerates its expected baselines.
 from __future__ import annotations
 
 import argparse
-from dataclasses import fields, replace
-from io import BytesIO
 import hashlib
 import json
+from dataclasses import fields, replace
+from io import BytesIO
 from pathlib import Path
 
-from PIL import Image, JpegImagePlugin
 import yaml
+from PIL import Image, JpegImagePlugin
 
 from luma_fatal import Config, apply_filter
 from luma_fatal.image_io import save_image
@@ -54,11 +54,16 @@ def load_contract(path: Path = CONTRACT):
                 )
         current = config.to_dict()
         added_video_defaults = {
-            "calibration_cache": False, "gpu_iterations": None,
+            "calibration_cache": False,
+            "gpu_iterations": None,
             "lighting_scale": 1.0,
-            "decode_prefetch": 0, "pinned_frames": False,
-            "gpu_buffer_reuse": False, "gpu_cleanup_graph": False,
-            "solver_halo": 96, "pipeline_depth": 0, "validation_mode": "scan",
+            "decode_prefetch": 0,
+            "pinned_frames": False,
+            "gpu_buffer_reuse": False,
+            "gpu_cleanup_graph": False,
+            "solver_halo": 96,
+            "pipeline_depth": 0,
+            "validation_mode": "scan",
         }
         for key, default in added_video_defaults.items():
             if current["video"].pop(key) != default:
@@ -79,6 +84,7 @@ def snapshot(source: Path, config: Config):
     save_image(result, buffer, config.output, result.info.get("icc_profile"))
     encoded = buffer.getvalue()
     with Image.open(BytesIO(encoded)) as exported:
+        assert isinstance(exported, JpegImagePlugin.JpegImageFile)
         exported.load()
         record = dict(
             dimensions=list(result.size),

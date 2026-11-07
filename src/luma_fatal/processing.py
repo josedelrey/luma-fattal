@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from .configuration import ProcessingConfig, NumericsConfig
 
 import numpy as np
+
+from .configuration import NumericsConfig, ProcessingConfig
 
 
 def input_size(size: tuple[int, int], max_pixels: int | None) -> tuple[int, int]:
@@ -49,10 +50,11 @@ def working_size(size: tuple[int, int], max_edge: int | None = 1536) -> tuple[in
         np.float32(max_edge) / np.float32(height),
     )
     # Widen before +0.5 so addition does not round a near-tie in float32.
-    return tuple(
+    scaled_width, scaled_height = (
         max(1, int(np.floor(float(np.float32(dimension) * scale) + 0.5)))
         for dimension in (width, height)
     )
+    return scaled_width, scaled_height
 
 
 def nearest_coordinates(source_size: tuple[int, int], size: tuple[int, int]):
@@ -216,7 +218,9 @@ def process_pixels(
     params,
     processing: ProcessingConfig | None = None,
     numerics: NumericsConfig | None = None,
-    *, source_cleanup=None, solver=None,
+    *,
+    source_cleanup=None,
+    solver=None,
 ):
     """Apply area fitting, working-resolution filtering and progressive enlargement."""
     from .core import apply_core
@@ -228,7 +232,9 @@ def process_pixels(
     array = limit_input_pixels(array, processing.effective_max_input_pixels)
     size = (array.shape[1], array.shape[0])
     work_size = working_size(size, processing.effective_max_edge)
-    cleanup_options = {} if source_cleanup is None else {"source_cleanup": source_cleanup}
+    cleanup_options = (
+        {} if source_cleanup is None else {"source_cleanup": source_cleanup}
+    )
     if solver is not None:
         cleanup_options["solver"] = solver
     if size == work_size:
@@ -236,7 +242,9 @@ def process_pixels(
     # The effect operates at working resolution before output enlargement.
     rgb = array[..., :3]
     work = resize_working(rgb, work_size, processing.working_resampler)
-    filtered = apply_core(work, variant, replace(params, fade=0), numerics, **cleanup_options)
+    filtered = apply_core(
+        work, variant, replace(params, fade=0), numerics, **cleanup_options
+    )
     enlarged = enlarge_progressive(filtered, size)
     amount = np.float32(params.fade) / np.float32(100)
     mixed = (

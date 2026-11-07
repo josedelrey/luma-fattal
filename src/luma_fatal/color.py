@@ -9,12 +9,11 @@ cross-platform bit equality remain outside its scope.
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 from functools import lru_cache
-import struct
 
 import numpy as np
-
 
 F = np.float32
 SRGB_MATRIX = np.array(
@@ -105,9 +104,9 @@ def apply_curve(x: np.ndarray, tf: Curve) -> np.ndarray:
         hi_float = ix + F(1)
         hi = (hi_float.view(np.uint32) - np.uint32(1)).view(np.float32).astype(np.int32)
         t = ix - lo.astype(np.float32)
-        l = tf.values[lo].astype(np.float32) * F(1 / 65535)
-        h = tf.values[hi].astype(np.float32) * F(1 / 65535)
-        return l + (h - l) * t
+        low = tf.values[lo].astype(np.float32) * F(1 / 65535)
+        high = tf.values[hi].astype(np.float32) * F(1 / 65535)
+        return low + (high - low) * t
     g, a, b, c, d, e, f = np.asarray(tf, dtype=np.float32)
     x = np.asarray(x, dtype=np.float32)
     bits = x.view(np.uint32)

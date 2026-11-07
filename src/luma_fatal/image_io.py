@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from io import BytesIO
 import hashlib
+from io import BytesIO
 
 import numpy as np
 from PIL import Image, ImageCms, ImageOps
 
-from .configuration import ImageConfig, OutputConfig
 from .color import (
-    cached_profile,
-    convert_rgb,
     MalformedProfileError,
     UnsupportedProfileError,
+    cached_profile,
+    convert_rgb,
 )
+from .configuration import ImageConfig, OutputConfig
 
 
 def decode_input(
@@ -99,6 +99,7 @@ def prepare_image(image: Image.Image, policy: ImageConfig) -> Image.Image:
             if original_profile
             else None,
         )
+        result = None
         if original_profile:
             try:
                 fallback = None
@@ -141,6 +142,7 @@ def prepare_image(image: Image.Image, policy: ImageConfig) -> Image.Image:
         else:
             result = source.convert(mode)
             record["reason"] = "No embedded ICC profile, RGB is interpreted as sRGB"
+        assert result is not None
         result.info["icc_profile"] = srgb.tobytes()
         result.info["_color_conversion"] = record
         if "_input_decode" in image.info:

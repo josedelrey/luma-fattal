@@ -1,24 +1,24 @@
 """Matrix/TRC conversion over complete RGB8 domains and profile references."""
 
 import base64
-from dataclasses import replace
 import hashlib
-from io import BytesIO
 import json
-from pathlib import Path
 import struct
+from dataclasses import replace
+from io import BytesIO
+from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageCms
 import pytest
+from PIL import Image, ImageCms
 
 from luma_fatal import Config, FilterParams, ImageConfig, apply_filter
 from luma_fatal.cli import main
 from luma_fatal.color import (
-    cached_profile,
     MalformedProfileError,
-    parse_profile,
     UnsupportedProfileError,
+    cached_profile,
+    parse_profile,
 )
 from luma_fatal.image_io import prepare_image
 
@@ -194,7 +194,8 @@ def test_cli_override_and_effect_metadata_record_the_actual_backend(tmp_path, ca
     )
     with Image.open(output) as actual:
         np.testing.assert_array_equal(
-            np.asarray(actual), apply_filter(np.asarray(prepare_image(image, ImageConfig())))
+            np.asarray(actual),
+            apply_filter(np.asarray(prepare_image(image, ImageConfig()))),
         )
     metadata = json.loads(output.with_suffix(".meta.json").read_text())
     assert metadata["color_conversion"]["backend"] == "matrix_trc"

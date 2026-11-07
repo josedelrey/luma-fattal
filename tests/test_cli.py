@@ -2,8 +2,8 @@ import hashlib
 import json
 
 import numpy as np
-from PIL import Image
 import pytest
+from PIL import Image
 
 from luma_fatal.cli import main
 

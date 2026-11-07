@@ -4,8 +4,8 @@ Noise is fixed in working-frame coordinates. It is deterministic, but is not
 motion compensated. RMS describes the field before masking and range limits.
 """
 
-from numbers import Real
 import time
+from numbers import Real
 
 import numpy as np
 from scipy.ndimage import gaussian_filter, map_coordinates
@@ -23,7 +23,9 @@ def noise_field(shape, kind, seed):
         field = np.zeros(shape, np.float32)
         for sigma, weight in ((4, 1), (2, 0.5), (1, 0.25), (0.5, 0.125)):
             octave = gaussian_filter(
-                rng.standard_normal(shape, dtype=np.float32), sigma, mode="reflect",
+                rng.standard_normal(shape, dtype=np.float32),
+                sigma,
+                mode="reflect",
             )
             octave -= octave.mean()
             rms = np.sqrt(np.mean(octave * octave))
@@ -45,10 +47,22 @@ class SourceNoise:
     Original source pixels still control core shadow protection and Fade.
     """
 
-    def __init__(self, rms=0.5, kind="highpass", cleanup=0, masked=True, seed=20261017,
-                 *, source_cleanup=None):
-        if (isinstance(rms, bool) or not isinstance(rms, Real)
-                or not np.isfinite(rms) or not 0 <= rms <= 4):
+    def __init__(
+        self,
+        rms=0.5,
+        kind="highpass",
+        cleanup: float = 0,
+        masked=True,
+        seed=20261017,
+        *,
+        source_cleanup=None,
+    ):
+        if (
+            isinstance(rms, bool)
+            or not isinstance(rms, Real)
+            or not np.isfinite(rms)
+            or not 0 <= rms <= 4
+        ):
             raise ValueError("rms must be finite and between 0 and 4")
         if kind not in ("highpass", "fbm"):
             raise ValueError("kind must be highpass or fbm")
@@ -57,7 +71,9 @@ class SourceNoise:
         if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
             raise ValueError("seed must be a nonnegative integer")
         self.rms, self.kind, self.masked, self.seed = float(rms), kind, masked, seed
-        self.cleanup = SourceCleanup(cleanup) if source_cleanup is None else source_cleanup
+        self.cleanup = (
+            SourceCleanup(cleanup) if source_cleanup is None else source_cleanup
+        )
         self.field = None
         self.mask = None
         self.seconds = 0.0
@@ -75,16 +91,28 @@ class SourceNoise:
         color, luminance = self.cleanup(rgb, reference_luminance)
         height, width = rgb.shape[:2]
         if self.masked:
-            factor = (1 if self.cleanup.mask.shape == (height, width)
-                      else max(1, (max(height, width) + 383) // 384))
+            assert self.cleanup.mask is not None
+            factor = (
+                1
+                if self.cleanup.mask.shape == (height, width)
+                else max(1, (max(height, width) + 383) // 384)
+            )
             y, x = np.meshgrid(
                 (np.arange(height, dtype=np.float32) + 0.5) / factor - 0.5,
                 (np.arange(width, dtype=np.float32) + 0.5) / factor - 0.5,
                 indexing="ij",
             )
-            self.mask = np.clip(map_coordinates(
-                self.cleanup.mask, (y, x), order=1, mode="nearest", prefilter=False,
-            ), 0, 1)
+            self.mask = np.clip(
+                map_coordinates(
+                    self.cleanup.mask,
+                    (y, x),
+                    order=1,
+                    mode="nearest",
+                    prefilter=False,
+                ),
+                0,
+                1,
+            )
         else:
             self.mask = np.ones((height, width), np.float32)
         if self.rms == 0:

@@ -1,35 +1,57 @@
 """Video contracts use deterministic generated media, without external inputs."""
 
-from fractions import Fraction
 import hashlib
 import io
-from dataclasses import replace
 import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
 import sys
+from dataclasses import replace
+from fractions import Fraction
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from luma_fatal import Config, FilterParams, NumericsConfig, ProcessingConfig, apply_filter, process_frames
+from luma_fatal import (
+    Config,
+    FilterParams,
+    NumericsConfig,
+    ProcessingConfig,
+    apply_filter,
+    process_frames,
+)
 from luma_fatal.cleanup import SourceCleanup
-from luma_fatal.denoise import SourceDenoise
 from luma_fatal.cli import main
-from luma_fatal.video import VideoConfig, _decoded_frames, _prefetched_frames, process_video
+from luma_fatal.denoise import SourceDenoise
+from luma_fatal.video import (
+    VideoConfig,
+    _decoded_frames,
+    _prefetched_frames,
+    process_video,
+)
 
 
 @pytest.mark.parametrize("cq,preset", [(0, "p1"), (18, "p4"), (51, "p7")])
 def test_nvenc_uses_its_own_rate_control_and_preserves_output_contract(cq, preset):
     from luma_fatal.video import _encode_command
 
-    command = _encode_command("ffmpeg", "output.mp4", 1920, 1080, Fraction(25), VideoConfig(
-        encoder="h264_nvenc", nvenc_cq=cq, nvenc_preset=preset,
-        crf=0, preset="ultrafast",
-    ))
+    command = _encode_command(
+        "ffmpeg",
+        "output.mp4",
+        1920,
+        1080,
+        Fraction(25),
+        VideoConfig(
+            encoder="h264_nvenc",
+            nvenc_cq=cq,
+            nvenc_preset=preset,
+            crf=0,
+            preset="ultrafast",
+        ),
+    )
     assert command[command.index("-c:v") + 1] == "h264_nvenc"
     assert command[command.index("-preset") + 1] == preset
     assert command[command.index("-cq") + 1] == str(cq)
@@ -46,9 +68,19 @@ def test_nvenc_uses_its_own_rate_control_and_preserves_output_contract(cq, prese
 def test_default_encoder_retains_x264_quality_controls():
     from luma_fatal.video import _encode_command
 
-    command = _encode_command("ffmpeg", "output.mp4", 1920, 1080, Fraction(25), VideoConfig(
-        crf=0, preset="ultrafast", nvenc_cq=51, nvenc_preset="p7",
-    ))
+    command = _encode_command(
+        "ffmpeg",
+        "output.mp4",
+        1920,
+        1080,
+        Fraction(25),
+        VideoConfig(
+            crf=0,
+            preset="ultrafast",
+            nvenc_cq=51,
+            nvenc_preset="p7",
+        ),
+    )
     assert command[command.index("-c:v") + 1] == "libx264"
     assert command[command.index("-crf") + 1] == "0"
     assert command[command.index("-preset") + 1] == "ultrafast"
@@ -59,11 +91,17 @@ def test_default_encoder_retains_x264_quality_controls():
 
 @pytest.mark.parametrize("suffix", ["yaml", "toml", "json"])
 def test_nvenc_configuration_round_trip(tmp_path, suffix):
-    config = Config(video=VideoConfig(
-        encoder="h264_nvenc", nvenc_cq=23, nvenc_preset="p6", filter_backend="auto",
-    ))
+    config = Config(
+        video=VideoConfig(
+            encoder="h264_nvenc",
+            nvenc_cq=23,
+            nvenc_preset="p6",
+            filter_backend="auto",
+        )
+    )
     content = {
-        "yaml": config.to_yaml(), "toml": config.to_toml(),
+        "yaml": config.to_yaml(),
+        "toml": config.to_toml(),
         "json": json.dumps(config.to_dict()),
     }[suffix]
     path = tmp_path / f"nvenc.{suffix}"
@@ -75,19 +113,38 @@ def test_cli_overrides_nvenc_configuration(tmp_path, monkeypatch, capsys):
     import luma_fatal.cli as cli
 
     path = tmp_path / "nvenc.yaml"
-    path.write_text(Config(video=VideoConfig(
-        encoder="libx264", nvenc_cq=28, nvenc_preset="p7",
-    )).to_yaml())
+    path.write_text(
+        Config(
+            video=VideoConfig(
+                encoder="libx264",
+                nvenc_cq=28,
+                nvenc_preset="p7",
+            )
+        ).to_yaml()
+    )
 
     def observe(source, destination, *, config, **kwargs):
         return {"video_configuration": config.to_dict()["video"]}
 
     monkeypatch.setattr(cli, "process_video", observe)
-    main([
-        "video", "source.mp4", "output.mp4", "--config", str(path),
-        "--encoder", "h264_nvenc", "--nvenc-cq", "21", "--nvenc-preset", "p3",
-        "--filter-backend", "auto", "--json",
-    ])
+    main(
+        [
+            "video",
+            "source.mp4",
+            "output.mp4",
+            "--config",
+            str(path),
+            "--encoder",
+            "h264_nvenc",
+            "--nvenc-cq",
+            "21",
+            "--nvenc-preset",
+            "p3",
+            "--filter-backend",
+            "auto",
+            "--json",
+        ]
+    )
     settings = json.loads(capsys.readouterr().out)["video_configuration"]
     assert settings["encoder"] == "h264_nvenc"
     assert settings["nvenc_cq"] == 21
@@ -97,14 +154,25 @@ def test_cli_overrides_nvenc_configuration(tmp_path, monkeypatch, capsys):
     assert settings["filter_backend"] == "auto"
 
 
-@pytest.mark.parametrize("diagnostic", [
-    "Unknown encoder 'h264_nvenc'", "Cannot load libcuda", "No capable devices found",
-])
+@pytest.mark.parametrize(
+    "diagnostic",
+    [
+        "Unknown encoder 'h264_nvenc'",
+        "Cannot load libcuda",
+        "No capable devices found",
+    ],
+)
 @pytest.mark.parametrize("broken_pipe", [False, True])
 def test_nvenc_preflight_failure_falls_back_to_cpu(
-    tmp_path, tools, monkeypatch, capsys, diagnostic, broken_pipe,
+    tmp_path,
+    tools,
+    monkeypatch,
+    capsys,
+    diagnostic,
+    broken_pipe,
 ):
     from contextlib import contextmanager
+
     import luma_fatal.video as video
 
     source = make_clip(tmp_path / "source.mkv", tools)
@@ -140,8 +208,9 @@ def test_nvenc_preflight_failure_falls_back_to_cpu(
         video=VideoConfig(encoder="h264_nvenc", crf=23, preset="ultrafast"),
     )
     destination = tmp_path / "out" / "result.mp4"
-    record = process_video(source, destination, config=config,
-                           ffmpeg=tools[0], ffprobe=tools[1])
+    record = process_video(
+        source, destination, config=config, ffmpeg=tools[0], ffprobe=tools[1]
+    )
     assert "Falling back to CPU encoding (libx264)" in capsys.readouterr().err
     assert record["encoding"]["requested_encoder"] == "h264_nvenc"
     assert record["encoding"]["encoder"] == "libx264"
@@ -166,7 +235,9 @@ def test_nvenc_preflight_failure_falls_back_to_cpu(
 
 
 @pytest.mark.parametrize("force_cpu", [False, True])
-def test_cli_yaml_encoder_fallback_and_cpu_override(tmp_path, tools, monkeypatch, capsys, force_cpu):
+def test_cli_yaml_encoder_fallback_and_cpu_override(
+    tmp_path, tools, monkeypatch, capsys, force_cpu
+):
     import luma_fatal.video as video
 
     source = make_clip(tmp_path / "source.mkv", tools)
@@ -182,8 +253,16 @@ def test_cli_yaml_encoder_fallback_and_cpu_override(tmp_path, tools, monkeypatch
     monkeypatch.setattr(video, "_validate_nvenc", unavailable)
     destination = tmp_path / "result.mp4"
     arguments = [
-        "video", str(source), str(destination), "--config", str(config),
-        "--ffmpeg", tools[0], "--ffprobe", tools[1], "--json",
+        "video",
+        str(source),
+        str(destination),
+        "--config",
+        str(config),
+        "--ffmpeg",
+        tools[0],
+        "--ffprobe",
+        tools[1],
+        "--json",
     ]
     if force_cpu:
         arguments += ["--encoder", "libx264"]
@@ -199,7 +278,9 @@ def test_cli_yaml_encoder_fallback_and_cpu_override(tmp_path, tools, monkeypatch
     assert json.loads(destination.with_suffix(".meta.json").read_text()) == record
 
 
-def test_cpu_encoding_failure_after_nvenc_fallback_publishes_no_output(tmp_path, tools, monkeypatch):
+def test_cpu_encoding_failure_after_nvenc_fallback_publishes_no_output(
+    tmp_path, tools, monkeypatch
+):
     import luma_fatal.video as video
 
     source = make_clip(tmp_path / "source.mkv", tools)
@@ -217,8 +298,13 @@ def test_cpu_encoding_failure_after_nvenc_fallback_publishes_no_output(tmp_path,
     monkeypatch.setattr(video, "_encode_command", unavailable_cpu)
     destination = tmp_path / "result.mp4"
     with pytest.raises(ValueError, match="Video encoding failed"):
-        process_video(source, destination, video_config=VideoConfig(encoder="h264_nvenc"),
-                      ffmpeg=tools[0], ffprobe=tools[1])
+        process_video(
+            source,
+            destination,
+            video_config=VideoConfig(encoder="h264_nvenc"),
+            ffmpeg=tools[0],
+            ffprobe=tools[1],
+        )
     assert not destination.exists()
     assert not destination.with_suffix(".meta.json").exists()
     assert not list(tmp_path.glob(".luma-fatal-*"))
@@ -234,40 +320,64 @@ def test_nvenc_hardware_output_matches_cpu_filtering(tmp_path, tools):
         if os.environ.get("LUMA_FATAL_REQUIRE_NVENC_TESTS") == "1":
             pytest.fail(str(error))
         pytest.skip(str(error))
-    source = make_clip(tmp_path / "source.mkv", tools, width=159, height=127, audio=True)
-    config = Config(processing=ProcessingConfig(max_edge=24), numerics=NumericsConfig(iterations=3))
-    cpu = process_video(source, tmp_path / "cpu.mp4", config=config,
-                        ffmpeg=tools[0], ffprobe=tools[1])
+    source = make_clip(
+        tmp_path / "source.mkv", tools, width=159, height=127, audio=True
+    )
+    config = Config(
+        processing=ProcessingConfig(max_edge=24), numerics=NumericsConfig(iterations=3)
+    )
+    cpu = process_video(
+        source, tmp_path / "cpu.mp4", config=config, ffmpeg=tools[0], ffprobe=tools[1]
+    )
     destination = tmp_path / "gpu.mp4"
-    gpu = process_video(source, destination, config=config, video_config=settings,
-                        ffmpeg=tools[0], ffprobe=tools[1])
+    gpu = process_video(
+        source,
+        destination,
+        config=config,
+        video_config=settings,
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
+    )
     assert gpu["processed_rgb_sha256"] == cpu["processed_rgb_sha256"]
     assert gpu["video_configuration"]["encoder"] == "h264_nvenc"
     assert gpu["video_configuration"]["nvenc_cq"] == 23
     assert gpu["video_configuration"]["nvenc_preset"] == "p2"
     assert gpu["encoding"] == {
-        "requested_encoder": "h264_nvenc", "encoder": "h264_nvenc", "fallback_reason": None,
+        "requested_encoder": "h264_nvenc",
+        "encoder": "h264_nvenc",
+        "fallback_reason": None,
     }
     assert json.loads(destination.with_suffix(".meta.json").read_text()) == gpu
     output = inspect(destination, tools)
-    stream, = output["streams"]
+    (stream,) = output["streams"]
     assert stream["codec_name"] == "h264"
     assert stream["pix_fmt"] == "yuv420p"
     assert stream["color_range"] == "tv"
-    assert all(stream[key] == "bt709" for key in (
-        "color_transfer", "color_primaries", "color_space",
-    ))
+    assert all(
+        stream[key] == "bt709"
+        for key in (
+            "color_transfer",
+            "color_primaries",
+            "color_space",
+        )
+    )
     assert (stream["width"], stream["height"]) == (160, 128)
     assert len(output["frames"]) == 5
-    times = [int(frame["pts"]) * Fraction(stream["time_base"]) for frame in output["frames"]]
+    times = [
+        int(frame["pts"]) * Fraction(stream["time_base"]) for frame in output["frames"]
+    ]
     assert times == [Fraction(i, 25) for i in range(5)]
     assert not list(tmp_path.glob(".luma-fatal-*"))
 
 
 def test_gpu_filtering_fallback_preserves_source_treatments_and_records_selection(
-    tmp_path, tools, monkeypatch, capsys,
+    tmp_path,
+    tools,
+    monkeypatch,
+    capsys,
 ):
     from dataclasses import replace
+
     from luma_fatal import gpu
 
     attempts = []
@@ -281,14 +391,23 @@ def test_gpu_filtering_fallback_preserves_source_treatments_and_records_selectio
     config = Config(
         processing=ProcessingConfig(resize=False),
         video=VideoConfig(
-            filter_backend="auto", flat_cleanup=0.25, pre_noise_rms=0.2, denoise=0.5,
+            filter_backend="auto",
+            flat_cleanup=0.25,
+            pre_noise_rms=0.2,
+            denoise=0.5,
         ),
     )
-    automatic = process_video(source, tmp_path / "auto.mp4", config=config,
-                              ffmpeg=tools[0], ffprobe=tools[1])
+    automatic = process_video(
+        source, tmp_path / "auto.mp4", config=config, ffmpeg=tools[0], ffprobe=tools[1]
+    )
     cpu_config = replace(config, video=replace(config.video, filter_backend="cpu"))
-    cpu = process_video(source, tmp_path / "cpu.mp4", config=cpu_config,
-                        ffmpeg=tools[0], ffprobe=tools[1])
+    cpu = process_video(
+        source,
+        tmp_path / "cpu.mp4",
+        config=cpu_config,
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
+    )
     assert automatic["processed_rgb_sha256"] == cpu["processed_rgb_sha256"]
     assert automatic["filtering"]["requested_backend"] == "auto"
     assert automatic["filtering"]["backend"] == "cpu"
@@ -319,18 +438,34 @@ def tools():
 
 
 def run(command, data=None):
-    return subprocess.run(command, input=data, capture_output=True, check=True, timeout=30).stdout
+    return subprocess.run(
+        command, input=data, capture_output=True, check=True, timeout=30
+    ).stdout
 
 
-def make_clip(path, tools, *, width=47, height=35, count=5, rate="25", vf=None,
-              transfer="bt709", color_range="tv", audio=False, offset=0, neutral=False,
-              space="bt709", primaries="bt709"):
+def make_clip(
+    path,
+    tools,
+    *,
+    width=47,
+    height=35,
+    count=5,
+    rate="25",
+    vf=None,
+    transfer="bt709",
+    color_range="tv",
+    audio=False,
+    offset=0,
+    neutral=False,
+    space="bt709",
+    primaries="bt709",
+):
     """Encode lossless YUV planes, including a moving square and a cut."""
     frames = []
     for i in range(count):
         yy, xx = np.indices((height, width))
         y = (32 + (xx * 3 + yy * 2) % 160).astype(np.uint8)
-        y[4:15, 3 + i:14 + i] = 210
+        y[4:15, 3 + i : 14 + i] = 210
         if i >= count // 2:
             y = 235 - y + 16
         u = np.full_like(y, 110 + i * 3)
@@ -340,40 +475,86 @@ def make_clip(path, tools, *, width=47, height=35, count=5, rate="25", vf=None,
             u = v = np.full_like(y, 128)
         frames.append(np.stack([y, u, v]).tobytes())
     command = [
-        tools[0], "-v", "error", "-nostdin", "-f", "rawvideo", "-pixel_format", "yuv444p",
-        "-video_size", f"{width}x{height}", "-framerate", rate, "-i", "pipe:0",
+        tools[0],
+        "-v",
+        "error",
+        "-nostdin",
+        "-f",
+        "rawvideo",
+        "-pixel_format",
+        "yuv444p",
+        "-video_size",
+        f"{width}x{height}",
+        "-framerate",
+        rate,
+        "-i",
+        "pipe:0",
     ]
     if audio:
         duration = float(count / Fraction(rate))
         command += [
-            "-f", "lavfi", "-i",
+            "-f",
+            "lavfi",
+            "-i",
             f"sine=frequency=440:sample_rate=8000:duration={duration}",
         ]
     command += ["-map", "0:v:0"]
     if audio:
         command += ["-map", "1:a:0", "-c:a", "pcm_s16le"]
     command += [
-        "-vf", "setsar=1" + (f",{vf}" if vf else "") + (
+        "-vf",
+        "setsar=1"
+        + (f",{vf}" if vf else "")
+        + (
             f",setparams=color_primaries={primaries}:color_trc={transfer}:colorspace={space}:"
             f"range={'limited' if color_range == 'tv' else 'full'}"
-        ), "-c:v", "libx264",
-        "-qp", "0", "-preset", "ultrafast", "-color_primaries", primaries, "-color_trc", transfer,
-        "-colorspace", space, "-color_range", color_range, "-fps_mode", "passthrough",
-        "-output_ts_offset", str(offset), "-f", "matroska", str(path),
+        ),
+        "-c:v",
+        "libx264",
+        "-qp",
+        "0",
+        "-preset",
+        "ultrafast",
+        "-color_primaries",
+        primaries,
+        "-color_trc",
+        transfer,
+        "-colorspace",
+        space,
+        "-color_range",
+        color_range,
+        "-fps_mode",
+        "passthrough",
+        "-output_ts_offset",
+        str(offset),
+        "-f",
+        "matroska",
+        str(path),
     ]
     run(command, b"".join(frames))
     return path
 
 
 def inspect(path, tools):
-    return json.loads(run([
-        tools[1], "-v", "error", "-show_streams", "-show_frames", "-of", "json",
-        str(path),
-    ]))
+    return json.loads(
+        run(
+            [
+                tools[1],
+                "-v",
+                "error",
+                "-show_streams",
+                "-show_frames",
+                "-of",
+                "json",
+                str(path),
+            ]
+        )
+    )
 
 
-def reference_rgb(path, tools, width, height, color_range="limited", deblock="off",
-                  deband="off"):
+def reference_rgb(
+    path, tools, width, height, color_range="limited", deblock="off", deband="off"
+):
     # This is the documented video-to-filter boundary, before any Luma Fatal effects.
     conversion = (
         "zscale=matrixin=709:transferin=709:primariesin=709:"
@@ -384,34 +565,71 @@ def reference_rgb(path, tools, width, height, color_range="limited", deblock="of
     if deblock != "off":
         prefilters.append(f"deblock=filter=weak:block={int(deblock[-1])}")
     if deband == "gentle":
-        prefilters.append(
-            "deband=1thr=0.008:2thr=0.008:3thr=0.008:range=8"
-        )
+        prefilters.append("deband=1thr=0.008:2thr=0.008:3thr=0.008:range=8")
     if prefilters:
         conversion = ",".join(prefilters) + "," + conversion
-    data = run([
-        tools[0], "-v", "error", "-i", str(path), "-map", "0:v:0", "-an",
-        "-vf", conversion,
-        "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
-    ])
+    data = run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-an",
+            "-vf",
+            conversion,
+            "-fps_mode",
+            "passthrough",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "pipe:1",
+        ]
+    )
     return np.frombuffer(data, np.uint8).reshape(-1, height, width, 3)
 
 
-@pytest.mark.parametrize("kwargs", [
-    {"crf": True}, {"crf": -1}, {"crf": 52}, {"crf": 1.5}, {"preset": "invalid"},
-    {"deblock": "strong"}, {"deblock": True},
-    {"deband": "strong"}, {"deband": True},
-    {"flat_cleanup": True}, {"flat_cleanup": -0.1},
-    {"flat_cleanup": 1.1}, {"flat_cleanup": float("nan")},
-    {"frame_rate": 30}, {"frame_rate": True}, {"frame_rate": "0"},
-    {"frame_rate": "-25"}, {"frame_rate": "1/0"}, {"frame_rate": "nan"},
-    {"frame_rate": "25,fps=30"}, {"input_color": "unknown"},
-    {"input_range": "tv"},
-    {"encoder": "auto"}, {"encoder": True},
-    {"nvenc_cq": True}, {"nvenc_cq": -1}, {"nvenc_cq": 52}, {"nvenc_cq": 18.5},
-    {"nvenc_preset": "medium"}, {"nvenc_preset": "p8"}, {"nvenc_preset": True},
-    {"filter_backend": "cuda"}, {"filter_backend": True},
-])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"crf": True},
+        {"crf": -1},
+        {"crf": 52},
+        {"crf": 1.5},
+        {"preset": "invalid"},
+        {"deblock": "strong"},
+        {"deblock": True},
+        {"deband": "strong"},
+        {"deband": True},
+        {"flat_cleanup": True},
+        {"flat_cleanup": -0.1},
+        {"flat_cleanup": 1.1},
+        {"flat_cleanup": float("nan")},
+        {"frame_rate": 30},
+        {"frame_rate": True},
+        {"frame_rate": "0"},
+        {"frame_rate": "-25"},
+        {"frame_rate": "1/0"},
+        {"frame_rate": "nan"},
+        {"frame_rate": "25,fps=30"},
+        {"input_color": "unknown"},
+        {"input_range": "tv"},
+        {"encoder": "auto"},
+        {"encoder": True},
+        {"nvenc_cq": True},
+        {"nvenc_cq": -1},
+        {"nvenc_cq": 52},
+        {"nvenc_cq": 18.5},
+        {"nvenc_preset": "medium"},
+        {"nvenc_preset": "p8"},
+        {"nvenc_preset": True},
+        {"filter_backend": "cuda"},
+        {"filter_backend": True},
+    ],
+)
 def test_video_settings_reject_invalid_values(kwargs):
     with pytest.raises(ValueError):
         VideoConfig(**kwargs)
@@ -419,12 +637,14 @@ def test_video_settings_reject_invalid_values(kwargs):
 
 def test_decoder_handles_partial_reads_and_truncated_frames():
     class ShortReads(io.BytesIO):
-        def read(self, size):
-            return super().read(min(7, size))
+        def read(self, size: int | None = -1):
+            return super().read(7 if size is None or size < 0 else min(7, size))
 
     data = np.arange(72, dtype=np.uint8).tobytes()
     actual = list(_decoded_frames(ShortReads(data), 4, 3))
-    np.testing.assert_array_equal(actual, np.arange(72, dtype=np.uint8).reshape(2, 3, 4, 3))
+    np.testing.assert_array_equal(
+        actual, np.arange(72, dtype=np.uint8).reshape(2, 3, 4, 3)
+    )
     with pytest.raises(ValueError, match="incomplete"):
         list(_decoded_frames(ShortReads(data[:-1]), 4, 3))
 
@@ -437,78 +657,149 @@ def test_pinned_decoder_respects_exact_frame_boundaries(monkeypatch):
         def readinto(self, target):
             return super().readinto(target[:7])
 
-    fake = SimpleNamespace(cuda=SimpleNamespace(
-        alloc_pinned_memory=lambda size: bytearray(size + 16)))
+    fake = SimpleNamespace(
+        cuda=SimpleNamespace(alloc_pinned_memory=lambda size: bytearray(size + 16))
+    )
     monkeypatch.setitem(sys.modules, "cupy", fake)
     source = np.arange(72, dtype=np.uint8).tobytes()
-    frames = list(_prefetched_frames(
-        _decoded_frames(ShortReads(source), 4, 3, pinned=True), 2))
-    np.testing.assert_array_equal(np.stack(frames),
-                                  np.arange(72, dtype=np.uint8).reshape(2, 3, 4, 3))
+    frames = list(
+        _prefetched_frames(_decoded_frames(ShortReads(source), 4, 3, pinned=True), 2)
+    )
+    np.testing.assert_array_equal(
+        np.stack(frames), np.arange(72, dtype=np.uint8).reshape(2, 3, 4, 3)
+    )
     with pytest.raises(ValueError, match="incomplete"):
-        list(_prefetched_frames(
-            _decoded_frames(ShortReads(source[:-1]), 4, 3, pinned=True), 2))
+        list(
+            _prefetched_frames(
+                _decoded_frames(ShortReads(source[:-1]), 4, 3, pinned=True), 2
+            )
+        )
 
 
-@pytest.mark.parametrize("offset,rate,vf", [
-    (0, "25", None), (3, "25", None), (0, "30000/1001", None),
-    (0, "25", "setfield=tff"),
-])
-def test_stream_validation_and_pooled_io_preserve_reference_rgb(tmp_path, tools, offset, rate, vf):
-    source = make_clip(tmp_path / "source.mkv", tools, count=9, offset=offset, rate=rate, vf=vf)
+@pytest.mark.parametrize(
+    "offset,rate,vf",
+    [
+        (0, "25", None),
+        (3, "25", None),
+        (0, "30000/1001", None),
+        (0, "25", "setfield=tff"),
+    ],
+)
+def test_stream_validation_and_pooled_io_preserve_reference_rgb(
+    tmp_path, tools, offset, rate, vf
+):
+    source = make_clip(
+        tmp_path / "source.mkv", tools, count=9, offset=offset, rate=rate, vf=vf
+    )
     config = Config(parameters=FilterParams(fade=100))
-    reference = process_video(source, tmp_path / "reference.mp4", config=config,
-                              ffmpeg=tools[0], ffprobe=tools[1])
-    config = replace(config, video=replace(config.video, validation_mode="stream", pipeline_depth=3))
-    candidate = process_video(source, tmp_path / "candidate.mp4", config=config,
-                              ffmpeg=tools[0], ffprobe=tools[1])
+    reference = process_video(
+        source,
+        tmp_path / "reference.mp4",
+        config=config,
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
+    )
+    config = replace(
+        config, video=replace(config.video, validation_mode="stream", pipeline_depth=3)
+    )
+    candidate = process_video(
+        source,
+        tmp_path / "candidate.mp4",
+        config=config,
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
+    )
     assert candidate["processed_rgb_sha256"] == reference["processed_rgb_sha256"]
     assert candidate["frame_count"] == reference["frame_count"]
-    for key in ("source_first_pts_seconds", "source_frame_count", "source_variable_frame_rate"):
+    for key in (
+        "source_first_pts_seconds",
+        "source_frame_count",
+        "source_variable_frame_rate",
+    ):
         assert candidate["timing"][key] == reference["timing"][key]
     assert candidate["timing"]["validation"] == "stream"
 
 
-@pytest.mark.parametrize("change,match", [
-    ({"pts": "0"}, "increase strictly"),
-    ({"pts": "NOPTS"}, "presentation timestamp"),
-    ({"s": "49x36"}, "Changing video dimensions"),
-    ({"color_range": "pc"}, "Changing video color"),
-    ({"sar": "2/1"}, "Changing video sample aspect"),
-    ({"fmt": "yuv444p"}, "Changing video color"),
-])
+@pytest.mark.parametrize(
+    "change,match",
+    [
+        ({"pts": "0"}, "increase strictly"),
+        ({"pts": "NOPTS"}, "presentation timestamp"),
+        ({"s": "49x36"}, "Changing video dimensions"),
+        ({"color_range": "pc"}, "Changing video color"),
+        ({"sar": "2/1"}, "Changing video sample aspect"),
+        ({"fmt": "yuv444p"}, "Changing video color"),
+    ],
+)
 def test_decode_audit_rejects_changing_or_ambiguous_frames(change, match):
     from luma_fatal.video import _audit_decode_log
 
-    stream = dict(width=48, height=36, pix_fmt="yuv420p", color_space="bt709",
-                  color_transfer="bt709", color_primaries="bt709", color_range="tv",
-                  time_base="1/1000", avg_frame_rate="25", r_frame_rate="25",
-                  sample_aspect_ratio="1:1")
+    stream = dict(
+        width=48,
+        height=36,
+        pix_fmt="yuv420p",
+        color_space="bt709",
+        color_transfer="bt709",
+        color_primaries="bt709",
+        color_range="tv",
+        time_base="1/1000",
+        avg_frame_rate="25",
+        r_frame_rate="25",
+        sample_aspect_ratio="1:1",
+    )
     lines = ["[showinfo@source_audit] config in time_base: 1/1000, frame_rate: 25/1"]
     for index in range(2):
-        fields = dict(n=str(index), pts=str(index * 40), duration="40", fmt="yuv420p",
-                      sar="1/1", s="48x36", i="P", color_range="tv",
-                      color_space="bt709", color_primaries="bt709", color_trc="bt709")
+        fields = dict(
+            n=str(index),
+            pts=str(index * 40),
+            duration="40",
+            fmt="yuv420p",
+            sar="1/1",
+            s="48x36",
+            i="P",
+            color_range="tv",
+            color_space="bt709",
+            color_primaries="bt709",
+            color_trc="bt709",
+        )
         if index:
             fields.update(change)
-        lines.append("[showinfo@source_audit] " + " ".join(f"{k}: {v}" for k, v in fields.items()
-                                                         if not k.startswith("color_")))
-        lines.append("[showinfo@source_audit] " + " ".join(f"{k}:{v}" for k, v in fields.items()
-                                                         if k.startswith("color_")))
+        lines.append(
+            "[showinfo@source_audit] "
+            + " ".join(
+                f"{k}: {v}" for k, v in fields.items() if not k.startswith("color_")
+            )
+        )
+        lines.append(
+            "[showinfo@source_audit] "
+            + " ".join(f"{k}:{v}" for k, v in fields.items() if k.startswith("color_"))
+        )
     with pytest.raises(ValueError, match=match):
         _audit_decode_log(io.BytesIO("\n".join(lines).encode()), stream, VideoConfig())
 
 
-@pytest.mark.parametrize("field,value", [
-    ("calibration_cache", 1), ("gpu_iterations", 0),
-    ("gpu_iterations", True), ("lighting_scale", 0.2),
-    ("lighting_scale", True), ("decode_prefetch", 17),
-    ("decode_prefetch", -1), ("pinned_frames", 1),
-    ("gpu_buffer_reuse", 1), ("gpu_cleanup_graph", 1),
-    ("solver_halo", 31), ("solver_halo", 97), ("solver_halo", True),
-    ("pipeline_depth", -1), ("pipeline_depth", 9), ("pipeline_depth", True),
-    ("validation_mode", "unchecked"),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("calibration_cache", 1),
+        ("gpu_iterations", 0),
+        ("gpu_iterations", True),
+        ("lighting_scale", 0.2),
+        ("lighting_scale", True),
+        ("decode_prefetch", 17),
+        ("decode_prefetch", -1),
+        ("pinned_frames", 1),
+        ("gpu_buffer_reuse", 1),
+        ("gpu_cleanup_graph", 1),
+        ("solver_halo", 31),
+        ("solver_halo", 97),
+        ("solver_halo", True),
+        ("pipeline_depth", -1),
+        ("pipeline_depth", 9),
+        ("pipeline_depth", True),
+        ("validation_mode", "unchecked"),
+    ],
+)
 def test_fast_video_options_reject_invalid_values(field, value):
     with pytest.raises(ValueError):
         VideoConfig(**{field: value})
@@ -520,24 +811,34 @@ def test_fast_video_options_reject_invalid_values(field, value):
     [(0, "rounded"), (6, "rounded"), (6, "fractional")],
 )
 def test_video_matches_image_processing_and_preserves_timing(
-    tmp_path, tools, filter_name, shadow_softness, luminance_mode,
+    tmp_path,
+    tools,
+    filter_name,
+    shadow_softness,
+    luminance_mode,
 ):
     source = make_clip(tmp_path / "synthetic.mkv", tools, audio=True, offset=2)
     original = source.read_bytes()
     destination = tmp_path / "nested" / "filtered.mp4"
     config = Config(
-        filter=filter_name, parameters=FilterParams(fade=0),
+        filter=filter_name,
+        parameters=FilterParams(fade=0),
         processing=ProcessingConfig(max_edge=24),
         numerics=NumericsConfig(
-            iterations=11, shadow_softness=shadow_softness,
+            iterations=11,
+            shadow_softness=shadow_softness,
             luminance_mode=luminance_mode,
         ),
     )
     expected = hashlib.sha256()
     for frame in reference_rgb(source, tools, 47, 35):
         filtered = apply_filter(frame, config=config)
-        expected.update(np.pad(filtered, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes())
-    record = process_video(source, destination, config=config, ffmpeg=tools[0], ffprobe=tools[1])
+        expected.update(
+            np.pad(filtered, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes()
+        )
+    record = process_video(
+        source, destination, config=config, ffmpeg=tools[0], ffprobe=tools[1]
+    )
     assert record["processed_rgb_sha256"] == expected.hexdigest()
     assert record["frame_count"] == 5
     assert Fraction(record["frame_rate"]) == 25
@@ -549,16 +850,23 @@ def test_video_matches_image_processing_and_preserves_timing(
     assert record["discarded_audio_streams"] == 1
     assert source.read_bytes() == original
     assert record["source_sha256"] == hashlib.sha256(original).hexdigest()
-    assert record["output_sha256"] == hashlib.sha256(destination.read_bytes()).hexdigest()
+    assert (
+        record["output_sha256"] == hashlib.sha256(destination.read_bytes()).hexdigest()
+    )
     assert json.loads(destination.with_suffix(".meta.json").read_text()) == record
     output = inspect(destination, tools)
-    stream, = output["streams"]
+    (stream,) = output["streams"]
     assert stream["codec_name"] == "h264"
     assert stream["pix_fmt"] == "yuv420p"
     assert stream["color_range"] == "tv"
-    assert all(stream[key] == "bt709" for key in (
-        "color_transfer", "color_primaries", "color_space",
-    ))
+    assert all(
+        stream[key] == "bt709"
+        for key in (
+            "color_transfer",
+            "color_primaries",
+            "color_space",
+        )
+    )
     assert (stream["width"], stream["height"]) == (48, 36)
     frames = output["frames"]
     assert len(frames) == 5
@@ -571,7 +879,10 @@ def test_video_matches_image_processing_and_preserves_timing(
 @pytest.mark.parametrize("filter_name", ["fattal1", "fattal2"])
 @pytest.mark.parametrize("deblock", ["weak4", "weak8"])
 def test_video_deblocking_precedes_filter_and_records_setting(
-    tmp_path, tools, filter_name, deblock,
+    tmp_path,
+    tools,
+    filter_name,
+    deblock,
 ):
     source = make_clip(tmp_path / "blocks.mkv", tools)
     config = Config(
@@ -585,11 +896,17 @@ def test_video_deblocking_precedes_filter_and_records_setting(
     assert np.any(decoded != reference_rgb(source, tools, 47, 35))
     for frame in decoded:
         filtered = apply_filter(frame, config=config)
-        expected.update(np.pad(filtered, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes())
+        expected.update(
+            np.pad(filtered, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes()
+        )
     destination = tmp_path / "filtered.mp4"
     record = process_video(
-        source, destination, config=config, video_config=VideoConfig(deblock=deblock),
-        ffmpeg=tools[0], ffprobe=tools[1],
+        source,
+        destination,
+        config=config,
+        video_config=VideoConfig(deblock=deblock),
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
     )
     assert record["processed_rgb_sha256"] == expected.hexdigest()
     assert record["video_configuration"]["deblock"] == deblock
@@ -600,12 +917,18 @@ def test_video_deblocking_precedes_filter_and_records_setting(
 @pytest.mark.parametrize("deband", ["gentle", "off"])
 @pytest.mark.parametrize("flat_cleanup", [0.75, 0])
 def test_compressed_preset_video_defaults_and_cli_overrides(
-    tmp_path, tools, capsys, variant, deband, flat_cleanup,
+    tmp_path,
+    tools,
+    capsys,
+    variant,
+    deband,
+    flat_cleanup,
 ):
     source = make_clip(tmp_path / "compressed.mkv", tools)
     preset = (
         Path(__file__).resolve().parents[1]
-        / "configs" / f"fattal-{variant}-compressed.yaml"
+        / "configs"
+        / f"fattal-{variant}-compressed.yaml"
     )
     config = Config.load(preset)
     assert np.any(
@@ -614,8 +937,16 @@ def test_compressed_preset_video_defaults_and_cli_overrides(
     )
     destination = tmp_path / "filtered.mp4"
     command = [
-        "video", str(source), str(destination), "--config", str(preset),
-        "--ffmpeg", tools[0], "--ffprobe", tools[1], "--json",
+        "video",
+        str(source),
+        str(destination),
+        "--config",
+        str(preset),
+        "--ffmpeg",
+        tools[0],
+        "--ffprobe",
+        tools[1],
+        "--json",
     ]
     if deband == "off":
         command += ["--deband", "off"]
@@ -628,9 +959,7 @@ def test_compressed_preset_video_defaults_and_cli_overrides(
     cleanup = SourceCleanup(flat_cleanup) if flat_cleanup else None
     cleanup = SourceDenoise(config.video.denoise, source_cleanup=cleanup)
     for frame in process_frames(decoded, config=config, source_cleanup=cleanup):
-        expected.update(
-            np.pad(frame, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes()
-        )
+        expected.update(np.pad(frame, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes())
     assert record["processed_rgb_sha256"] == expected.hexdigest()
     assert record["video_configuration"]["deblock"] == "off"
     assert record["video_configuration"]["deband"] == deband
@@ -648,12 +977,19 @@ def test_progress_reports_frames_without_changing_video(tmp_path, tools, capsys)
     source = make_clip(tmp_path / "progress.mkv", tools)
     config = Config(processing=ProcessingConfig(max_edge=24))
     plain = process_video(
-        source, tmp_path / "plain.mp4", config=config,
-        ffmpeg=tools[0], ffprobe=tools[1],
+        source,
+        tmp_path / "plain.mp4",
+        config=config,
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
     )
     shown = process_video(
-        source, tmp_path / "shown.mp4", config=config, progress=True,
-        ffmpeg=tools[0], ffprobe=tools[1],
+        source,
+        tmp_path / "shown.mp4",
+        config=config,
+        progress=True,
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
     )
     assert plain["processed_rgb_sha256"] == shown["processed_rgb_sha256"]
     assert plain["output_sha256"] == shown["output_sha256"]
@@ -662,11 +998,17 @@ def test_progress_reports_frames_without_changing_video(tmp_path, tools, capsys)
 
 @pytest.mark.parametrize("variant", [1, 2])
 def test_cli_cleanup_matches_working_frame_pipeline_and_records_state(
-    tmp_path, tools, capsys, variant,
+    tmp_path,
+    tools,
+    capsys,
+    variant,
 ):
-    source = make_clip(tmp_path / "smooth.mkv", tools, width=48, height=36, vf="boxblur=5:1")
+    source = make_clip(
+        tmp_path / "smooth.mkv", tools, width=48, height=36, vf="boxblur=5:1"
+    )
     config = Config(
-        filter=f"fattal{variant}", parameters=FilterParams(fade=0),
+        filter=f"fattal{variant}",
+        parameters=FilterParams(fade=0),
         processing=ProcessingConfig(max_edge=24),
         numerics=NumericsConfig(iterations=11, shadow_softness=6),
         video=VideoConfig(deband="gentle"),
@@ -675,14 +1017,27 @@ def test_cli_cleanup_matches_working_frame_pipeline_and_records_state(
     path.write_text(config.to_toml())
     expected = hashlib.sha256()
     decoded = reference_rgb(source, tools, 48, 36, deband="gentle")
-    for frame in process_frames(decoded, config=config, source_cleanup=SourceCleanup(0.25)):
+    for frame in process_frames(
+        decoded, config=config, source_cleanup=SourceCleanup(0.25)
+    ):
         expected.update(frame.tobytes())
     destination = tmp_path / "cleaned.mp4"
-    main([
-        "video", str(source), str(destination), "--config", str(path),
-        "--flat-cleanup", "0.25", "--ffmpeg", tools[0], "--ffprobe", tools[1],
-        "--json",
-    ])
+    main(
+        [
+            "video",
+            str(source),
+            str(destination),
+            "--config",
+            str(path),
+            "--flat-cleanup",
+            "0.25",
+            "--ffmpeg",
+            tools[0],
+            "--ffprobe",
+            tools[1],
+            "--json",
+        ]
+    )
     record = json.loads(capsys.readouterr().out)
     assert record["processed_rgb_sha256"] == expected.hexdigest()
     assert record["configuration"]["video"]["flat_cleanup"] == 0.25
@@ -694,27 +1049,39 @@ def test_cli_cleanup_matches_working_frame_pipeline_and_records_state(
     assert len(inspect(destination, tools)["frames"]) == 5
 
 
-@pytest.mark.parametrize("fade,prepared,dimensions", [
-    (0, [23, 17], [24, 18]), (100, [47, 35], [48, 36]),
-])
-def test_fractional_rate_full_range_and_input_budget(tmp_path, tools, fade, prepared, dimensions):
-    source = make_clip(tmp_path / "fractional.mkv", tools, rate="30000/1001", color_range="pc")
+@pytest.mark.parametrize(
+    "fade,prepared,dimensions",
+    [
+        (0, [23, 17], [24, 18]),
+        (100, [47, 35], [48, 36]),
+    ],
+)
+def test_fractional_rate_full_range_and_input_budget(
+    tmp_path, tools, fade, prepared, dimensions
+):
+    source = make_clip(
+        tmp_path / "fractional.mkv", tools, rate="30000/1001", color_range="pc"
+    )
     config = Config(
         parameters=FilterParams(fade=fade),
         processing=ProcessingConfig(max_input_pixels=400),
     )
     destination = tmp_path / "fractional.mp4"
-    record = process_video(source, destination, config=config, ffmpeg=tools[0], ffprobe=tools[1])
+    record = process_video(
+        source, destination, config=config, ffmpeg=tools[0], ffprobe=tools[1]
+    )
     assert Fraction(record["frame_rate"]) == Fraction(30000, 1001)
     assert record["prepared_dimensions"] == prepared
     assert record["dimensions"] == dimensions
     expected = hashlib.sha256()
     for frame in reference_rgb(source, tools, 47, 35, color_range="full"):
         processed = apply_filter(frame, config=config)
-        expected.update(np.pad(processed, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes())
+        expected.update(
+            np.pad(processed, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes()
+        )
     assert record["processed_rgb_sha256"] == expected.hexdigest()
     output = inspect(destination, tools)
-    stream, = output["streams"]
+    (stream,) = output["streams"]
     assert Fraction(stream["avg_frame_rate"]) == Fraction(30000, 1001)
     assert len(output["frames"]) == 5
 
@@ -724,14 +1091,32 @@ def test_cli_loads_config_and_applies_overrides(tmp_path, tools, capsys):
     config = tmp_path / "filter.yaml"
     config.write_text("filter: fattal1\nparameters:\n  fade: 0\n", encoding="utf-8")
     output = tmp_path / "cli.mp4"
-    main([
-        "video", str(source), str(output), "--config", str(config), "--filter", "fattal2",
-        "--fade", "100", "--crf", "23", "--preset", "ultrafast",
-        "--shadow-softness", "6",
-        "--deblock", "weak8",
-        "--progress",
-        "--ffmpeg", tools[0], "--ffprobe", tools[1],
-    ])
+    main(
+        [
+            "video",
+            str(source),
+            str(output),
+            "--config",
+            str(config),
+            "--filter",
+            "fattal2",
+            "--fade",
+            "100",
+            "--crf",
+            "23",
+            "--preset",
+            "ultrafast",
+            "--shadow-softness",
+            "6",
+            "--deblock",
+            "weak8",
+            "--progress",
+            "--ffmpeg",
+            tools[0],
+            "--ffprobe",
+            tools[1],
+        ]
+    )
     captured = capsys.readouterr()
     assert "Filtering frames" in captured.err
     assert "Processing video:" in captured.out
@@ -744,28 +1129,48 @@ def test_cli_loads_config_and_applies_overrides(tmp_path, tools, capsys):
     assert record["configuration"]["parameters"]["fade"] == 100
     assert record["configuration"]["numerics"]["shadow_softness"] == 6
     assert record["video_configuration"] == {
-        "calibration_cache": False, "gpu_iterations": None,
+        "calibration_cache": False,
+        "gpu_iterations": None,
         "lighting_scale": 1.0,
-        "decode_prefetch": 0, "pinned_frames": False,
-        "gpu_buffer_reuse": False, "gpu_cleanup_graph": False,
-        "solver_halo": 96, "pipeline_depth": 0, "validation_mode": "scan",
+        "decode_prefetch": 0,
+        "pinned_frames": False,
+        "gpu_buffer_reuse": False,
+        "gpu_cleanup_graph": False,
+        "solver_halo": 96,
+        "pipeline_depth": 0,
+        "validation_mode": "scan",
         "filter_backend": "cpu",
-        "encoder": "libx264", "nvenc_cq": 18, "nvenc_preset": "p4",
-        "crf": 23, "preset": "ultrafast", "deblock": "weak8", "deband": "off",
+        "encoder": "libx264",
+        "nvenc_cq": 18,
+        "nvenc_preset": "p4",
+        "crf": 23,
+        "preset": "ultrafast",
+        "deblock": "weak8",
+        "deband": "off",
         "denoise": 0.0,
         "flat_cleanup": 0.0,
-        "flat_cleanup_mode": "standard", "flat_cleanup_coarse_strength": 1.0,
+        "flat_cleanup_mode": "standard",
+        "flat_cleanup_coarse_strength": 1.0,
         "flat_cleanup_sigma": 1.2,
-        "pre_noise_rms": 0.0, "pre_noise_kind": "highpass",
-        "pre_noise_masked": True, "pre_noise_seed": 20261017,
-        "frame_rate": "auto", "input_color": "auto", "input_range": "auto",
+        "pre_noise_rms": 0.0,
+        "pre_noise_kind": "highpass",
+        "pre_noise_masked": True,
+        "pre_noise_seed": 20261017,
+        "frame_rate": "auto",
+        "input_color": "auto",
+        "input_range": "auto",
     }
-    assert record["config_source"]["sha256"] == hashlib.sha256(config.read_bytes()).hexdigest()
+    assert (
+        record["config_source"]["sha256"]
+        == hashlib.sha256(config.read_bytes()).hexdigest()
+    )
     assert record["padding"]["right"] == record["padding"]["bottom"] == 0
 
 
 def test_color_transfer_and_encoded_roundtrip_use_known_neutral_values(
-    tmp_path, tools, monkeypatch,
+    tmp_path,
+    tools,
+    monkeypatch,
 ):
     import luma_fatal.video as video
 
@@ -781,13 +1186,18 @@ def test_color_transfer_and_encoded_roundtrip_use_known_neutral_values(
     monkeypatch.setattr(video, "process_frames", observe)
     destination = tmp_path / "gray.mp4"
     process_video(
-        source, destination, config=Config(parameters=FilterParams(fade=100)),
-        ffmpeg=tools[0], ffprobe=tools[1],
+        source,
+        destination,
+        config=Config(parameters=FilterParams(fade=100)),
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
     )
     encoded = (np.array([16, 64, 128, 192, 235]) - 16) / 219
     # zscale interprets display-referred BT.709 through BT.1886 with ideal black.
-    linear = encoded ** 2.4
-    srgb = np.where(linear <= 0.0031308, 12.92 * linear, 1.055 * linear ** (1 / 2.4) - 0.055)
+    linear = encoded**2.4
+    srgb = np.where(
+        linear <= 0.0031308, 12.92 * linear, 1.055 * linear ** (1 / 2.4) - 0.055
+    )
     expected = np.rint(srgb * 255)
     for frame, gray in zip(observed, expected, strict=True):
         assert np.max(np.abs(frame.astype(float) - gray)) <= 1
@@ -801,7 +1211,9 @@ def test_existing_files_are_preserved(tmp_path, existing):
     source = tmp_path / "input.mkv"
     source.write_bytes(b"source must not change")
     destination = tmp_path / "output.mp4"
-    protected = destination if existing == "output" else destination.with_suffix(".meta.json")
+    protected = (
+        destination if existing == "output" else destination.with_suffix(".meta.json")
+    )
     protected.write_bytes(b"keep this")
     with pytest.raises(ValueError, match="already exists"):
         process_video(source, destination)
@@ -827,7 +1239,9 @@ def test_missing_tool_is_actionable(tmp_path):
     source = tmp_path / "input.mkv"
     source.write_bytes(b"placeholder")
     with pytest.raises(ValueError, match="Required executable not found"):
-        process_video(source, tmp_path / "out.mp4", ffprobe=str(tmp_path / "missing-ffprobe"))
+        process_video(
+            source, tmp_path / "out.mp4", ffprobe=str(tmp_path / "missing-ffprobe")
+        )
 
 
 def test_filter_failure_cleans_up_processes_and_outputs(tmp_path, tools, monkeypatch):
@@ -864,15 +1278,20 @@ def test_process_failure_stops_windows_launcher_children(tmp_path):
         "subprocess.run([sys.executable, '-c', sys.argv[1], sys.argv[2]], check=True)\n"
     )
     child_pid = None
+    process = None
     try:
         with pytest.raises(RuntimeError, match="synthetic processing failure"):
             with _process(
                 [sys.executable, "-c", launcher, child, str(locked)],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
             ) as (process, log):
                 # The child announces readiness only after acquiring the file lock.
+                assert process.stdout is not None
                 child_pid = int(process.stdout.readline())
                 raise RuntimeError("synthetic processing failure")
+        assert process is not None
+        assert process.stdin is not None and process.stdout is not None
         assert process.poll() is not None
         assert process.stdin.closed
         assert process.stdout.closed
@@ -887,7 +1306,9 @@ def test_process_failure_stops_windows_launcher_children(tmp_path):
         raise
 
 
-def test_encoder_failure_reports_diagnostics_and_cleans_up(tmp_path, tools, monkeypatch):
+def test_encoder_failure_reports_diagnostics_and_cleans_up(
+    tmp_path, tools, monkeypatch
+):
     import luma_fatal.video as video
 
     source = make_clip(tmp_path / "failure.mkv", tools)
@@ -910,10 +1331,22 @@ def test_encoder_failure_reports_diagnostics_and_cleans_up(tmp_path, tools, monk
 def test_multiple_video_streams_are_rejected(tmp_path, tools):
     original = make_clip(tmp_path / "source.mkv", tools)
     source = tmp_path / "multiple.mp4"
-    run([
-        tools[0], "-v", "error", "-i", str(original), "-map", "0:v", "-map", "0:v",
-        "-c", "copy", str(source),
-    ])
+    run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-i",
+            str(original),
+            "-map",
+            "0:v",
+            "-map",
+            "0:v",
+            "-c",
+            "copy",
+            str(source),
+        ]
+    )
     destination = tmp_path / "rejected.mp4"
     with pytest.raises(ValueError, match="exactly one"):
         process_video(source, destination, ffmpeg=tools[0], ffprobe=tools[1])
@@ -921,7 +1354,9 @@ def test_multiple_video_streams_are_rejected(tmp_path, tools):
     assert not destination.with_suffix(".meta.json").exists()
 
 
-def test_sidecar_race_preserves_other_writer_and_rolls_back_video(tmp_path, tools, monkeypatch):
+def test_sidecar_race_preserves_other_writer_and_rolls_back_video(
+    tmp_path, tools, monkeypatch
+):
     from pathlib import Path
 
     source = make_clip(tmp_path / "source.mkv", tools)
@@ -945,37 +1380,58 @@ def test_sidecar_race_preserves_other_writer_and_rolls_back_video(tmp_path, tool
 
 def test_variable_rate_repeats_frames_at_nominal_cadence(tmp_path, tools):
     source = make_clip(
-        tmp_path / "vfr.mkv", tools, offset=2,
+        tmp_path / "vfr.mkv",
+        tools,
+        offset=2,
         vf="setpts='if(lt(N,2),N,N+2)/(25*TB)'",
     )
     config = Config(parameters=FilterParams(fade=100))
     decoded = reference_rgb(source, tools, 47, 35)
     expected = hashlib.sha256()
     for index in (0, 1, 1, 1, 2, 3, 4):
-        expected.update(np.pad(decoded[index], ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes())
+        expected.update(
+            np.pad(decoded[index], ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes()
+        )
     destination = tmp_path / "vfr.mp4"
-    record = process_video(source, destination, config=config, ffmpeg=tools[0], ffprobe=tools[1])
+    record = process_video(
+        source, destination, config=config, ffmpeg=tools[0], ffprobe=tools[1]
+    )
     assert record["frame_rate"] == "25"
     assert record["frame_count"] == 7
     assert record["processed_rgb_sha256"] == expected.hexdigest()
     assert record["timing"]["source_frame_count"] == 5
     assert record["timing"]["source_variable_frame_rate"]
     output = inspect(destination, tools)
-    assert [Fraction(f["pts"]) * Fraction(output["streams"][0]["time_base"])
-            for f in output["frames"]] == [Fraction(i, 25) for i in range(7)]
+    assert [
+        Fraction(f["pts"]) * Fraction(output["streams"][0]["time_base"])
+        for f in output["frames"]
+    ] == [Fraction(i, 25) for i in range(7)]
 
 
 @pytest.mark.parametrize("frame_rate,count", [("50", 10), ("30000/1001", 6), ("10", 2)])
 def test_cli_frame_rate_overrides_config(tmp_path, tools, frame_rate, count):
     source = make_clip(tmp_path / "source.mkv", tools, width=48, height=36)
-    config = Config(video=VideoConfig(frame_rate="5"), parameters=FilterParams(fade=100))
+    config = Config(
+        video=VideoConfig(frame_rate="5"), parameters=FilterParams(fade=100)
+    )
     path = tmp_path / "video.yaml"
     path.write_text(config.to_yaml())
     destination = tmp_path / "rate.mp4"
-    main([
-        "video", str(source), str(destination), "--config", str(path),
-        "--frame-rate", frame_rate, "--ffmpeg", tools[0], "--ffprobe", tools[1],
-    ])
+    main(
+        [
+            "video",
+            str(source),
+            str(destination),
+            "--config",
+            str(path),
+            "--frame-rate",
+            frame_rate,
+            "--ffmpeg",
+            tools[0],
+            "--ffprobe",
+            tools[1],
+        ]
+    )
     record = json.loads(destination.with_suffix(".meta.json").read_text())
     assert record["frame_rate"] == frame_rate
     assert record["configuration"]["video"]["frame_rate"] == frame_rate
@@ -983,32 +1439,53 @@ def test_cli_frame_rate_overrides_config(tmp_path, tools, frame_rate, count):
     output = inspect(destination, tools)
     assert Fraction(output["streams"][0]["avg_frame_rate"]) == Fraction(frame_rate)
     assert len(output["frames"]) == count
-    assert [Fraction(f["pts"]) * Fraction(output["streams"][0]["time_base"])
-            for f in output["frames"]] == [i / Fraction(frame_rate) for i in range(count)]
+    assert [
+        Fraction(f["pts"]) * Fraction(output["streams"][0]["time_base"])
+        for f in output["frames"]
+    ] == [i / Fraction(frame_rate) for i in range(count)]
 
 
 @pytest.mark.parametrize("rotation", [90, 180, 270])
 def test_rotation_matches_array_rotation(tmp_path, tools, rotation):
     original = make_clip(tmp_path / "source.mkv", tools)
     source = tmp_path / "rotated.mp4"
-    run([
-        tools[0], "-v", "error", "-display_rotation:v:0", str(rotation),
-        "-i", str(original), "-c", "copy", str(source),
-    ])
+    run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-display_rotation:v:0",
+            str(rotation),
+            "-i",
+            str(original),
+            "-c",
+            "copy",
+            str(source),
+        ]
+    )
     expected = hashlib.sha256()
     for frame in reference_rgb(original, tools, 47, 35):
         rotated = np.rot90(frame, rotation // 90)
-        expected.update(np.pad(rotated, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes())
+        expected.update(
+            np.pad(rotated, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes()
+        )
     record = process_video(
-        source, tmp_path / "result.mp4", config=Config(parameters=FilterParams(fade=100)),
-        ffmpeg=tools[0], ffprobe=tools[1],
+        source,
+        tmp_path / "result.mp4",
+        config=Config(parameters=FilterParams(fade=100)),
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
     )
     assert record["processed_rgb_sha256"] == expected.hexdigest()
-    assert record["normalized_dimensions"] == ([35, 47] if rotation != 180 else [47, 35])
+    assert record["normalized_dimensions"] == (
+        [35, 47] if rotation != 180 else [47, 35]
+    )
     assert record["input_preparation"]["rotation_degrees"] == rotation
 
 
-def test_anamorphic_video_becomes_square_pixel_without_changing_display_aspect(tmp_path, tools):
+def test_anamorphic_video_becomes_square_pixel_without_changing_display_aspect(
+    tmp_path, tools
+):
     source = make_clip(tmp_path / "anamorphic.mkv", tools, vf="setsar=2")
     destination = tmp_path / "square.mp4"
     record = process_video(source, destination, ffmpeg=tools[0], ffprobe=tools[1])
@@ -1016,51 +1493,82 @@ def test_anamorphic_video_becomes_square_pixel_without_changing_display_aspect(t
     assert record["normalized_dimensions"] == [94, 35]
     assert record["dimensions"] == [94, 36]
     assert record["input_preparation"]["sample_aspect_ratio"] == "2"
-    stream, = inspect(destination, tools)["streams"]
+    (stream,) = inspect(destination, tools)["streams"]
     assert stream["sample_aspect_ratio"] == "1:1"
 
 
 def test_interlaced_video_is_deinterlaced_before_filtering(tmp_path, tools):
     source = make_clip(tmp_path / "interlaced.mkv", tools, vf="setfield=tff")
-    observed = run([
-        tools[0], "-v", "error", "-i", str(source), "-vf",
-        "bwdif=mode=send_frame:parity=auto:deint=interlaced,"
-        "zscale=matrixin=709:transferin=709:primariesin=709:rangein=limited:"
-        "matrix=gbr:transfer=iec61966-2-1:primaries=709:range=full,format=gbrp,format=rgb24",
-        "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
-    ])
+    observed = run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-i",
+            str(source),
+            "-vf",
+            "bwdif=mode=send_frame:parity=auto:deint=interlaced,"
+            "zscale=matrixin=709:transferin=709:primariesin=709:rangein=limited:"
+            "matrix=gbr:transfer=iec61966-2-1:primaries=709:range=full,format=gbrp,format=rgb24",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "pipe:1",
+        ]
+    )
     expected = hashlib.sha256()
     for frame in np.frombuffer(observed, np.uint8).reshape(-1, 35, 47, 3):
         expected.update(np.pad(frame, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes())
     destination = tmp_path / "progressive.mp4"
     record = process_video(
-        source, destination, config=Config(parameters=FilterParams(fade=100)),
-        ffmpeg=tools[0], ffprobe=tools[1],
+        source,
+        destination,
+        config=Config(parameters=FilterParams(fade=100)),
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
     )
     assert record["processed_rgb_sha256"] == expected.hexdigest()
     assert record["input_preparation"]["deinterlaced"]
     assert record["frame_count"] == 5
-    assert all(f["interlaced_frame"] == 0 for f in inspect(destination, tools)["frames"])
+    assert all(
+        f["interlaced_frame"] == 0 for f in inspect(destination, tools)["frames"]
+    )
 
 
 @pytest.mark.parametrize("pixel_format", ["yuv444p10le", "yuv444p12le"])
 @pytest.mark.parametrize("validation_mode", ["scan", "stream"])
-def test_high_bit_depth_sdr_converts_before_filtering(tmp_path, tools, pixel_format, validation_mode):
+def test_high_bit_depth_sdr_converts_before_filtering(
+    tmp_path, tools, pixel_format, validation_mode
+):
     # FFV1 retains 12-bit data, which the local H.264 encoder cannot encode.
     original = make_clip(tmp_path / "original.mkv", tools)
     source = tmp_path / "deep.mkv"
-    run([
-        tools[0], "-v", "error", "-i", str(original), "-vf", f"format={pixel_format}",
-        "-c:v", "ffv1", str(source),
-    ])
+    run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-i",
+            str(original),
+            "-vf",
+            f"format={pixel_format}",
+            "-c:v",
+            "ffv1",
+            str(source),
+        ]
+    )
     decoded = reference_rgb(source, tools, 47, 35)
     expected = hashlib.sha256()
     for frame in decoded:
         expected.update(np.pad(frame, ((0, 1), (0, 1), (0, 0)), mode="edge").tobytes())
     record = process_video(
-        source, tmp_path / "deep.mp4", config=Config(parameters=FilterParams(fade=100)),
+        source,
+        tmp_path / "deep.mp4",
+        config=Config(parameters=FilterParams(fade=100)),
         video_config=VideoConfig(validation_mode=validation_mode),
-        ffmpeg=tools[0], ffprobe=tools[1],
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
     )
     assert record["processed_rgb_sha256"] == expected.hexdigest()
     assert record["color_policy"]["input"]["pix_fmt"] == pixel_format
@@ -1068,12 +1576,21 @@ def test_high_bit_depth_sdr_converts_before_filtering(tmp_path, tools, pixel_for
 
 
 @pytest.mark.parametrize("transfer", ["smpte2084", "arib-std-b67"])
-def test_hdr_tone_mapping_produces_sdr_and_records_policy(tmp_path, tools, monkeypatch, transfer):
+def test_hdr_tone_mapping_produces_sdr_and_records_policy(
+    tmp_path, tools, monkeypatch, transfer
+):
     import luma_fatal.video as video
 
     source = make_clip(
-        tmp_path / "hdr.mkv", tools, width=48, height=36, neutral=True,
-        vf="format=yuv444p10le", transfer=transfer, space="bt2020nc", primaries="bt2020",
+        tmp_path / "hdr.mkv",
+        tools,
+        width=48,
+        height=36,
+        neutral=True,
+        vf="format=yuv444p10le",
+        transfer=transfer,
+        space="bt2020nc",
+        primaries="bt2020",
     )
     observed = []
 
@@ -1090,40 +1607,78 @@ def test_hdr_tone_mapping_produces_sdr_and_records_policy(tmp_path, tools, monke
     assert np.all(np.diff(grays) >= 0)
     assert len(set(np.rint(grays))) >= 4
     assert record["input_preparation"]["hdr_tone_mapping"] == {
-        "method": "hable", "peak_nits": 1000, "reference_white_nits": 100, "desat": 2,
+        "method": "hable",
+        "peak_nits": 1000,
+        "reference_white_nits": 100,
+        "desat": 2,
     }
     output = inspect(destination, tools)["streams"][0]
-    assert output["color_transfer"] == output["color_space"] == output["color_primaries"] == "bt709"
+    assert (
+        output["color_transfer"]
+        == output["color_space"]
+        == output["color_primaries"]
+        == "bt709"
+    )
     if transfer == "smpte2084":
         # ST 2084 EOTF, then Hable normalized to the documented 1000-nit peak.
         encoded = (np.array([16, 64, 128, 192, 235]) - 16) / 219
         power = encoded ** (1 / (2523 / 32))
-        linear = (np.maximum(power - 3424 / 4096, 0) /
-                  (2413 / 128 - 2392 / 128 * power)) ** (1 / (2610 / 16384)) * 100
+        linear = (
+            np.maximum(power - 3424 / 4096, 0) / (2413 / 128 - 2392 / 128 * power)
+        ) ** (1 / (2610 / 16384)) * 100
 
         def hable(x):
-            return (x * (0.15 * x + 0.05) + 0.004) / (x * (0.15 * x + 0.5) + 0.06) - 0.02 / 0.3
+            return (x * (0.15 * x + 0.05) + 0.004) / (
+                x * (0.15 * x + 0.5) + 0.06
+            ) - 0.02 / 0.3
 
         mapped = np.clip(hable(linear) / hable(10), 0, 1)
-        expected = np.where(mapped <= 0.0031308, mapped * 12.92,
-                            1.055 * mapped ** (1 / 2.4) - 0.055) * 255
+        expected = (
+            np.where(
+                mapped <= 0.0031308, mapped * 12.92, 1.055 * mapped ** (1 / 2.4) - 0.055
+            )
+            * 255
+        )
         np.testing.assert_allclose(grays, expected, atol=3)
 
 
 @pytest.mark.parametrize("deband", ["off", "gentle"])
 @pytest.mark.parametrize("validation_mode", ["scan", "stream"])
 def test_untagged_rgb_assumes_srgb_and_preserves_values(
-    tmp_path, tools, monkeypatch, deband, validation_mode,
+    tmp_path,
+    tools,
+    monkeypatch,
+    deband,
+    validation_mode,
 ):
     import luma_fatal.video as video
 
     values = np.array([[20, 80, 160], [200, 150, 60], [100, 100, 100]], np.uint8)
     frames = np.repeat(np.repeat(values[:, None, None, :], 36, axis=1), 48, axis=2)
     source = tmp_path / "rgb.mkv"
-    run([
-        tools[0], "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "48x36",
-        "-r", "25", "-i", "pipe:0", "-c:v", "ffv1", "-pix_fmt", "bgr0", str(source),
-    ], frames.tobytes())
+    run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-s",
+            "48x36",
+            "-r",
+            "25",
+            "-i",
+            "pipe:0",
+            "-c:v",
+            "ffv1",
+            "-pix_fmt",
+            "bgr0",
+            str(source),
+        ],
+        frames.tobytes(),
+    )
     observed = []
 
     def observe(decoded, *, config):
@@ -1133,26 +1688,33 @@ def test_untagged_rgb_assumes_srgb_and_preserves_values(
 
     monkeypatch.setattr(video, "process_frames", observe)
     record = process_video(
-        source, tmp_path / "rgb.mp4",
+        source,
+        tmp_path / "rgb.mp4",
         video_config=VideoConfig(deband=deband, validation_mode=validation_mode),
-        ffmpeg=tools[0], ffprobe=tools[1],
+        ffmpeg=tools[0],
+        ffprobe=tools[1],
     )
     np.testing.assert_allclose(np.array(observed), frames, atol=1)
     assert record["color_policy"]["resolved_input"] == {
-        "color_space": "gbr", "color_transfer": "iec61966-2-1",
-        "color_primaries": "bt709", "color_range": "pc",
+        "color_space": "gbr",
+        "color_transfer": "iec61966-2-1",
+        "color_primaries": "bt709",
+        "color_range": "pc",
     }
     assert record["color_policy"]["assumptions"]["color_transfer"] == "iec61966-2-1"
     assert record["timing"]["validation"] == "scan"
 
 
-@pytest.mark.parametrize("height,profile", [(480, "smpte170m"), (576, "bt470bg"), (720, "bt709")])
+@pytest.mark.parametrize(
+    "height,profile", [(480, "smpte170m"), (576, "bt470bg"), (720, "bt709")]
+)
 def test_untagged_yuv_uses_documented_geometry_defaults(height, profile):
     from luma_fatal.video import _resolve_color
 
     # Resolve HD/SD assumptions without encoding large clips for each height.
     color, assumptions = _resolve_color(
-        dict(width=720, height=height, pix_fmt="yuv420p"), VideoConfig(),
+        dict(width=720, height=height, pix_fmt="yuv420p"),
+        VideoConfig(),
     )
     assert color["color_space"] == profile
     assert color["color_range"] == "tv"
@@ -1165,22 +1727,38 @@ def test_cli_color_overrides_replace_incorrect_tags(tmp_path, tools):
     path = tmp_path / "settings.toml"
     path.write_text(config.to_toml())
     destination = tmp_path / "corrected.mp4"
-    main([
-        "video", str(source), str(destination), "--config", str(path),
-        "--input-color", "bt709", "--input-range", "limited",
-        "--ffmpeg", tools[0], "--ffprobe", tools[1],
-    ])
+    main(
+        [
+            "video",
+            str(source),
+            str(destination),
+            "--config",
+            str(path),
+            "--input-color",
+            "bt709",
+            "--input-range",
+            "limited",
+            "--ffmpeg",
+            tools[0],
+            "--ffprobe",
+            tools[1],
+        ]
+    )
     record = json.loads(destination.with_suffix(".meta.json").read_text())
     assert record["color_policy"]["resolved_input"] == {
-        "color_space": "bt709", "color_transfer": "bt709",
-        "color_primaries": "bt709", "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+        "color_range": "tv",
     }
     assert record["video_configuration"]["input_color"] == "bt709"
     assert record["video_configuration"]["input_range"] == "limited"
     assert record["color_policy"]["assumptions"] == {}
 
 
-def test_preparation_failure_reports_diagnostics_and_leaves_no_outputs(tmp_path, tools, monkeypatch):
+def test_preparation_failure_reports_diagnostics_and_leaves_no_outputs(
+    tmp_path, tools, monkeypatch
+):
     import luma_fatal.video as video
 
     source = make_clip(tmp_path / "source.mkv", tools, vf="format=yuv444p10le")
@@ -1200,22 +1778,34 @@ def test_preparation_failure_reports_diagnostics_and_leaves_no_outputs(tmp_path,
     assert not list(tmp_path.glob(".luma-fatal-*"))
 
 
-@pytest.mark.parametrize("space,transfer,primaries", [
-    ("unknown", "unknown", "unknown"),
-    ("bt470bg", "bt709", "bt470bg"),
-    ("smpte170m", "smpte170m", "smpte170m"),
-    ("bt2020nc", "bt2020-10", "bt2020"),
-])
-def test_yuv_color_profiles_and_missing_tags(tmp_path, tools, space, transfer, primaries):
+@pytest.mark.parametrize(
+    "space,transfer,primaries",
+    [
+        ("unknown", "unknown", "unknown"),
+        ("bt470bg", "bt709", "bt470bg"),
+        ("smpte170m", "smpte170m", "smpte170m"),
+        ("bt2020nc", "bt2020-10", "bt2020"),
+    ],
+)
+def test_yuv_color_profiles_and_missing_tags(
+    tmp_path, tools, space, transfer, primaries
+):
     source = make_clip(
-        tmp_path / "source.mkv", tools, space=space, transfer=transfer, primaries=primaries,
+        tmp_path / "source.mkv",
+        tools,
+        space=space,
+        transfer=transfer,
+        primaries=primaries,
     )
-    record = process_video(source, tmp_path / "result.mp4", ffmpeg=tools[0], ffprobe=tools[1])
+    record = process_video(
+        source, tmp_path / "result.mp4", ffmpeg=tools[0], ffprobe=tools[1]
+    )
     resolved = record["color_policy"]["resolved_input"]
     if space == "unknown":
         assert resolved["color_space"] == "smpte170m"
         assert record["color_policy"]["assumptions"] == {
-            "color_space": "smpte170m", "color_transfer": "smpte170m",
+            "color_space": "smpte170m",
+            "color_transfer": "smpte170m",
             "color_primaries": "smpte170m",
         }
     else:
@@ -1226,18 +1816,37 @@ def test_yuv_color_profiles_and_missing_tags(tmp_path, tools, space, transfer, p
     assert record["frame_count"] == 5
 
 
-@pytest.mark.parametrize("pixel_format,codec,container", [
-    ("nv12", "rawvideo", "nut"), ("gray", "ffv1", "matroska"),
-    ("gray16le", "ffv1", "matroska"), ("bgra", "ffv1", "matroska"),
-])
+@pytest.mark.parametrize(
+    "pixel_format,codec,container",
+    [
+        ("nv12", "rawvideo", "nut"),
+        ("gray", "ffv1", "matroska"),
+        ("gray16le", "ffv1", "matroska"),
+        ("bgra", "ffv1", "matroska"),
+    ],
+)
 def test_other_common_pixel_formats(tmp_path, tools, pixel_format, codec, container):
     original = make_clip(tmp_path / "source.mkv", tools, width=48, height=36)
     source = tmp_path / "converted.bin"
-    run([
-        tools[0], "-v", "error", "-i", str(original), "-pix_fmt", pixel_format,
-        "-c:v", codec, "-f", container, str(source),
-    ])
-    record = process_video(source, tmp_path / "result.mp4", ffmpeg=tools[0], ffprobe=tools[1])
+    run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-i",
+            str(original),
+            "-pix_fmt",
+            pixel_format,
+            "-c:v",
+            codec,
+            "-f",
+            container,
+            str(source),
+        ]
+    )
+    record = process_video(
+        source, tmp_path / "result.mp4", ffmpeg=tools[0], ffprobe=tools[1]
+    )
     assert record["frame_count"] == 5
     assert record["dimensions"] == [48, 36]
 
@@ -1246,10 +1855,20 @@ def test_other_common_pixel_formats(tmp_path, tools, pixel_format, codec, contai
 def test_non_right_angle_rotation_fails_without_outputs(tmp_path, tools, angle):
     original = make_clip(tmp_path / "source.mkv", tools)
     source = tmp_path / "tilted.mp4"
-    run([
-        tools[0], "-v", "error", "-display_rotation:v:0", str(angle),
-        "-i", str(original), "-c", "copy", str(source),
-    ])
+    run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-display_rotation:v:0",
+            str(angle),
+            "-i",
+            str(original),
+            "-c",
+            "copy",
+            str(source),
+        ]
+    )
     destination = tmp_path / "rejected.mp4"
     with pytest.raises(ValueError, match="rotation"):
         process_video(source, destination, ffmpeg=tools[0], ffprobe=tools[1])
@@ -1257,21 +1876,35 @@ def test_non_right_angle_rotation_fails_without_outputs(tmp_path, tools, angle):
     assert not destination.with_suffix(".meta.json").exists()
 
 
-@pytest.mark.parametrize("pts,changes,match", [
-    ([0, 0], {}, "increase strictly"),
-    ([0, None], {}, "presentation timestamp"),
-    ([0, 40], {"width": "49"}, "Changing video dimensions"),
-    ([0, 40], {"color_range": "pc"}, "Changing video color"),
-    ([0, 40], {"sample_aspect_ratio": "2:1"}, "Changing video sample aspect"),
-])
-def test_preflight_still_rejects_ambiguous_or_changing_sources(monkeypatch, pts, changes, match):
+@pytest.mark.parametrize(
+    "pts,changes,match",
+    [
+        ([0, 0], {}, "increase strictly"),
+        ([0, None], {}, "presentation timestamp"),
+        ([0, 40], {"width": "49"}, "Changing video dimensions"),
+        ([0, 40], {"color_range": "pc"}, "Changing video color"),
+        ([0, 40], {"sample_aspect_ratio": "2:1"}, "Changing video sample aspect"),
+    ],
+)
+def test_preflight_still_rejects_ambiguous_or_changing_sources(
+    monkeypatch, pts, changes, match
+):
     from contextlib import contextmanager
+
     import luma_fatal.video as video
 
     stream = dict(
-        index=0, width=48, height=36, pix_fmt="yuv420p", color_space="bt709",
-        color_transfer="bt709", color_primaries="bt709", color_range="tv",
-        time_base="1/1000", avg_frame_rate="25", sample_aspect_ratio="1:1",
+        index=0,
+        width=48,
+        height=36,
+        pix_fmt="yuv420p",
+        color_space="bt709",
+        color_transfer="bt709",
+        color_primaries="bt709",
+        color_range="tv",
+        time_base="1/1000",
+        avg_frame_rate="25",
+        sample_aspect_ratio="1:1",
     )
     frames = []
     for i, timestamp in enumerate(pts):
@@ -1299,11 +1932,28 @@ def test_cover_art_is_ignored_when_selecting_video(tmp_path, tools):
     cover = tmp_path / "cover.png"
     Image.new("RGB", (16, 16), (40, 80, 120)).save(cover)
     source = tmp_path / "with-cover.mp4"
-    run([
-        tools[0], "-v", "error", "-i", str(original), "-i", str(cover),
-        "-map", "0:v", "-map", "1:v", "-c", "copy", "-disposition:v:1", "attached_pic",
-        str(source),
-    ])
-    record = process_video(source, tmp_path / "result.mp4", ffmpeg=tools[0], ffprobe=tools[1])
+    run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-i",
+            str(original),
+            "-i",
+            str(cover),
+            "-map",
+            "0:v",
+            "-map",
+            "1:v",
+            "-c",
+            "copy",
+            "-disposition:v:1",
+            "attached_pic",
+            str(source),
+        ]
+    )
+    record = process_video(
+        source, tmp_path / "result.mp4", ffmpeg=tools[0], ffprobe=tools[1]
+    )
     assert record["source_dimensions"] == [48, 36]
     assert record["frame_count"] == 5

@@ -1,13 +1,19 @@
 """Experimental controls preserve the reference path and have explicit semantics."""
 
-from dataclasses import replace
 import json
+from dataclasses import replace
 
 import numpy as np
-from PIL import Image
 import pytest
+from PIL import Image
 
-from luma_fatal import Config, FilterParams, NumericsConfig, ProcessingConfig, apply_filter
+from luma_fatal import (
+    Config,
+    FilterParams,
+    NumericsConfig,
+    ProcessingConfig,
+    apply_filter,
+)
 from luma_fatal.cli import main
 from luma_fatal.core import _phi, _recombine
 from luma_fatal.numerics import power64
@@ -20,7 +26,9 @@ def test_experimental_configuration_round_trips(suffix, tmp_path):
         parameters=FilterParams(output_gamma=1.6),
         processing=ProcessingConfig(working_resampler="bicubic"),
         numerics=NumericsConfig(
-            detail_level=2, power_mode="standard", shadow_softness=6,
+            detail_level=2,
+            power_mode="standard",
+            shadow_softness=6,
             luminance_mode="fractional",
         ),
     )
@@ -142,7 +150,9 @@ def test_output_gamma_clips_overshoot_and_preserves_nan_white_behavior():
     ],
 )
 def test_working_resamplers_match_known_sampling_values(method, expected):
-    plane = np.arange(4, dtype=np.uint8)[:, None] * 16 + np.arange(4, dtype=np.uint8) * 4
+    plane = (
+        np.arange(4, dtype=np.uint8)[:, None] * 16 + np.arange(4, dtype=np.uint8) * 4
+    )
     rgb = np.repeat(plane[..., None], 3, axis=2)
     original = rgb.copy()
     output = resize_working(rgb, (2, 2), method)
@@ -248,7 +258,10 @@ def test_cli_overrides_experimental_settings_and_records_resolved_values(
         parameters=FilterParams(fade=0, output_gamma=0.8),
         processing=ProcessingConfig(max_edge=40, working_resampler="bicubic"),
         numerics=NumericsConfig(
-            iterations=7, pyramid_min_size=8, detail_level=2, shadow_softness=3,
+            iterations=7,
+            pyramid_min_size=8,
+            detail_level=2,
+            shadow_softness=3,
             luminance_mode="fractional",
         ),
     )
@@ -256,19 +269,37 @@ def test_cli_overrides_experimental_settings_and_records_resolved_values(
     path.write_text(config.to_yaml())
     main(
         [
-            "apply", str(source), str(output), "--config", str(path),
-            "--output-format", "png", "--output-gamma", "1.6", "--detail-level", "1",
-            "--power-mode", "standard", "--working-resampler", "bilinear",
-            "--shadow-softness", str(shadow_softness),
-            "--luminance-mode", luminance_mode,
+            "apply",
+            str(source),
+            str(output),
+            "--config",
+            str(path),
+            "--output-format",
+            "png",
+            "--output-gamma",
+            "1.6",
+            "--detail-level",
+            "1",
+            "--power-mode",
+            "standard",
+            "--working-resampler",
+            "bilinear",
+            "--shadow-softness",
+            str(shadow_softness),
+            "--luminance-mode",
+            luminance_mode,
         ]
     )
     record = json.loads(output.with_suffix(".meta.json").read_text())
     resolved = Config.from_dict(record["configuration"])
     assert resolved.parameters == replace(config.parameters, output_gamma=1.6)
-    assert resolved.processing == replace(config.processing, working_resampler="bilinear")
+    assert resolved.processing == replace(
+        config.processing, working_resampler="bilinear"
+    )
     assert resolved.numerics == replace(
-        config.numerics, detail_level=1, power_mode="standard",
+        config.numerics,
+        detail_level=1,
+        power_mode="standard",
         shadow_softness=shadow_softness,
         luminance_mode=luminance_mode,
     )

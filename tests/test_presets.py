@@ -1,14 +1,14 @@
 """Complete image presets remain reproducible with local Python dependencies."""
 
-from copy import deepcopy
-from dataclasses import replace
 import hashlib
 import json
-from pathlib import Path
 import subprocess
+from copy import deepcopy
+from dataclasses import replace
+from pathlib import Path
 
-from PIL import Image
 import pytest
+from PIL import Image
 
 from luma_fatal import configuration
 from luma_fatal.cli import main as cli_main
@@ -16,7 +16,8 @@ from scripts import check_presets
 
 
 @pytest.mark.parametrize(
-    "path", sorted((Path(__file__).resolve().parents[1] / "configs").glob("*.yaml")),
+    "path",
+    sorted((Path(__file__).resolve().parents[1] / "configs").glob("*.yaml")),
     ids=lambda path: path.stem,
 )
 def test_presets_apply_full_effect(path):
@@ -27,8 +28,9 @@ def test_presets_apply_full_effect(path):
 
 def test_fast_presets_mirror_each_original_recipe():
     root = Path(__file__).resolve().parents[1] / "configs"
-    originals = [path for path in root.glob("*.yaml")
-                 if not path.stem.endswith("-fast")]
+    originals = [
+        path for path in root.glob("*.yaml") if not path.stem.endswith("-fast")
+    ]
     assert len(originals) == 12
     for path in originals:
         fast_path = path.with_name(path.stem + "-fast.yaml")
@@ -37,10 +39,19 @@ def test_fast_presets_mirror_each_original_recipe():
         fast = configuration.Config.load(fast_path)
         assert fast == replace(
             original,
-            video=replace(original.video, calibration_cache=True,
-                          gpu_iterations=80, lighting_scale=1.0, decode_prefetch=0,
-                          pinned_frames=True, gpu_buffer_reuse=True, gpu_cleanup_graph=True,
-                          solver_halo=64, pipeline_depth=3, validation_mode="stream"),
+            video=replace(
+                original.video,
+                calibration_cache=True,
+                gpu_iterations=80,
+                lighting_scale=1.0,
+                decode_prefetch=0,
+                pinned_frames=True,
+                gpu_buffer_reuse=True,
+                gpu_cleanup_graph=True,
+                solver_halo=64,
+                pipeline_depth=3,
+                validation_mode="stream",
+            ),
         )
 
 
@@ -70,8 +81,11 @@ def test_compressed_presets_enable_smooth_shadows_debanding_and_cleanup(variant)
     assert compressed == replace(
         reference,
         processing=replace(
-            reference.processing, resize=False, limit_input_pixels=False,
-            max_edge=None, max_input_pixels=None,
+            reference.processing,
+            resize=False,
+            limit_input_pixels=False,
+            max_edge=None,
+            max_input_pixels=None,
         ),
         video=replace(reference.video, deband="gentle", denoise=0.0, flat_cleanup=0.75),
     )
@@ -111,9 +125,7 @@ def test_cli_applies_frozen_recipe_without_fade_or_codec_overrides(
     variant, tmp_path, capsys
 ):
     contract, presets = check_presets.load_contract()
-    sample = next(
-        entry for entry in contract["samples"] if entry["id"] == "p3-noise"
-    )
+    sample = next(entry for entry in contract["samples"] if entry["id"] == "p3-noise")
     entry, config = presets[variant - 1]
     output = tmp_path / f"fattal-{variant}.jpg"
     cli_main(
@@ -140,7 +152,9 @@ def test_cli_applies_frozen_recipe_without_fade_or_codec_overrides(
     assert record["resolved_processing"]["max_input_pixels"] == 8_000_000
 
 
-def test_changed_fixture_is_rejected_before_processing_or_writing(monkeypatch, tmp_path):
+def test_changed_fixture_is_rejected_before_processing_or_writing(
+    monkeypatch, tmp_path
+):
     contract, presets = check_presets.load_contract()
     contract = deepcopy(contract)
     source = tmp_path / "different.jpg"
@@ -188,9 +202,7 @@ def test_unknown_sample_is_rejected_before_writing(tmp_path):
     assert not output.exists()
 
 
-def test_missing_fixture_is_reported_without_skipping_baselines(
-    monkeypatch, tmp_path
-):
+def test_missing_fixture_is_reported_without_skipping_baselines(monkeypatch, tmp_path):
     contract, presets = check_presets.load_contract()
     contract = deepcopy(contract)
     contract["samples"][0]["source"] = str(tmp_path / "missing.jpg")

@@ -1,13 +1,13 @@
 """Configuration precedence, image interpretation and export behavior."""
 
-from dataclasses import replace
 import hashlib
-from io import BytesIO
 import json
+from dataclasses import replace
+from io import BytesIO
 
 import numpy as np
-from PIL import Image, ImageCms, JpegImagePlugin
 import pytest
+from PIL import Image, ImageCms, JpegImagePlugin
 
 from luma_fatal import (
     Config,
@@ -99,11 +99,13 @@ def test_invalid_relaxation_cli_fails_before_processing(
 @pytest.mark.parametrize("suffix", ["yaml", "toml", "json"])
 def test_invalid_relaxation_in_config_is_rejected(tmp_path, suffix):
     path = tmp_path / f"settings.{suffix}"
-    path.write_text({
-        "yaml": "numerics:\n  relaxation: 1.999999999\n",
-        "toml": "[numerics]\nrelaxation = 1.999999999\n",
-        "json": '{"numerics": {"relaxation": 1.999999999}}',
-    }[suffix])
+    path.write_text(
+        {
+            "yaml": "numerics:\n  relaxation: 1.999999999\n",
+            "toml": "[numerics]\nrelaxation = 1.999999999\n",
+            "json": '{"numerics": {"relaxation": 1.999999999}}',
+        }[suffix]
+    )
     with pytest.raises(ValueError, match="relaxation must keep float32 solver weights"):
         Config.load(path)
 
@@ -115,10 +117,23 @@ def test_tiny_alpha_cli_processes_image_without_numeric_warnings(tmp_path):
     source_bytes = source.read_bytes()
     destination = tmp_path / "result.png"
     with np.errstate(divide="raise", over="raise", invalid="raise"):
-        main(["apply", str(source), str(destination), "--alpha", "1e-42",
-              "--fade", "0", "--output-format", "png"])
+        main(
+            [
+                "apply",
+                str(source),
+                str(destination),
+                "--alpha",
+                "1e-42",
+                "--fade",
+                "0",
+                "--output-format",
+                "png",
+            ]
+        )
     with Image.open(destination) as output:
-        expected = apply_filter(pixels, config=Config(parameters=FilterParams(alpha=1e-42)))
+        expected = apply_filter(
+            pixels, config=Config(parameters=FilterParams(alpha=1e-42))
+        )
         np.testing.assert_array_equal(np.asarray(output), expected)
     record = json.loads(destination.with_suffix(".meta.json").read_text())
     assert record["configuration"]["parameters"]["alpha"] == 1e-42
@@ -152,8 +167,15 @@ def test_alpha_underflow_in_config_is_rejected_before_processing(
         Config.load(path)
     destination = tmp_path / "output.jpg"
     with pytest.raises(SystemExit) as error:
-        main(["apply", str(tmp_path / "missing.png"), str(destination),
-              "--config", str(path)])
+        main(
+            [
+                "apply",
+                str(tmp_path / "missing.png"),
+                str(destination),
+                "--config",
+                str(path),
+            ]
+        )
     assert error.value.code == 2
     assert "alpha must remain positive in float32" in capsys.readouterr().err
     assert not destination.exists()
@@ -177,13 +199,16 @@ def test_alpha_underflow_cli_override_is_rejected_before_processing(
     assert not destination.exists()
 
 
-@pytest.mark.parametrize("text,key", [
-    ('{"filter": "fattal1", "filter": "fattal2"}', "filter"),
-    ('{"parameters": {"fade": 0}, "parameters": {"fade": 100}}', "parameters"),
-    ('{"parameters": {"fade": 0, "fade": 100}}', "fade"),
-    ('{"parameters": {"fade": 0, "fade": 0}}', "fade"),
-    (r'{"parameters": {"fade": 0, "\u0066ade": 100}}', "fade"),
-])
+@pytest.mark.parametrize(
+    "text,key",
+    [
+        ('{"filter": "fattal1", "filter": "fattal2"}', "filter"),
+        ('{"parameters": {"fade": 0}, "parameters": {"fade": 100}}', "parameters"),
+        ('{"parameters": {"fade": 0, "fade": 100}}', "fade"),
+        ('{"parameters": {"fade": 0, "fade": 0}}', "fade"),
+        (r'{"parameters": {"fade": 0, "\u0066ade": 100}}', "fade"),
+    ],
+)
 @pytest.mark.parametrize("inherited", [False, True])
 def test_duplicate_json_keys_fail_before_processing(
     tmp_path, capsys, text, key, inherited
@@ -201,8 +226,15 @@ def test_duplicate_json_keys_fail_before_processing(
         Config.source_paths(path)
     destination = tmp_path / "output.jpg"
     with pytest.raises(SystemExit) as error:
-        main(["apply", str(tmp_path / "missing.png"), str(destination),
-              "--config", str(path)])
+        main(
+            [
+                "apply",
+                str(tmp_path / "missing.png"),
+                str(destination),
+                "--config",
+                str(path),
+            ]
+        )
     assert error.value.code == 2
     assert message in capsys.readouterr().err
     assert not destination.exists()
@@ -254,7 +286,8 @@ def test_api_uses_filter_selection_and_convenience_overrides():
     with pytest.raises(ValueError, match="not both"):
         apply_filter(rgb, config=config, profile="core")
     with pytest.raises(ValueError, match="FilterParams"):
-        apply_filter(rgb, params={})
+        # Deliberately pass the wrong type to exercise runtime validation.
+        apply_filter(rgb, params={})  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 def test_custom_limit_changes_real_processing_without_changing_dimensions():
@@ -355,9 +388,7 @@ def test_icc_interpretation_and_optional_profile_embedding(tmp_path, capsys):
     image.info["icc_profile"] = profile
     actual = apply_filter(
         image,
-        config=Config(
-            image=ImageConfig(color_space="srgb")
-        ),
+        config=Config(image=ImageConfig(color_space="srgb")),
     )
     np.testing.assert_array_equal(
         np.asarray(actual), apply_filter(np.asarray(transformed))
@@ -412,11 +443,14 @@ def test_photo_export_applies_exif_and_requested_jpeg_codec(tmp_path, capsys, fa
     for variant in (1, 2):
         filtered = apply_filter(pixels, variant, FilterParams(fade=fade))
         control = BytesIO()
-        Image.fromarray(filtered).save(control, format="JPEG", quality=100, subsampling=2)
+        Image.fromarray(filtered).save(
+            control, format="JPEG", quality=100, subsampling=2
+        )
         control.seek(0)
         with Image.open(control) as expected:
             output = outputs / f"fattal{variant}.jpg"
             with Image.open(output) as actual:
+                assert isinstance(actual, JpegImagePlugin.JpegImageFile)
                 assert actual.format == "JPEG"
                 assert actual.size == ((35, 27) if fade == 100 else (27, 35))
                 assert JpegImagePlugin.get_sampling(actual) == 2

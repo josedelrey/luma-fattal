@@ -6,11 +6,13 @@ import pytest
 from PIL import Image
 
 from luma_fatal import Config, FilterParams, apply_filter, fattal1, fattal2
-from luma_fatal.core import _pyramid, _normalize
+from luma_fatal.core import _normalize, _pyramid
 from luma_fatal.numerics import (
-    fast_pow, gradient_scale, luminance_fractional, luminance_u8,
+    fast_pow,
+    gradient_scale,
+    luminance_fractional,
+    luminance_u8,
 )
-
 
 FADE_CASES = json.loads(
     (Path(__file__).parent / "fixtures/fade-flat.json").read_text()
@@ -51,9 +53,13 @@ def test_black_and_low_light_gate(function):
 @pytest.mark.parametrize("function", [apply_filter, fattal1, fattal2])
 def test_uniform_midgray_zero_range_behavior(function):
     image = np.full((32, 48, 3), 128, np.uint8)
-    assert np.all(function(image, config=Config(parameters=FilterParams(fade=0))) == 255)
+    assert np.all(
+        function(image, config=Config(parameters=FilterParams(fade=0))) == 255
+    )
     assert np.all(function(image) == 255)
-    assert np.all(function(image, config=Config(parameters=FilterParams(fade=50))) == 191)
+    assert np.all(
+        function(image, config=Config(parameters=FilterParams(fade=50))) == 191
+    )
 
 
 def test_rectangular_odd_image_variants_deterministic_and_distinct():

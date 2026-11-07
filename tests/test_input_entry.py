@@ -1,12 +1,12 @@
 """Sampled decoder references and file-versus-pixel API contracts."""
 
-from dataclasses import replace
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 import pytest
+from PIL import Image
 
 from luma_fatal import Config, FilterParams, ProcessingConfig, apply_filter
 from luma_fatal.cli import main
@@ -112,7 +112,14 @@ def test_cli_records_sampling_and_evaluation_uses_matching_geometry(
     source = inputs / "pattern.png"
     source.write_bytes((FIXTURES / "decode-pattern.png").read_bytes())
     destination = tmp_path / "out.png"
-    options = ["--fade", str(fade), "--max-input-pixels", "100", "--output-format", "png"]
+    options = [
+        "--fade",
+        str(fade),
+        "--max-input-pixels",
+        "100",
+        "--output-format",
+        "png",
+    ]
     main(["apply", str(source), str(destination), *options])
     metadata = json.loads(destination.with_suffix(".meta.json").read_text())
     if fade == 100:

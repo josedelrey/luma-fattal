@@ -1,26 +1,26 @@
 """Vibrance boosts muted color without inventing hues or changing brightness."""
 
-from dataclasses import replace
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 import pytest
+from PIL import Image
+from test_video import tools as tools
 
 from luma_fatal import Config, FilterParams, ProcessingConfig, apply_filter
 from luma_fatal.cli import main
 from luma_fatal.core import _boost_vibrance, _recombine
 from luma_fatal.pipeline import process_frames
-from test_video import tools
-
 
 WEIGHTS = np.array([4899, 9617, 1868], np.float64) / 16384
 
 
-@pytest.mark.parametrize("value", [-1, 100.1, True, "50", None,
-                                    float("nan"), float("inf")])
+@pytest.mark.parametrize(
+    "value", [-1, 100.1, True, "50", None, float("nan"), float("inf")]
+)
 def test_invalid_vibrance_is_rejected(value):
     with pytest.raises(ValueError, match="vibrance"):
         FilterParams(vibrance=value)
@@ -29,22 +29,31 @@ def test_invalid_vibrance_is_rejected(value):
 @pytest.mark.parametrize("suffix", ["yaml", "toml", "json"])
 def test_vibrance_configuration_roundtrips(tmp_path, suffix):
     config = Config(parameters=FilterParams(vibrance=62.5))
-    content = {"yaml": config.to_yaml(), "toml": config.to_toml(),
-               "json": json.dumps(config.to_dict())}[suffix]
+    content = {
+        "yaml": config.to_yaml(),
+        "toml": config.to_toml(),
+        "json": json.dumps(config.to_dict()),
+    }[suffix]
     path = tmp_path / f"settings.{suffix}"
     path.write_text(content)
     assert Config.load(path) == config
 
 
-@pytest.mark.parametrize("strength,expected", [
-    (0, [150, 100, 100]), (25, [154, 98, 98]),
-    (50, [158, 97, 97]), (100, [166, 93, 93]),
-])
+@pytest.mark.parametrize(
+    "strength,expected",
+    [
+        (0, [150, 100, 100]),
+        (25, [154, 98, 98]),
+        (50, [158, 97, 97]),
+        (100, [166, 93, 93]),
+    ],
+)
 def test_vibrance_has_known_quantized_color_values(strength, expected):
     rgb = np.array([[[150, 100, 100]]], np.uint8)
     luminance = np.array([[100 / 255]], np.float32)
-    result = _recombine(rgb, luminance, luminance, 100, power_mode="standard",
-                        vibrance=strength)
+    result = _recombine(
+        rgb, luminance, luminance, 100, power_mode="standard", vibrance=strength
+    )
     np.testing.assert_array_equal(result, [[expected]])
 
 
@@ -55,8 +64,19 @@ def test_neutral_grays_are_unchanged(strength):
 
 
 def test_fully_saturated_colors_are_unchanged():
-    rgb = np.array([[[255, 0, 0], [0, 255, 0], [0, 0, 255],
-                     [255, 255, 0], [255, 0, 255], [0, 255, 255]]], np.float64)
+    rgb = np.array(
+        [
+            [
+                [255, 0, 0],
+                [0, 255, 0],
+                [0, 0, 255],
+                [255, 255, 0],
+                [255, 0, 255],
+                [0, 255, 255],
+            ]
+        ],
+        np.float64,
+    )
     np.testing.assert_array_equal(_boost_vibrance(rgb, 100), rgb)
 
 
@@ -102,16 +122,31 @@ def test_nonfinite_and_overrange_values_follow_existing_clipping_convention():
 def test_vibrance_follows_gamma():
     rgb = np.array([[[150, 100, 100]]], np.uint8)
     luminance = np.array([[100 / 255]], np.float32)
-    result = _recombine(rgb, luminance, luminance, 100, power_mode="standard",
-                        output_gamma=2, vibrance=100)
+    result = _recombine(
+        rgb,
+        luminance,
+        luminance,
+        100,
+        power_mode="standard",
+        output_gamma=2,
+        vibrance=100,
+    )
     np.testing.assert_array_equal(result, [[[212, 153, 153]]])
 
 
 def test_output_levels_follow_vibrance():
     rgb = np.array([[[150, 100, 100]]], np.uint8)
     luminance = np.array([[100 / 255]], np.float32)
-    result = _recombine(rgb, luminance, luminance, 100, power_mode="standard",
-                        vibrance=100, black_level=20, white_level=80)
+    result = _recombine(
+        rgb,
+        luminance,
+        luminance,
+        100,
+        power_mode="standard",
+        vibrance=100,
+        black_level=20,
+        white_level=80,
+    )
     np.testing.assert_array_equal(result, [[[150, 107, 107]]])
 
 
@@ -119,39 +154,59 @@ def test_output_levels_follow_vibrance():
 def test_protected_shadows_keep_original_color(softness):
     rgb = np.zeros((2, 3, 3), np.uint8)
     luminance = np.full((2, 3), 1 / 255, np.float32)
-    result = _recombine(rgb, luminance, np.ones_like(luminance), 100,
-                        power_mode="standard", vibrance=100, shadow_softness=softness)
+    result = _recombine(
+        rgb,
+        luminance,
+        np.ones_like(luminance),
+        100,
+        power_mode="standard",
+        vibrance=100,
+        shadow_softness=softness,
+    )
     np.testing.assert_array_equal(result, rgb)
 
 
 @pytest.mark.parametrize("variant", [1, 2])
 @pytest.mark.parametrize("max_edge", [None, 40])
 def test_vibrance_works_in_both_resolution_routes_and_preserves_fade_and_alpha(
-    variant, max_edge,
+    variant,
+    max_edge,
 ):
     pixels = np.random.default_rng(97).integers(20, 240, (67, 91, 4), np.uint8)
     before = pixels.copy()
     config = Config(
         filter=f"fattal{variant}",
-        parameters=FilterParams(fade=0, vibrance=80, tone_strength=60,
-                                highlight_compression=75, black_level=5, white_level=95),
-        processing=ProcessingConfig(resize=max_edge is not None, max_edge=max_edge,
-                                    transparency="straight"),
+        parameters=FilterParams(
+            fade=0,
+            vibrance=80,
+            tone_strength=60,
+            highlight_compression=75,
+            black_level=5,
+            white_level=95,
+        ),
+        processing=ProcessingConfig(
+            resize=max_edge is not None, max_edge=max_edge, transparency="straight"
+        ),
     )
     result = apply_filter(pixels, config=config)
-    disabled = apply_filter(pixels, config=replace(
-        config, parameters=replace(config.parameters, vibrance=0)))
+    disabled = apply_filter(
+        pixels,
+        config=replace(config, parameters=replace(config.parameters, vibrance=0)),
+    )
     assert np.any(result != disabled)
     assert result[..., :3].min() >= 13 and result[..., :3].max() <= 242
     np.testing.assert_array_equal(result[..., 3], pixels[..., 3])
-    faded = apply_filter(pixels, config=replace(
-        config, parameters=replace(config.parameters, fade=25)))
-    expected = (3 * result[..., :3].astype(np.uint16)
-                + pixels[..., :3].astype(np.uint16) + 1) // 4
+    faded = apply_filter(
+        pixels, config=replace(config, parameters=replace(config.parameters, fade=25))
+    )
+    expected = (
+        3 * result[..., :3].astype(np.uint16) + pixels[..., :3].astype(np.uint16) + 1
+    ) // 4
     np.testing.assert_array_equal(faded[..., :3], expected)
     np.testing.assert_array_equal(faded[..., 3], pixels[..., 3])
-    bypass = apply_filter(pixels, config=replace(
-        config, parameters=replace(config.parameters, fade=100)))
+    bypass = apply_filter(
+        pixels, config=replace(config, parameters=replace(config.parameters, fade=100))
+    )
     np.testing.assert_array_equal(bypass, pixels)
     np.testing.assert_array_equal(pixels, before)
 
@@ -163,42 +218,89 @@ def test_image_cli_overrides_vibrance_and_records_metadata(tmp_path, capsys):
     config = Config(parameters=FilterParams(fade=0, vibrance=20))
     path = tmp_path / "settings.yaml"
     path.write_text(config.to_yaml())
-    main(["apply", str(source), str(output), "--config", str(path),
-          "--vibrance", "75", "--output-format", "png"])
+    main(
+        [
+            "apply",
+            str(source),
+            str(output),
+            "--config",
+            str(path),
+            "--vibrance",
+            "75",
+            "--output-format",
+            "png",
+        ]
+    )
     record = json.loads(output.with_suffix(".meta.json").read_text())
     assert record["configuration"]["parameters"]["vibrance"] == 75
     assert record["parameters"]["vibrance"] == 75
-    expected = apply_filter(pixels, config=replace(
-        config, parameters=replace(config.parameters, vibrance=75)))
+    expected = apply_filter(
+        pixels,
+        config=replace(config, parameters=replace(config.parameters, vibrance=75)),
+    )
     np.testing.assert_array_equal(np.array(Image.open(output)), expected)
 
 
 def test_video_cli_vibrance_works_with_tone_controls_and_fbm(tmp_path, tools, capsys):
-    from luma_fatal.prenoise import SourceNoise
-    from luma_fatal.denoise import SourceDenoise
     from test_video import make_clip, reference_rgb
 
-    preset = Path(__file__).resolve().parents[1] / "configs/fattal-2-compressed-fbm.yaml"
+    from luma_fatal.denoise import SourceDenoise
+    from luma_fatal.prenoise import SourceNoise
+
+    preset = (
+        Path(__file__).resolve().parents[1] / "configs/fattal-2-compressed-fbm.yaml"
+    )
     config = Config.load(preset)
     source = make_clip(tmp_path / "input.mkv", tools, width=48, height=36)
     output = tmp_path / "output.mp4"
-    main(["video", str(source), str(output), "--config", str(preset),
-          "--vibrance", "75", "--tone-strength", "60", "--highlight-compression", "75",
-          "--black-level", "5", "--white-level", "95",
-          "--ffmpeg", tools[0], "--ffprobe", tools[1], "--json"])
+    main(
+        [
+            "video",
+            str(source),
+            str(output),
+            "--config",
+            str(preset),
+            "--vibrance",
+            "75",
+            "--tone-strength",
+            "60",
+            "--highlight-compression",
+            "75",
+            "--black-level",
+            "5",
+            "--white-level",
+            "95",
+            "--ffmpeg",
+            tools[0],
+            "--ffprobe",
+            tools[1],
+            "--json",
+        ]
+    )
     record = json.loads(capsys.readouterr().out)
     parameters = record["configuration"]["parameters"]
     assert parameters["vibrance"] == 75
     assert record["source_noise"]["kind"] == "fbm"
     frames = reference_rgb(source, tools, 48, 36, deband="gentle")
     expected = hashlib.sha256()
-    config = replace(config, parameters=replace(
-        config.parameters, vibrance=75, tone_strength=60, highlight_compression=75,
-        black_level=5, white_level=95))
-    for frame in process_frames(frames, config=config,
-                                source_cleanup=SourceDenoise(
-                                    config.video.denoise,
-                                    source_cleanup=SourceNoise(0.75, kind="fbm"),
-                                )):
+    config = replace(
+        config,
+        parameters=replace(
+            config.parameters,
+            vibrance=75,
+            tone_strength=60,
+            highlight_compression=75,
+            black_level=5,
+            white_level=95,
+        ),
+    )
+    for frame in process_frames(
+        frames,
+        config=config,
+        source_cleanup=SourceDenoise(
+            config.video.denoise,
+            source_cleanup=SourceNoise(0.75, kind="fbm"),
+        ),
+    ):
         expected.update(frame.tobytes())
     assert record["processed_rgb_sha256"] == expected.hexdigest()

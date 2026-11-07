@@ -8,10 +8,14 @@ from functools import lru_cache
 import numpy as np
 from numba import njit
 
-from .numerics import (
-    gradient_scale, luminance_fractional, luminance_u8, power64, scalar_math_f32,
-)
 from .configuration import FilterParams, NumericsConfig
+from .numerics import (
+    gradient_scale,
+    luminance_fractional,
+    luminance_u8,
+    power64,
+    scalar_math_f32,
+)
 
 
 def _gaussian3(source: np.ndarray) -> np.ndarray:
@@ -29,7 +33,9 @@ def _gaussian3_pass(padded: np.ndarray) -> np.ndarray:
             value = np.float32(0)
             for index, weight in enumerate(weights):
                 row, col = divmod(index, 3)
-                value = np.float32(value + np.float32(weight) * padded[y + row, x + col])
+                value = np.float32(
+                    value + np.float32(weight) * padded[y + row, x + col]
+                )
             result[y, x] = value
     return result
 
@@ -91,7 +97,9 @@ def _resize_cubic_pass(source, y_index, y_weight, x_index, x_weight):
         for x in range(x_index.shape[0]):
             value = np.float32(0)
             for k in range(4):
-                value = np.float32(value + horizontal[y_index[y, k], x] * y_weight[y, k])
+                value = np.float32(
+                    value + horizontal[y_index[y, k], x] * y_weight[y, k]
+                )
             result[y, x] = value
     return result
 
@@ -158,7 +166,9 @@ def _phi(
                     ratio = numerator / denominator
                 # Vanishing attenuation may round to zero at extreme settings.
                 with np.errstate(under="ignore"):
-                    value[mask] = power64(ratio, exponent, power_mode).astype(np.float32)
+                    value[mask] = power64(ratio, exponent, power_mode).astype(
+                        np.float32
+                    )
             if variant == 1:
                 with np.errstate(under="ignore"):
                     phi *= value
@@ -318,8 +328,11 @@ def _compress_highlights(rgb: np.ndarray, strength: float) -> np.ndarray:
     for y in range(rgb.shape[0]):
         for x in range(rgb.shape[1]):
             peak = max(rgb[y, x, 0], rgb[y, x, 1], rgb[y, x, 2])
-            finite = (np.isfinite(rgb[y, x, 0]) and np.isfinite(rgb[y, x, 1])
-                      and np.isfinite(rgb[y, x, 2]))
+            finite = (
+                np.isfinite(rgb[y, x, 0])
+                and np.isfinite(rgb[y, x, 1])
+                and np.isfinite(rgb[y, x, 2])
+            )
             if finite and peak > knee and amount > 0:
                 excess = peak - knee
                 compressed = knee + headroom / (1.0 + headroom / excess)
@@ -368,8 +381,13 @@ def _boost_vibrance(rgb: np.ndarray, strength: float) -> np.ndarray:
 
 @njit(cache=True)
 def _quantize_output_levels(
-    rgb, filtered, reference_luminance, shadow_threshold, shadow_softness,
-    black_level, white_level,
+    rgb,
+    filtered,
+    reference_luminance,
+    shadow_threshold,
+    shadow_softness,
+    black_level,
+    white_level,
 ):
     """Map the shadow-protected effect into its output range before quantization."""
     black = black_level * 255.0 / 100.0
@@ -453,26 +471,41 @@ def _recombine(
     if black_level != 0 or white_level != 100:
         reference = luminance if shadow_luminance is None else shadow_luminance
         return _quantize_output_levels(
-            rgb, result, reference, shadow_threshold, shadow_softness,
-            black_level, white_level,
+            rgb,
+            result,
+            reference,
+            shadow_threshold,
+            shadow_softness,
+            black_level,
+            white_level,
         )
     if shadow_softness:
         return _quantize_smooth_shadows(rgb, result, shadow_threshold, shadow_softness)
     result = result + 0.5
     # fmin maps NaNs to the upper limit before byte quantization.
     result = np.maximum(np.fmin(result, 255), 0).astype(np.uint8)
-    shadow_scale = original_scale if shadow_luminance is None else shadow_luminance * np.float32(255)
+    shadow_scale = (
+        original_scale
+        if shadow_luminance is None
+        else shadow_luminance * np.float32(255)
+    )
     result[shadow_scale <= shadow_threshold] = rgb[shadow_scale <= shadow_threshold]
     return result
 
 
 def apply_core(
-    array: np.ndarray, variant: int, params: FilterParams, numerics: NumericsConfig,
-    *, source_cleanup=None, solver=None,
+    array: np.ndarray,
+    variant: int,
+    params: FilterParams,
+    numerics: NumericsConfig,
+    *,
+    source_cleanup=None,
+    solver=None,
 ) -> np.ndarray:
     """Apply the effect to decoded pixels with no file or resizing policies."""
     result = array.copy()
     if params.fade < 100:
+        rgb = np.ascontiguousarray(array[..., :3])
         filtered = None
         levels_active = params.black_level != 0 or params.white_level != 100
         if min(array.shape[:2]) < 2:
@@ -481,13 +514,16 @@ def apply_core(
                 RuntimeWarning,
             )
             if levels_active:
-                rgb = np.ascontiguousarray(array[..., :3])
                 filtered = _quantize_output_levels(
-                    rgb, rgb, np.zeros(rgb.shape[:2], np.float32), 0, 0,
-                    params.black_level, params.white_level,
+                    rgb,
+                    rgb,
+                    np.zeros(rgb.shape[:2], np.float32),
+                    0,
+                    0,
+                    params.black_level,
+                    params.white_level,
                 )
         else:
-            rgb = np.ascontiguousarray(array[..., :3])
             if numerics.luminance_mode == "fractional":
                 luminance = luminance_fractional(rgb)
             else:
@@ -546,8 +582,13 @@ def apply_core(
                 )
             elif levels_active:
                 filtered = _quantize_output_levels(
-                    rgb, rgb, np.zeros(rgb.shape[:2], np.float32), 0, 0,
-                    params.black_level, params.white_level,
+                    rgb,
+                    rgb,
+                    np.zeros(rgb.shape[:2], np.float32),
+                    0,
+                    0,
+                    params.black_level,
+                    params.white_level,
                 )
         if filtered is not None:
             # Opaque Normal Fade uses nearest rounding with downward ties.
@@ -556,7 +597,7 @@ def apply_core(
                 filtered.astype(np.float32) * (np.float32(1) - amount)
                 + rgb.astype(np.float32) * amount
             )
-            result[..., :3] = np.clip(
-                np.ceil(mixed - np.float32(0.5)), 0, 255
-            ).astype(np.uint8)
+            result[..., :3] = np.clip(np.ceil(mixed - np.float32(0.5)), 0, 255).astype(
+                np.uint8
+            )
     return result

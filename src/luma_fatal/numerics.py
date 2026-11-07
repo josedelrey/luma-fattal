@@ -29,7 +29,7 @@ def scalar_math_f32(source: F32, exponential: bool) -> F32:
     return result
 
 
-def fast_pow64(base: ArrayLike, exponent: float) -> NDArray[np.float64]:
+def fast_pow64(base: ArrayLike, exponent: float | np.floating) -> NDArray[np.float64]:
     """Approximate a power using an affine transform of the float64 high word."""
     value = np.ascontiguousarray(base, dtype=np.float64)
     return _fast_pow64_values(value, np.float64(exponent))
@@ -51,7 +51,7 @@ def _fast_pow64_values(
 
 
 def power64(
-    base: ArrayLike, exponent: float, mode: str = "approximate"
+    base: ArrayLike, exponent: float | np.floating, mode: str = "approximate"
 ) -> NDArray[np.float64]:
     """Select the affine approximation or NumPy float64 exponentiation."""
     if mode == "approximate":
@@ -61,7 +61,7 @@ def power64(
     raise ValueError("power_mode must be approximate or standard")
 
 
-def fast_pow(base: ArrayLike, exponent: float) -> F32:
+def fast_pow(base: ArrayLike, exponent: float | np.floating) -> F32:
     """Evaluate the affine power approximation and narrow to float32."""
     return fast_pow64(base, exponent).astype(np.float32)
 
@@ -89,8 +89,6 @@ def luminance_fractional(rgb: NDArray[np.uint8]) -> NDArray[np.float32]:
     """Use the reference RGB weights without rounding luminance to a byte."""
     channels = rgb.astype(np.int32)
     weighted = (
-        4899 * channels[..., 0]
-        + 9617 * channels[..., 1]
-        + 1868 * channels[..., 2]
+        4899 * channels[..., 0] + 9617 * channels[..., 1] + 1868 * channels[..., 2]
     )
     return weighted.astype(np.float32) / np.float32(16384 * 255)

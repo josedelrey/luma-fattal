@@ -4,12 +4,12 @@ import os
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 import pytest
+from PIL import Image
 
+import luma_fatal.images as image_adapter
 from luma_fatal import Config, FilterParams, OutputConfig
 from luma_fatal.cli import main
-import luma_fatal.images as image_adapter
 from luma_fatal.images import process_image
 
 
@@ -20,12 +20,24 @@ def make_input(path):
 
 def run_image(source, destination, entry_point):
     if entry_point == "cli":
-        main(["apply", str(source), str(destination), "--output-format", "png",
-              "--fade", "100"])
+        main(
+            [
+                "apply",
+                str(source),
+                str(destination),
+                "--output-format",
+                "png",
+                "--fade",
+                "100",
+            ]
+        )
     else:
         process_image(
-            source, destination,
-            config=Config(parameters=FilterParams(fade=100), output=OutputConfig(format="png")),
+            source,
+            destination,
+            config=Config(
+                parameters=FilterParams(fade=100), output=OutputConfig(format="png")
+            ),
         )
 
 
@@ -40,13 +52,24 @@ def assert_rejected(source, destination, entry_point, capsys):
     paths = (source, destination, destination.with_suffix(".meta.json"))
     before = {path: path.read_bytes() if path.exists() else None for path in paths}
     if entry_point == "api":
-        config = Config(parameters=FilterParams(fade=0), output=OutputConfig(format="png"))
+        config = Config(
+            parameters=FilterParams(fade=0), output=OutputConfig(format="png")
+        )
         with pytest.raises(ValueError, match="paths must differ"):
             process_image(source, destination, config=config)
     else:
         with pytest.raises(SystemExit) as error:
-            main(["apply", str(source), str(destination), "--output-format", "png",
-                  "--fade", "0"])
+            main(
+                [
+                    "apply",
+                    str(source),
+                    str(destination),
+                    "--output-format",
+                    "png",
+                    "--fade",
+                    "0",
+                ]
+            )
         assert error.value.code == 2
         assert "paths must differ" in capsys.readouterr().err
     for path, original in before.items():
@@ -59,7 +82,9 @@ def assert_rejected(source, destination, entry_point, capsys):
 @pytest.mark.parametrize("entry_point", ["api", "cli"])
 @pytest.mark.parametrize("pair", ["input_output", "input_sidecar", "output_sidecar"])
 @pytest.mark.parametrize("link_kind", ["hard", "symbolic"])
-def test_image_paths_reject_file_aliases(tmp_path, capsys, entry_point, pair, link_kind):
+def test_image_paths_reject_file_aliases(
+    tmp_path, capsys, entry_point, pair, link_kind
+):
     source, destination = tmp_path / "input.png", tmp_path / "output.png"
     sidecar = destination.with_suffix(".meta.json")
     make_input(source)
@@ -82,9 +107,13 @@ def test_image_paths_reject_file_aliases(tmp_path, capsys, entry_point, pair, li
 
 @pytest.mark.parametrize("entry_point", ["api", "cli"])
 @pytest.mark.parametrize("target", ["output", "sidecar"])
-def test_image_paths_reject_direct_source_collisions(tmp_path, capsys, entry_point, target):
+def test_image_paths_reject_direct_source_collisions(
+    tmp_path, capsys, entry_point, target
+):
     destination = tmp_path / "output.png"
-    source = destination if target == "output" else destination.with_suffix(".meta.json")
+    source = (
+        destination if target == "output" else destination.with_suffix(".meta.json")
+    )
     make_input(source)
     assert_rejected(source, destination, entry_point, capsys)
 
@@ -132,7 +161,9 @@ def test_existing_destinations_are_preserved(tmp_path, entry_point, target, kind
 def test_dangling_destination_links_are_preserved(tmp_path, target):
     source, destination = tmp_path / "input.png", tmp_path / "output.png"
     make_input(source)
-    existing = destination if target == "output" else destination.with_suffix(".meta.json")
+    existing = (
+        destination if target == "output" else destination.with_suffix(".meta.json")
+    )
     try:
         existing.symlink_to("missing.png")
     except (OSError, NotImplementedError) as error:
@@ -197,7 +228,9 @@ def test_publication_failures_roll_back_created_files(
 
 @pytest.mark.parametrize("entry_point", ["api", "cli"])
 @pytest.mark.parametrize("target", ["output", "sidecar"])
-def test_publication_races_preserve_other_writer(tmp_path, monkeypatch, entry_point, target):
+def test_publication_races_preserve_other_writer(
+    tmp_path, monkeypatch, entry_point, target
+):
     source, destination = tmp_path / "input.png", tmp_path / "output.png"
     make_input(source)
     original = source.read_bytes()

@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import hashlib
-from importlib.metadata import version
 import json
-from pathlib import Path
 import platform
 import shutil
 import tempfile
 import time
+from dataclasses import asdict
+from importlib.metadata import version
+from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
 from . import __version__
 from .configuration import Config, resolve_config
-from .pipeline import apply_filter
-from .processing import working_size, enlargement_sizes
 from .image_io import save_image
+from .pipeline import apply_filter
+from .processing import enlargement_sizes, working_size
 
 STATUS = "Experimental gradient-domain processing, exact end-to-end equivalence not established"
 
@@ -61,12 +62,12 @@ def process_image(
     """
     input_path, output_path = Path(input_path), Path(output_path)
     config_path = Path(config_path) if config_path is not None else None
-    config_source = (
+    config_source: dict[str, Any] | None = (
         dict(path=str(config_path), sha256=_digest(config_path))
         if config_path is not None
         else None
     )
-    if config_source is not None:
+    if config_source is not None and config_path is not None:
         inherited = Config.source_paths(config_path)[1:]
         if inherited:
             config_source["inherits"] = [
@@ -84,7 +85,9 @@ def process_image(
     if _same_file(input_path, output_path):
         raise ValueError("Input and output paths must differ to preserve the original")
     if _same_file(input_path, sidecar_path):
-        raise ValueError("Input and metadata sidecar paths must differ to preserve the original")
+        raise ValueError(
+            "Input and metadata sidecar paths must differ to preserve the original"
+        )
     if _same_file(output_path, sidecar_path):
         raise ValueError("Output and metadata sidecar paths must differ")
     if any(path.exists() or path.is_symlink() for path in (output_path, sidecar_path)):
@@ -108,7 +111,9 @@ def process_image(
             else (source_icc if original_mode in ("RGB", "RGBA") else None)
         )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".luma-fatal-", dir=output_path.parent) as directory:
+    with tempfile.TemporaryDirectory(
+        prefix=".luma-fatal-", dir=output_path.parent
+    ) as directory:
         temporary_image = Path(directory) / ("image" + output_path.suffix)
         temporary_meta = Path(directory) / "image.meta.json"
         save_image(result, temporary_image, config.output, output_icc)
@@ -171,13 +176,14 @@ def process_image(
             seconds=time.perf_counter() - start,
             color_policy=asdict(config.image),
         )
-        if config_source is not None:
+        if config_source is not None and config_path is not None:
             record["config_source"] = config_source
         _write_json(temporary_meta, record)
         created = []
         try:
             for staged, target in (
-                (temporary_image, output_path), (temporary_meta, sidecar_path)
+                (temporary_image, output_path),
+                (temporary_meta, sidecar_path),
             ):
                 with target.open("xb") as output:
                     created.append(target)

@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, replace
 import json
+from dataclasses import asdict, replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image
 
+from .configuration import VIDEO_COLOR_PROFILES, Config, FilterParams, resolve_config
+from .images import STATUS, _digest, _write_json, process_image
 from .pipeline import _prepare_pillow_input
-from .processing import limit_input_pixels
-from .configuration import Config, FilterParams, VIDEO_COLOR_PROFILES, resolve_config
-from .images import process_image, STATUS, _write_json, _digest
 from .probes import generate_probes
+from .processing import limit_input_pixels
 from .validation import compare_images, write_difference_panel
 from .video import process_video
 
@@ -81,14 +82,36 @@ def _settings(args: argparse.Namespace) -> Config:
     video = {
         name: getattr(args, name)
         for name in (
-            "crf", "preset", "deblock", "deband", "denoise", "flat_cleanup",
-            "flat_cleanup_mode", "flat_cleanup_coarse_strength", "flat_cleanup_sigma",
-            "pre_noise_rms", "pre_noise_kind", "pre_noise_masked", "pre_noise_seed",
-            "frame_rate", "input_color", "input_range",
-            "encoder", "nvenc_cq", "nvenc_preset",
-            "filter_backend", "calibration_cache", "gpu_iterations", "lighting_scale",
-            "decode_prefetch", "pinned_frames", "gpu_buffer_reuse", "gpu_cleanup_graph",
-            "solver_halo", "pipeline_depth", "validation_mode",
+            "crf",
+            "preset",
+            "deblock",
+            "deband",
+            "denoise",
+            "flat_cleanup",
+            "flat_cleanup_mode",
+            "flat_cleanup_coarse_strength",
+            "flat_cleanup_sigma",
+            "pre_noise_rms",
+            "pre_noise_kind",
+            "pre_noise_masked",
+            "pre_noise_seed",
+            "frame_rate",
+            "input_color",
+            "input_range",
+            "encoder",
+            "nvenc_cq",
+            "nvenc_preset",
+            "filter_backend",
+            "calibration_cache",
+            "gpu_iterations",
+            "lighting_scale",
+            "decode_prefetch",
+            "pinned_frames",
+            "gpu_buffer_reuse",
+            "gpu_cleanup_graph",
+            "solver_halo",
+            "pipeline_depth",
+            "validation_mode",
         )
         if getattr(args, name, None) is not None
     }
@@ -179,7 +202,7 @@ def _evaluate(args: argparse.Namespace) -> dict:
                 )
             rows.append(row)
     compared = [row for row in rows if row["status"] == "compared"]
-    summary = dict(
+    summary: dict[str, Any] = dict(
         fidelity_status=STATUS,
         parameters=asdict(params),
         processing_profile=config.processing.profile_name,
@@ -247,105 +270,183 @@ def main(argv: list[str] | None = None) -> None:
     video.add_argument("output", type=Path)
     video.add_argument("--filter", choices=("fattal1", "fattal2"), default=None)
     video.add_argument(
-        "--encoder", choices=("libx264", "h264_nvenc"), default=None,
+        "--encoder",
+        choices=("libx264", "h264_nvenc"),
+        default=None,
         help="H.264 encoder. YAML presets select h264_nvenc with automatic CPU fallback",
     )
     video.add_argument("--crf", type=int, default=None, help="libx264 quality, 0 to 51")
     video.add_argument(
-        "--filter-backend", choices=("cpu", "auto"), default=None,
+        "--filter-backend",
+        choices=("cpu", "auto"),
+        default=None,
         help="cpu uses reference filtering. auto benchmarks the optional CUDA solver before selecting it",
     )
-    video.add_argument("--calibration-cache", action=argparse.BooleanOptionalAction,
-                       default=None, help="Reuse compatible CUDA calibration across runs")
-    video.add_argument("--gpu-iterations", type=int, default=None,
-                       help="GPU Poisson iterations, leaving the CPU reference unchanged")
-    video.add_argument("--lighting-scale", type=float, default=None,
-                       help="Resolution fraction of the GPU lighting correction grid, 0.25 to 1")
-    video.add_argument("--decode-prefetch", type=int, default=None,
-                       help="Decoded frames to queue ahead, 0 to 16")
-    video.add_argument("--pinned-frames", action=argparse.BooleanOptionalAction,
-                       default=None, help="Decode into pinned host buffers for GPU transfer")
-    video.add_argument("--gpu-buffer-reuse", action=argparse.BooleanOptionalAction,
-                       default=None, help="Reuse GPU buffers and retain device cleanup history")
-    video.add_argument("--gpu-cleanup-graph", action=argparse.BooleanOptionalAction,
-                       default=None, help="Capture compatible cleanup operations in a CUDA graph")
-    video.add_argument("--solver-halo", type=int, default=None,
-                       help="GPU boundary dependency rows, 32 to 96")
-    video.add_argument("--pipeline-depth", type=int, default=None,
-                       help="Reusable decode/filter/encode slots, 0 disables overlap")
-    video.add_argument("--validation-mode", choices=("scan", "stream"), default=None,
-                       help="Validate with a separate scan or during compatible decoding")
+    video.add_argument(
+        "--calibration-cache",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Reuse compatible CUDA calibration across runs",
+    )
+    video.add_argument(
+        "--gpu-iterations",
+        type=int,
+        default=None,
+        help="GPU Poisson iterations, leaving the CPU reference unchanged",
+    )
+    video.add_argument(
+        "--lighting-scale",
+        type=float,
+        default=None,
+        help="Resolution fraction of the GPU lighting correction grid, 0.25 to 1",
+    )
+    video.add_argument(
+        "--decode-prefetch",
+        type=int,
+        default=None,
+        help="Decoded frames to queue ahead, 0 to 16",
+    )
+    video.add_argument(
+        "--pinned-frames",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Decode into pinned host buffers for GPU transfer",
+    )
+    video.add_argument(
+        "--gpu-buffer-reuse",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Reuse GPU buffers and retain device cleanup history",
+    )
+    video.add_argument(
+        "--gpu-cleanup-graph",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Capture compatible cleanup operations in a CUDA graph",
+    )
+    video.add_argument(
+        "--solver-halo",
+        type=int,
+        default=None,
+        help="GPU boundary dependency rows, 32 to 96",
+    )
+    video.add_argument(
+        "--pipeline-depth",
+        type=int,
+        default=None,
+        help="Reusable decode/filter/encode slots, 0 disables overlap",
+    )
+    video.add_argument(
+        "--validation-mode",
+        choices=("scan", "stream"),
+        default=None,
+        help="Validate with a separate scan or during compatible decoding",
+    )
     video.add_argument("--preset", default=None, help="libx264 speed preset")
     video.add_argument(
-        "--nvenc-cq", type=int, default=None,
+        "--nvenc-cq",
+        type=int,
+        default=None,
         help="NVENC target quality, 1 to 51, lower is better. 0 selects automatic quality",
     )
     video.add_argument(
-        "--nvenc-preset", choices=("p1", "p2", "p3", "p4", "p5", "p6", "p7"),
-        default=None, help="NVENC speed preset, p1 fastest to p7 slowest, default p4",
+        "--nvenc-preset",
+        choices=("p1", "p2", "p3", "p4", "p5", "p6", "p7"),
+        default=None,
+        help="NVENC speed preset, p1 fastest to p7 slowest, default p4",
     )
     video.add_argument(
-        "--frame-rate", default=None,
+        "--frame-rate",
+        default=None,
         help="Output fps, such as 30 or 30000/1001, or auto to use the source rate",
     )
     video.add_argument(
-        "--input-color", choices=("auto", *VIDEO_COLOR_PROFILES), default=None,
+        "--input-color",
+        choices=("auto", *VIDEO_COLOR_PROFILES),
+        default=None,
         help="Override source color interpretation, default auto uses tags and recorded assumptions",
     )
     video.add_argument(
-        "--input-range", choices=("auto", "limited", "full"), default=None,
+        "--input-range",
+        choices=("auto", "limited", "full"),
+        default=None,
         help="Override source signal range, default auto uses tags or a recorded assumption",
     )
     video.add_argument(
-        "--deblock", choices=("off", "weak4", "weak8"), default=None,
+        "--deblock",
+        choices=("off", "weak4", "weak8"),
+        default=None,
         help="Optional weak source deblocking before the Fattal filter",
     )
     video.add_argument(
-        "--deband", choices=("off", "gentle"), default=None,
+        "--deband",
+        choices=("off", "gentle"),
+        default=None,
         help="Optional gentle source debanding before the Fattal filter",
     )
     video.add_argument(
-        "--denoise", type=float, default=None,
+        "--denoise",
+        type=float,
+        default=None,
         help="Adaptive source denoising before Fattal, 0 to 1, default 0",
     )
     video.add_argument(
-        "--flat-cleanup", type=float, default=None,
+        "--flat-cleanup",
+        type=float,
+        default=None,
         help="Source-guided cleanup strength in smooth areas, 0 to 1, default 0",
     )
     video.add_argument(
-        "--flat-cleanup-mode", choices=("standard", "multiscale"), default=None,
+        "--flat-cleanup-mode",
+        choices=("standard", "multiscale"),
+        default=None,
         help="Select standard or multiscale source-guided cleanup",
     )
     video.add_argument(
-        "--flat-cleanup-coarse-strength", type=float, default=None,
+        "--flat-cleanup-coarse-strength",
+        type=float,
+        default=None,
         help="Broad correction strength for multiscale cleanup, 0 to 1",
     )
     video.add_argument(
-        "--flat-cleanup-sigma", type=float, default=None,
+        "--flat-cleanup-sigma",
+        type=float,
+        default=None,
         help="Broad correction radius in effect working pixels, 0.01 to 16",
     )
     video.add_argument(
-        "--pre-noise-rms", type=float, default=None,
+        "--pre-noise-rms",
+        type=float,
+        default=None,
         help="Noise RMS before Fattal in source 0-255 units, 0 to 4, default 0",
     )
     video.add_argument(
-        "--pre-noise-kind", choices=("highpass", "fbm"), default=None,
+        "--pre-noise-kind",
+        choices=("highpass", "fbm"),
+        default=None,
         help="Fine high-pass or fBm-like source noise",
     )
     video.add_argument(
-        "--pre-noise-masked", action=argparse.BooleanOptionalAction, default=None,
+        "--pre-noise-masked",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Restrict source noise to smooth regions, enabled by default",
     )
     video.add_argument(
-        "--pre-noise-seed", type=int, default=None,
+        "--pre-noise-seed",
+        type=int,
+        default=None,
         help="Nonnegative seed for the fixed source noise field",
     )
     video.add_argument(
-        "--ffmpeg", default="ffmpeg", help="FFmpeg executable with zscale and the selected encoder"
+        "--ffmpeg",
+        default="ffmpeg",
+        help="FFmpeg executable with zscale and the selected encoder",
     )
     video.add_argument("--ffprobe", default="ffprobe", help="ffprobe executable")
     video.add_argument(
-        "--progress", action="store_true",
+        "--progress",
+        action="store_true",
         help="Show filtered frames and speed, with ETA when the frame count is known",
     )
     compare = commands.add_parser(
@@ -374,7 +475,8 @@ def main(argv: list[str] | None = None) -> None:
     configuration.add_argument("--output", type=Path)
     for command in (apply, video, compare, configuration):
         command.add_argument(
-            "--json", action="store_true",
+            "--json",
+            action="store_true",
             help="Print the full machine-readable result to stdout",
         )
     evaluate.add_argument(
@@ -411,13 +513,21 @@ def main(argv: list[str] | None = None) -> None:
             )
         for name, value_type, description in (
             ("iterations", int, "Poisson solver iterations, at least 1"),
-            ("relaxation", float, "Poisson relaxation factor, greater than 0 and below 2"),
+            (
+                "relaxation",
+                float,
+                "Poisson relaxation factor, greater than 0 and below 2",
+            ),
             ("pyramid_min_size", int, "Minimum pyramid dimension, at least 2"),
             ("normalization_low", float, "Lower normalization quantile, 0 to below 1"),
             ("normalization_high", float, "Upper normalization quantile, 0 to below 1"),
             ("normalization_floor", float, "Positive normalization floor, at most 1"),
             ("gradient_threshold", float, "Positive gradient threshold, at most 1"),
-            ("log_offset", float, "Positive luminance offset before logarithms, at most 1"),
+            (
+                "log_offset",
+                float,
+                "Positive luminance offset before logarithms, at most 1",
+            ),
             ("shadow_threshold", int, "Shadow preservation cutoff, 0 to 255"),
         ):
             command.add_argument(

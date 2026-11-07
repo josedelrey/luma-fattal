@@ -18,28 +18,34 @@ No result measures subjective artifact removal or proves absence of flicker.
 from __future__ import annotations
 
 import argparse
-from contextlib import ExitStack
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import time
+from contextlib import ExitStack
+from pathlib import Path
 
 import numpy as np
+from cleanup_multiscale import ScaleSeparatedCleanup
 from PIL import Image, ImageDraw, ImageFont
 from scipy.ndimage import gaussian_filter
 
-from cleanup_multiscale import ScaleSeparatedCleanup
 from luma_fatal.cleanup import SourceCleanup
 from luma_fatal.configuration import Config
 from luma_fatal.core import apply_core
 from luma_fatal.numerics import luminance_fractional, luminance_u8
 from luma_fatal.processing import limit_input_pixels, resize_working, working_size
 from luma_fatal.video import (
-    _check, _decode_command, _decoded_frames, _encode_command, _probe, _process,
-    _resolve_color, _select_encoder, _source_rate,
+    _check,
+    _decode_command,
+    _decoded_frames,
+    _encode_command,
+    _probe,
+    _process,
+    _resolve_color,
+    _select_encoder,
+    _source_rate,
 )
-
 
 CASES = {
     "off": lambda: None,
@@ -60,7 +66,10 @@ def prepare(rgb, config):
         return rgb
     rgb = limit_input_pixels(rgb, config.processing.effective_max_input_pixels)
     return resize_working(
-        rgb, working_size((rgb.shape[1], rgb.shape[0]), config.processing.effective_max_edge),
+        rgb,
+        working_size(
+            (rgb.shape[1], rgb.shape[0]), config.processing.effective_max_edge
+        ),
         config.processing.working_resampler,
     )
 
@@ -72,8 +81,13 @@ def reference(rgb, config):
 
 
 def filtered(rgb, config, callback):
-    return apply_core(rgb, int(config.filter[-1]), config.parameters,
-                      config.numerics, source_cleanup=callback)
+    return apply_core(
+        rgb,
+        int(config.filter[-1]),
+        config.parameters,
+        config.numerics,
+        source_cleanup=callback,
+    )
 
 
 def contact_sheet(images, output, crop=None):
@@ -133,9 +147,14 @@ def synthetic_pair(kind, seed=20261016):
         damaged = smooth.copy()
     else:
         raise ValueError(kind)
+
     def rgb(values):
-        return np.repeat(np.clip(np.round(values + grain), 0, 255)
-                         .astype(np.uint8)[..., None], 3, axis=2)
+        return np.repeat(
+            np.clip(np.round(values + grain), 0, 255).astype(np.uint8)[..., None],
+            3,
+            axis=2,
+        )
+
     return rgb(smooth), rgb(damaged)
 
 
@@ -163,19 +182,24 @@ def run_synthetic(args, config):
             output_y = luminance_fractional(images[name]) * 255
             truth_y = luminance_fractional(truth_output) * 255
             rows[name] = {
-                "source_low_band_error_rms": float(np.sqrt(np.mean(
-                    gaussian_filter(error, 3)[interior] ** 2))),
+                "source_low_band_error_rms": float(
+                    np.sqrt(np.mean(gaussian_filter(error, 3)[interior] ** 2))
+                ),
                 "source_fine_band_error_rms": band_rms(error[interior]),
-                "source_fine_band_gain": float(np.sum(high[interior] * target_high[interior])
-                                                / np.sum(target_high[interior] ** 2)),
-                "filtered_mean_abs_error": float(np.mean(np.abs(
-                    output_y[interior] - truth_y[interior]))),
+                "source_fine_band_gain": float(
+                    np.sum(high[interior] * target_high[interior])
+                    / np.sum(target_high[interior] ** 2)
+                ),
+                "filtered_mean_abs_error": float(
+                    np.mean(np.abs(output_y[interior] - truth_y[interior]))
+                ),
                 "filtered_fine_band_rms": band_rms(output_y[interior]),
             }
             if kind == "real-edge":
                 # The clean pair has a real two-level edge and no added artifact.
-                rows[name]["real_edge_error_rms"] = float(np.sqrt(np.mean(
-                    error[24:-24, 250:262] ** 2)))
+                rows[name]["real_edge_error_rms"] = float(
+                    np.sqrt(np.mean(error[24:-24, 250:262] ** 2))
+                )
         contact_sheet(images, args.output / f"{kind}.png")
         results[kind] = rows
     return results
@@ -196,10 +220,12 @@ def run_benchmark(args, config):
             callback(rgb, luminance)
             durations[name].append(time.perf_counter() - start)
     return {
-        "working_shape": list(rgb.shape), "trials": 12,
+        "working_shape": list(rgb.shape),
+        "trials": 12,
         "scope": "Fresh cleanup callback only, warm compiled code, no Fattal or encoding",
-        "median_seconds": {name: float(np.median(values))
-                           for name, values in durations.items()},
+        "median_seconds": {
+            name: float(np.median(values)) for name, values in durations.items()
+        },
     }
 
 
@@ -207,9 +233,15 @@ def run_video(args, config):
     stream = _probe(args.input, "ffprobe")
     color, assumptions = _resolve_color(stream, config.video)
     rate = _source_rate(stream, config.video)
-    command = _decode_command("ffmpeg", args.input, stream,
-                              config.video.deblock, config.video.deband, color=color)
-    command[command.index("-i"):command.index("-i")] = ["-ss", str(args.start)]
+    command = _decode_command(
+        "ffmpeg",
+        args.input,
+        stream,
+        config.video.deblock,
+        config.video.deband,
+        color=color,
+    )
+    command[command.index("-i") : command.index("-i")] = ["-ss", str(args.start)]
     command[-1:-1] = ["-frames:v", str(args.frames)]
     callbacks = {name: CASES[name]() for name in args.cases}
     previous = {}
@@ -220,40 +252,63 @@ def run_video(args, config):
     count = 0
     encoding_settings, fallback_reason = config.video, None
     with ExitStack() as stack:
-        decoder, decoder_log = stack.enter_context(_process(
-            command, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL,
-        ))
+        decoder, decoder_log = stack.enter_context(
+            _process(
+                command,
+                stdout=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+            )
+        )
         encoders = {}
         for frame in _decoded_frames(decoder.stdout, stream["width"], stream["height"]):
             rgb = prepare(frame, config)
             height, width = rgb.shape[:2]
             if not encoders:
                 encoding_settings, fallback_reason = _select_encoder(
-                    "ffmpeg", width + width % 2, height + height % 2, rate, config.video,
+                    "ffmpeg",
+                    width + width % 2,
+                    height + height % 2,
+                    rate,
+                    config.video,
                 )
             samples = {"source": rgb}
             for name, callback in callbacks.items():
                 if name not in encoders:
                     cmd = _encode_command(
-                        "ffmpeg", args.output / f"{name}.mp4", width + width % 2,
-                        height + height % 2, rate, encoding_settings,
+                        "ffmpeg",
+                        args.output / f"{name}.mp4",
+                        width + width % 2,
+                        height + height % 2,
+                        rate,
+                        encoding_settings,
                     )
-                    encoders[name] = stack.enter_context(_process(
-                        cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                    ))
+                    encoders[name] = stack.enter_context(
+                        _process(
+                            cmd,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL,
+                        )
+                    )
                 start = time.perf_counter()
                 result = filtered(rgb, config, callback)
                 times[name].append(time.perf_counter() - start)
                 if name in previous:
-                    deltas[name].append(float(np.mean(np.abs(
-                        result.astype(np.float32) - previous[name]))))
+                    deltas[name].append(
+                        float(
+                            np.mean(np.abs(result.astype(np.float32) - previous[name]))
+                        )
+                    )
                 previous[name] = result.astype(np.float32)
                 hashes[name].update(result.tobytes())
-                padded = np.pad(result, ((0, height % 2), (0, width % 2), (0, 0)), mode="edge")
+                padded = np.pad(
+                    result, ((0, height % 2), (0, width % 2), (0, 0)), mode="edge"
+                )
                 encoders[name][0].stdin.write(padded.tobytes())
                 if count in sample_indices:
                     samples[name] = result
-                    Image.fromarray(result).save(args.output / f"{name}-{count:03d}.png")
+                    Image.fromarray(result).save(
+                        args.output / f"{name}-{count:03d}.png"
+                    )
             if count in sample_indices:
                 contact_sheet(samples, args.output / f"frame-{count:03d}.png")
             count += 1
@@ -266,17 +321,29 @@ def run_video(args, config):
     if count != args.frames:
         raise ValueError(f"Requested {args.frames} frames but decoded {count}")
     return {
-        "frames": count, "frame_rate": str(rate),
+        "frames": count,
+        "frame_rate": str(rate),
         "color_policy": {"resolved_input": color, "assumptions": assumptions},
-        "encoding": {"requested_encoder": config.video.encoder,
-                     "encoder": encoding_settings.encoder, "fallback_reason": fallback_reason},
-        "start_seconds": args.start, "fresh_decoder_and_mask_history": True,
-        "cases": {name: {
-            "mean_adjacent_frame_abs_change": float(np.mean(deltas[name])),
-            "median_processing_seconds_excluding_first": float(np.median(times[name][1:])),
-            "processed_rgb_sha256": hashes[name].hexdigest(),
-            "mask_resets": getattr(getattr(callback, "cleanup", callback), "resets", 0),
-        } for name, callback in callbacks.items()},
+        "encoding": {
+            "requested_encoder": config.video.encoder,
+            "encoder": encoding_settings.encoder,
+            "fallback_reason": fallback_reason,
+        },
+        "start_seconds": args.start,
+        "fresh_decoder_and_mask_history": True,
+        "cases": {
+            name: {
+                "mean_adjacent_frame_abs_change": float(np.mean(deltas[name])),
+                "median_processing_seconds_excluding_first": float(
+                    np.median(times[name][1:])
+                ),
+                "processed_rgb_sha256": hashes[name].hexdigest(),
+                "mask_resets": getattr(
+                    getattr(callback, "cleanup", callback), "resets", 0
+                ),
+            }
+            for name, callback in callbacks.items()
+        },
         "warning": "Adjacent-frame change includes scene motion and is not a flicker score",
     }
 
@@ -300,15 +367,22 @@ def main(argv=None, extra_record=None):
     if config.filter == "both":
         parser.error("Select one filter in the configuration")
     args.output.mkdir(parents=True, exist_ok=False)
-    result = {"configuration": config.to_dict(), "cases": args.cases,
-              "input": str(args.input), "mode": args.mode}
+    result = {
+        "configuration": config.to_dict(),
+        "cases": args.cases,
+        "input": str(args.input),
+        "mode": args.mode,
+    }
     if extra_record:
         result.update(extra_record)
     result["measurements"] = {
-        "still": run_still, "synthetic": run_synthetic, "video": run_video,
+        "still": run_still,
+        "synthetic": run_synthetic,
+        "video": run_video,
         "benchmark": run_benchmark,
     }[args.mode](args, config)
     import luma_fatal
+
     runtime = Path(luma_fatal.__file__).parent
     files = list(Path(__file__).parent.glob("*.py")) + list(runtime.glob("*.py"))
     result["source_sha256"] = {

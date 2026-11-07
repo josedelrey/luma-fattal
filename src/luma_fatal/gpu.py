@@ -2,17 +2,37 @@
 
 from __future__ import annotations
 
-import sys
-import time
 import hashlib
 import json
 import os
+import sys
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import numpy as np
 
+if TYPE_CHECKING:
+    from .gpu_core import CudaCore
 
-_SOURCE = r'''
+
+class CalibrationRecord(TypedDict):
+    requested_backend: str
+    backend: str
+    device: str | None
+    cupy_version: str | None
+    reason: str
+    cpu_frames: int
+    cuda_frames: int
+    cpu_seconds: float | None
+    cuda_seconds: float | None
+    calibration_seconds: float
+    scope: NotRequired[str]
+    agreement: NotRequired[dict[str, float] | None]
+    calibration_cache_hit: NotRequired[bool]
+
+
+_SOURCE = r"""
 extern "C" __global__ void sweep(
     const float* rhs, float* u, int h, int w, int color, float ow, float nw
 ) {
@@ -92,14 +112,14 @@ extern "C" __global__ void parallel_edge(
         u[y*w+w-1]=above;
     }
 }
-'''
+"""
 
 
 class GPUUnavailable(RuntimeError):
     """The optional CUDA backend cannot process the requested field."""
 
 
-_COMPOSE_SOURCE = r'''
+_COMPOSE_SOURCE = r"""
 template<typename T> __device__ void compose_pixel(
     const T* rgb, const float* reference, const float* fields, float* output,
     int h, int w, int fh, int fw, int factor, double strength
@@ -155,7 +175,7 @@ extern "C" __global__ void compose_f32(
     const float* rgb, const float* reference, const float* fields, float* output,
     int h, int w, int fh, int fw, int factor, double strength
 ) { compose_pixel(rgb, reference, fields, output, h, w, fh, fw, factor, strength); }
-'''
+"""
 
 
 class CudaComposer:
@@ -163,7 +183,7 @@ class CudaComposer:
 
     def __init__(self):
         try:
-            import cupy as cp
+            import cupy as cp  # pyright: ignore[reportMissingImports]
 
             self.cp = cp
             self.device = cp.cuda.runtime.getDevice()
@@ -176,15 +196,22 @@ class CudaComposer:
             self.key = None
             self.input_key = None
         except Exception as error:
-            raise GPUUnavailable(f"CUDA cleanup composition is unavailable: {error}") from error
+            raise GPUUnavailable(
+                f"CUDA cleanup composition is unavailable: {error}"
+            ) from error
 
     def __call__(self, rgb, reference_luminance, fields, factor, strength):
         cp = self.cp
         try:
             with cp.cuda.Device(self.device), self.stream:
                 height, width = rgb.shape[:2]
-                if rgb.dtype not in self.kernels or height * width * 4 > np.iinfo(np.int32).max:
-                    raise GPUUnavailable("CUDA cleanup requires uint8 or float32 RGB within int32 indexing")
+                if (
+                    rgb.dtype not in self.kernels
+                    or height * width * 4 > np.iinfo(np.int32).max
+                ):
+                    raise GPUUnavailable(
+                        "CUDA cleanup requires uint8 or float32 RGB within int32 indexing"
+                    )
                 key = (rgb.shape, rgb.dtype, fields.shape)
                 if self.input_key != key:
                     self.rgb = cp.empty(rgb.shape, dtype=rgb.dtype)
@@ -192,11 +219,20 @@ class CudaComposer:
                     self.fields = cp.empty(fields.shape, dtype=cp.float32)
                     self.input_key = key
                 self.rgb.set(np.ascontiguousarray(rgb), stream=self.stream)
-                self.reference.set(np.ascontiguousarray(reference_luminance, dtype=np.float32), stream=self.stream)
-                self.fields.set(np.ascontiguousarray(fields, dtype=np.float32), stream=self.stream)
-                self.compose_device(self.rgb, self.reference, self.fields, factor, strength)
+                self.reference.set(
+                    np.ascontiguousarray(reference_luminance, dtype=np.float32),
+                    stream=self.stream,
+                )
+                self.fields.set(
+                    np.ascontiguousarray(fields, dtype=np.float32), stream=self.stream
+                )
+                self.compose_device(
+                    self.rgb, self.reference, self.fields, factor, strength
+                )
                 output = self.output.get(stream=self.stream)
-                return output[:height * width * 3].reshape(rgb.shape), output[height * width * 3:].reshape(height, width)
+                return output[: height * width * 3].reshape(rgb.shape), output[
+                    height * width * 3 :
+                ].reshape(height, width)
         except Exception as error:
             raise GPUUnavailable(f"CUDA cleanup composition failed: {error}") from error
 
@@ -205,19 +241,33 @@ class CudaComposer:
         cp = self.cp
         height, width = rgb.shape[:2]
         if rgb.dtype not in self.kernels or height * width * 4 > np.iinfo(np.int32).max:
-            raise GPUUnavailable("CUDA cleanup requires uint8 or float32 RGB within int32 indexing")
+            raise GPUUnavailable(
+                "CUDA cleanup requires uint8 or float32 RGB within int32 indexing"
+            )
         key = (rgb.shape, rgb.dtype, fields.shape)
         if self.key != key:
             self.output = cp.empty(height * width * 4, dtype=cp.float32)
             self.key = key
         fields = cp.asarray(fields, dtype=cp.float32)
         self.kernels[rgb.dtype](
-            ((height * width + 255) // 256,), (256,),
-            (rgb, reference, fields, self.output,
-             np.int32(height), np.int32(width), np.int32(fields.shape[0]),
-             np.int32(fields.shape[1]), np.int32(factor), np.float64(strength)),
+            ((height * width + 255) // 256,),
+            (256,),
+            (
+                rgb,
+                reference,
+                fields,
+                self.output,
+                np.int32(height),
+                np.int32(width),
+                np.int32(fields.shape[0]),
+                np.int32(fields.shape[1]),
+                np.int32(factor),
+                np.float64(strength),
+            ),
         )
-        return self.output[:height * width * 3].reshape(rgb.shape), self.output[height * width * 3:].reshape(height, width)
+        return self.output[: height * width * 3].reshape(rgb.shape), self.output[
+            height * width * 3 :
+        ].reshape(height, width)
 
 
 class CudaSolver:
@@ -231,7 +281,7 @@ class CudaSolver:
 
     def __init__(self):
         try:
-            import cupy as cp
+            import cupy as cp  # pyright: ignore[reportMissingImports]
 
             self.cp = cp
             self.device = cp.cuda.runtime.getDevice()
@@ -261,10 +311,19 @@ class CudaSolver:
         cp = self.cp
         try:
             with cp.cuda.Device(self.device), self.stream:
-                key = (rhs.shape, iterations, relaxation, self.parallel_edge, self.edge_halo)
+                key = (
+                    rhs.shape,
+                    iterations,
+                    relaxation,
+                    self.parallel_edge,
+                    self.edge_halo,
+                )
                 if self.key != key:
                     self._prepare(key)
-                self.rhs.set(np.ascontiguousarray(rhs, dtype=np.float32), stream=self.stream)
+                self.rhs.set(
+                    np.ascontiguousarray(rhs, dtype=np.float32), stream=self.stream
+                )
+                assert self.graph is not None
                 self.graph.launch(self.stream)
                 return self.solution.get(stream=self.stream)
         except Exception as error:
@@ -280,6 +339,7 @@ class CudaSolver:
         if self.key != key:
             self._prepare(key)
         self.cp.copyto(self.rhs, rhs)
+        assert self.graph is not None
         self.graph.launch(self.stream)
         return self.solution
 
@@ -292,7 +352,9 @@ class CudaSolver:
         shape, iterations, relaxation, parallel_edge, halo = key
         height, width = shape
         if min(shape) < 2 or height * width > np.iinfo(np.int32).max:
-            raise GPUUnavailable("CUDA solver requires a field of at least 2 by 2 within int32 indexing")
+            raise GPUUnavailable(
+                "CUDA solver requires a field of at least 2 by 2 within int32 indexing"
+            )
         self.rhs = cp.zeros(shape, dtype=cp.float32)
         self.solution = cp.zeros(shape, dtype=cp.float32)
         arguments = (self.rhs, self.solution, np.int32(height), np.int32(width))
@@ -303,7 +365,8 @@ class CudaSolver:
         if parallel_edge and height * 3 * 4 <= self.shared_bytes:
             if halo not in self.edge_kernels:
                 self.edge_kernels[halo] = cp.RawKernel(
-                    _SOURCE.replace("y-96", f"y-{halo}"), "parallel_edge",
+                    _SOURCE.replace("y-96", f"y-{halo}"),
+                    "parallel_edge",
                     options=("--fmad=false",),
                 )
             edge = self.edge_kernels[halo]
@@ -332,15 +395,22 @@ class AdaptiveSolver:
 
     def __init__(self, *, expected_frames=None):
         self.expected_frames = expected_frames
-        self.cuda = None
+        self.cuda: CudaSolver | None = None
         self.disabled = False
         self.key = None
         self.backend = "cpu"
         self.slow_calls = 0
-        self.record = dict(
-            requested_backend="auto", backend="cpu", device=None, cupy_version=None,
-            reason="solver not used", cpu_frames=0, cuda_frames=0,
-            cpu_seconds=None, cuda_seconds=None, calibration_seconds=0.0,
+        self.record = CalibrationRecord(
+            requested_backend="auto",
+            backend="cpu",
+            device=None,
+            cupy_version=None,
+            reason="solver not used",
+            cpu_frames=0,
+            cuda_frames=0,
+            cpu_seconds=None,
+            cuda_seconds=None,
+            calibration_seconds=0.0,
         )
 
     def __call__(self, rhs, iterations=80, relaxation=1.9):
@@ -351,12 +421,15 @@ class AdaptiveSolver:
             self.key = key
             return self._calibrate(rhs, iterations, relaxation)
         if self.backend == "cuda":
+            assert self.cuda is not None
+            cpu_seconds = self.record["cpu_seconds"]
+            assert cpu_seconds is not None
             try:
                 begin = time.perf_counter()
                 output = self.cuda(rhs, iterations, relaxation)
                 elapsed = time.perf_counter() - begin
                 self.record["cuda_frames"] += 1
-                self.slow_calls = self.slow_calls + 1 if elapsed > self.record["cpu_seconds"] else 0
+                self.slow_calls = self.slow_calls + 1 if elapsed > cpu_seconds else 0
                 if self.slow_calls >= 3:
                     self._disable("CUDA became slower than the calibrated CPU solver")
                 return output
@@ -382,11 +455,14 @@ class AdaptiveSolver:
         try:
             if self.cuda is None:
                 self.cuda = CudaSolver()
-                self.record.update(device=self.cuda.name, cupy_version=self.cuda.version)
+                self.record.update(
+                    device=self.cuda.name, cupy_version=self.cuda.version
+                )
             # Warm JIT code separately so compilation cannot bias the CPU timing.
             _sor(np.zeros((2, 2), np.float32), 1, relaxation)
             self.cuda(rhs, iterations, relaxation)
             cpu_samples, cuda_samples = [], []
+            cpu_output = cuda_output = None
             for _ in range(2):
                 begin = time.perf_counter()
                 cpu_output = _sor(rhs, iterations, relaxation)
@@ -394,19 +470,31 @@ class AdaptiveSolver:
                 begin = time.perf_counter()
                 cuda_output = self.cuda(rhs, iterations, relaxation)
                 cuda_samples.append(time.perf_counter() - begin)
+            assert cpu_output is not None and cuda_output is not None
             cpu_seconds, cuda_seconds = min(cpu_samples), max(cuda_samples)
             elapsed = time.perf_counter() - start
             self.record.update(
-                cpu_seconds=cpu_seconds, cuda_seconds=cuda_seconds,
+                cpu_seconds=cpu_seconds,
+                cuda_seconds=cuda_seconds,
                 calibration_seconds=self.record["calibration_seconds"] + elapsed,
             )
-            remaining = None if self.expected_frames is None else max(0, self.expected_frames - 1)
+            remaining = (
+                None
+                if self.expected_frames is None
+                else max(0, self.expected_frames - 1)
+            )
             setup_extra = max(0, elapsed - cpu_seconds)
-            profitable = remaining is None or remaining * (cpu_seconds - cuda_seconds) > setup_extra * 1.25
+            profitable = (
+                remaining is None
+                or remaining * (cpu_seconds - cuda_seconds) > setup_extra * 1.25
+            )
             close = np.allclose(cuda_output, cpu_output, rtol=2e-5, atol=2e-5)
             if cuda_seconds < cpu_seconds * 0.8 and profitable and close:
                 self.backend = "cuda"
-                self.record.update(backend="cuda", reason="CUDA is faster including transfers and amortized setup")
+                self.record.update(
+                    backend="cuda",
+                    reason="CUDA is faster including transfers and amortized setup",
+                )
                 self.record["cuda_frames"] += 1
                 print(
                     f"GPU filtering selected on {self.cuda.name} "
@@ -415,11 +503,17 @@ class AdaptiveSolver:
                 )
                 return cuda_output
             if not close:
-                self.record["reason"] = "CUDA result exceeded the solver agreement tolerance"
+                self.record["reason"] = (
+                    "CUDA result exceeded the solver agreement tolerance"
+                )
             elif not profitable:
-                self.record["reason"] = "clip too short to recover measured GPU setup cost"
+                self.record["reason"] = (
+                    "clip too short to recover measured GPU setup cost"
+                )
             else:
-                self.record["reason"] = "CUDA did not beat CPU solver time by at least 20 percent"
+                self.record["reason"] = (
+                    "CUDA did not beat CPU solver time by at least 20 percent"
+                )
             self.record["cpu_frames"] += 1
             return cpu_output
         except GPUUnavailable as error:
@@ -439,7 +533,11 @@ def _treatment_snapshot(treatment):
     """Save replace-only source history without copying full-resolution arrays."""
     if treatment is None:
         return None
-    return treatment, treatment.__dict__.copy(), _treatment_snapshot(getattr(treatment, "cleanup", None))
+    return (
+        treatment,
+        treatment.__dict__.copy(),
+        _treatment_snapshot(getattr(treatment, "cleanup", None)),
+    )
 
 
 def _restore_treatment(snapshot):
@@ -457,31 +555,57 @@ class AdaptiveFrameProcessor:
         self.config = config
         self.source_cleanup = source_cleanup
         self.expected_frames = expected_frames
-        self.cuda = None
+        self.cuda: CudaCore | None = None
         self.disabled = False
         self.key = None
         self.backend = "cpu"
         self.slow_calls = 0
         self.output_buffer = None
-        self.record = dict(
-            requested_backend="auto", backend="cpu", scope="frame_pipeline", device=None, cupy_version=None,
-            reason="filtering not used", cpu_frames=0, cuda_frames=0,
-            cpu_seconds=None, cuda_seconds=None, calibration_seconds=0.0, agreement=None,
+        self.record = CalibrationRecord(
+            requested_backend="auto",
+            backend="cpu",
+            scope="frame_pipeline",
+            device=None,
+            cupy_version=None,
+            reason="filtering not used",
+            cpu_frames=0,
+            cuda_frames=0,
+            cpu_seconds=None,
+            cuda_seconds=None,
+            calibration_seconds=0.0,
+            agreement=None,
             calibration_cache_hit=False,
         )
 
     def _cache_key(self, frame):
-        sources = tuple(Path(__file__).with_name(name) for name in (
-            "gpu.py", "gpu_core.py", "core.py", "numerics.py", "processing.py",
-            "pipeline.py", "cleanup.py", "denoise.py", "prenoise.py", "video.py", "video_io.py",
-        ))
+        assert self.cuda is not None
+        sources = tuple(
+            Path(__file__).with_name(name)
+            for name in (
+                "gpu.py",
+                "gpu_core.py",
+                "core.py",
+                "numerics.py",
+                "processing.py",
+                "pipeline.py",
+                "cleanup.py",
+                "denoise.py",
+                "prenoise.py",
+                "video.py",
+                "video_io.py",
+            )
+        )
         code = hashlib.sha256()
         for path in sources:
             code.update(path.read_bytes())
-        value = dict(code=code.hexdigest(), config=self.config.to_dict(),
-                     shape=frame.shape, device=self.cuda.name,
-                     cupy=self.cuda.version,
-                     driver=self.cuda.cp.cuda.runtime.driverGetVersion())
+        value = dict(
+            code=code.hexdigest(),
+            config=self.config.to_dict(),
+            shape=frame.shape,
+            device=self.cuda.name,
+            cupy=self.cuda.version,
+            driver=self.cuda.cp.cuda.runtime.driverGetVersion(),
+        )
         return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
     @staticmethod
@@ -521,9 +645,17 @@ class AdaptiveFrameProcessor:
         config = self.config
         options = dict(source_cleanup=self.source_cleanup)
         if config.processing.resize:
-            return process_pixels(frame, int(config.filter[-1]), config.parameters,
-                                  config.processing, config.numerics, **options)
-        return apply_core(frame, int(config.filter[-1]), config.parameters, config.numerics, **options)
+            return process_pixels(
+                frame,
+                int(config.filter[-1]),
+                config.parameters,
+                config.processing,
+                config.numerics,
+                **options,
+            )
+        return apply_core(
+            frame, int(config.filter[-1]), config.parameters, config.numerics, **options
+        )
 
     def __call__(self, frame):
         if self.config.parameters.fade == 100:
@@ -533,16 +665,25 @@ class AdaptiveFrameProcessor:
             self.key = frame.shape
             return self._calibrate(frame)
         if self.backend == "cuda":
+            assert self.cuda is not None
+            cpu_seconds = self.record["cpu_seconds"]
+            assert cpu_seconds is not None
             snapshot = _treatment_snapshot(self.source_cleanup)
             try:
                 begin = time.perf_counter()
-                options = {} if getattr(self, "output_buffer", None) is None else {"out": self.output_buffer}
+                options = (
+                    {}
+                    if getattr(self, "output_buffer", None) is None
+                    else {"out": self.output_buffer}
+                )
                 result = self.cuda(frame, self.config, self.source_cleanup, **options)
                 elapsed = time.perf_counter() - begin
                 self.record["cuda_frames"] += 1
-                self.slow_calls = self.slow_calls + 1 if elapsed > self.record["cpu_seconds"] else 0
+                self.slow_calls = self.slow_calls + 1 if elapsed > cpu_seconds else 0
                 if self.slow_calls >= 3:
-                    self._disable("CUDA became slower than calibrated CPU frame processing")
+                    self._disable(
+                        "CUDA became slower than calibrated CPU frame processing"
+                    )
                 return result
             except GPUUnavailable as error:
                 _restore_treatment(snapshot)
@@ -557,8 +698,10 @@ class AdaptiveFrameProcessor:
         self.record["backend"] = "cpu"
         size = (frame.shape[1], frame.shape[0])
         if self.config.processing.resize:
-            size = working_size(input_size(size, self.config.processing.effective_max_input_pixels),
-                                self.config.processing.effective_max_edge)
+            size = working_size(
+                input_size(size, self.config.processing.effective_max_input_pixels),
+                self.config.processing.effective_max_edge,
+            )
         if size[0] * size[1] < 65536:
             self.record["reason"] = "frame workload too small to amortize GPU overhead"
             self.record["cpu_frames"] += 1
@@ -574,8 +717,12 @@ class AdaptiveFrameProcessor:
                 from .gpu_core import CudaCore
 
                 self.cuda = CudaCore()
-                self.record.update(device=self.cuda.name, cupy_version=self.cuda.version)
-            cache_key = self._cache_key(frame) if self.config.video.calibration_cache else None
+                self.record.update(
+                    device=self.cuda.name, cupy_version=self.cuda.version
+                )
+            cache_key = (
+                self._cache_key(frame) if self.config.video.calibration_cache else None
+            )
             cache_hit = cache_key is not None and self._cache_read(cache_key)
             self.record["calibration_cache_hit"] = cache_hit
             # Compile CPU kernels on a small nonblack probe before full-frame
@@ -586,6 +733,8 @@ class AdaptiveFrameProcessor:
             self.cuda(frame, self.config, self.source_cleanup)
             _restore_treatment(snapshot)
             cpu_samples, cuda_samples = [], []
+            cpu_output = cuda_output = None
+            cpu_state = cuda_state = None
             for _ in range(1 if cache_hit else 2):
                 begin = time.perf_counter()
                 cpu_output = self.cpu(frame)
@@ -597,36 +746,74 @@ class AdaptiveFrameProcessor:
                 cuda_samples.append(time.perf_counter() - begin)
                 cuda_state = _treatment_snapshot(self.source_cleanup)
                 _restore_treatment(snapshot)
+            assert cpu_output is not None and cuda_output is not None
             cpu_seconds, cuda_seconds = min(cpu_samples), max(cuda_samples)
             elapsed = time.perf_counter() - start
             diff = cuda_output.astype(np.float32) - cpu_output
             absolute = np.abs(diff)
-            agreement = dict(mae=float(absolute.mean()), rmse=float(np.sqrt(np.mean(diff * diff))),
-                             maximum=int(absolute.max()), p99=float(np.percentile(absolute, 99)))
-            self.record.update(cpu_seconds=cpu_seconds, cuda_seconds=cuda_seconds,
-                               calibration_seconds=self.record["calibration_seconds"] + elapsed, agreement=agreement)
-            remaining = None if self.expected_frames is None else max(0, self.expected_frames - 1)
-            profitable = remaining is None or remaining * (cpu_seconds - cuda_seconds) > max(0, elapsed - cpu_seconds) * 1.25
+            agreement = dict(
+                mae=float(absolute.mean()),
+                rmse=float(np.sqrt(np.mean(diff * diff))),
+                maximum=int(absolute.max()),
+                p99=float(np.percentile(absolute, 99)),
+            )
+            self.record.update(
+                cpu_seconds=cpu_seconds,
+                cuda_seconds=cuda_seconds,
+                calibration_seconds=self.record["calibration_seconds"] + elapsed,
+                agreement=agreement,
+            )
+            remaining = (
+                None
+                if self.expected_frames is None
+                else max(0, self.expected_frames - 1)
+            )
+            profitable = (
+                remaining is None
+                or remaining * (cpu_seconds - cuda_seconds)
+                > max(0, elapsed - cpu_seconds) * 1.25
+            )
             if self.config.video.lighting_scale < 1:
-                close = (agreement["mae"] <= 1.0 and agreement["rmse"] <= 1.5
-                         and agreement["p99"] <= 4 and agreement["maximum"] <= 16)
+                close = (
+                    agreement["mae"] <= 1.0
+                    and agreement["rmse"] <= 1.5
+                    and agreement["p99"] <= 4
+                    and agreement["maximum"] <= 16
+                )
             else:
-                close = agreement["mae"] <= 0.25 and agreement["rmse"] <= 0.75 and agreement["p99"] <= 2 and agreement["maximum"] <= 12
+                close = (
+                    agreement["mae"] <= 0.25
+                    and agreement["rmse"] <= 0.75
+                    and agreement["p99"] <= 2
+                    and agreement["maximum"] <= 12
+                )
             if cuda_seconds < cpu_seconds * 0.8 and profitable and close:
                 self.backend = "cuda"
-                self.record.update(backend="cuda", reason="CUDA is faster including frame transfers and amortized setup")
+                self.record.update(
+                    backend="cuda",
+                    reason="CUDA is faster including frame transfers and amortized setup",
+                )
                 self.record["cuda_frames"] += 1
                 if cache_key is not None and not cache_hit:
                     self._cache_write(cache_key)
                 _restore_treatment(cuda_state)
-                print(f"GPU filtering selected on {self.cuda.name} ({cpu_seconds / max(cuda_seconds, 1e-12):.1f}x frame speedup).", file=sys.stderr)
+                print(
+                    f"GPU filtering selected on {self.cuda.name} ({cpu_seconds / max(cuda_seconds, 1e-12):.1f}x frame speedup).",
+                    file=sys.stderr,
+                )
                 return cuda_output
             if not close:
-                self.record["reason"] = "CUDA result exceeded the RGB agreement tolerance"
+                self.record["reason"] = (
+                    "CUDA result exceeded the RGB agreement tolerance"
+                )
             elif not profitable:
-                self.record["reason"] = "clip too short to recover measured GPU setup cost"
+                self.record["reason"] = (
+                    "clip too short to recover measured GPU setup cost"
+                )
             else:
-                self.record["reason"] = "CUDA did not beat CPU frame time by at least 20 percent"
+                self.record["reason"] = (
+                    "CUDA did not beat CPU frame time by at least 20 percent"
+                )
             _restore_treatment(cpu_state)
             self.record["cpu_frames"] += 1
             return cpu_output

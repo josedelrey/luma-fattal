@@ -9,6 +9,9 @@ Run the development checks:
 ```bash
 uv sync --locked --python 3.11
 source .venv/bin/activate
+ruff format --check .
+ruff check .
+pyright
 python -m pytest -q
 python scripts/check_presets.py
 ```
@@ -17,6 +20,12 @@ python scripts/check_presets.py
 and Windows with Python 3.11 and 3.12. FFmpeg and ffprobe are installed
 there, and video integration tests must pass. In local runs, those tests are
 skipped if the tools are unavailable.
+
+Ruff and Pyright use the repository settings in `pyproject.toml`. Pyright checks
+source, tests, scripts and experiments against `.venv`. SciPy stubs are included
+in the development dependencies. Missing CuPy imports are allowed at the optional
+GPU import sites, so type checks also work without installing the GPU extra.
+Run `ruff format .` to apply formatting changes.
 
 NVENC option validation, automatic CPU fallback, and failure cleanup are tested
 without NVIDIA hardware.

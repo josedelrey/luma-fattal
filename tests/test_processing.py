@@ -1,7 +1,7 @@
 """Validate the explicit resolution profile and interpolation arithmetic."""
 
-import json
 import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +17,6 @@ from luma_fatal.processing import (
     resize_linear_floor,
     working_size,
 )
-
 
 SCALE_REFERENCE = json.loads(
     (Path(__file__).parent / "fixtures/bilinear-fixed.json").read_text()

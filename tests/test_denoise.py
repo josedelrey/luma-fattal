@@ -1,13 +1,14 @@
 """Noise suppression, structure preservation and video integration contracts."""
 
-from dataclasses import replace
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 from scipy.ndimage import gaussian_filter
+from test_video import tools as tools
 
 from luma_fatal.configuration import Config, ProcessingConfig, VideoConfig
 from luma_fatal.core import apply_core
@@ -15,7 +16,6 @@ from luma_fatal.denoise import SourceDenoise
 from luma_fatal.numerics import luminance_fractional, luminance_u8
 from luma_fatal.pipeline import process_frames
 from luma_fatal.prenoise import SourceNoise
-from test_video import tools
 
 
 def noisy_source(sigma=3, correlated=False):
@@ -32,7 +32,9 @@ def noisy_source(sigma=3, correlated=False):
 
 @pytest.mark.parametrize("correlated", [False, True])
 @pytest.mark.parametrize("sigma", [1, 3, 8])
-def test_suppresses_fine_and_correlated_noise_without_flattening_edges(sigma, correlated):
+def test_suppresses_fine_and_correlated_noise_without_flattening_edges(
+    sigma, correlated
+):
     rgb, clean = noisy_source(sigma, correlated)
     original = rgb.copy()
     color, luminance = SourceDenoise(1)(rgb, luminance_fractional(rgb))
@@ -42,11 +44,16 @@ def test_suppresses_fine_and_correlated_noise_without_flattening_edges(sigma, co
     assert output_error < input_error * 0.15
     # A noisy 70-code edge remains localized rather than being blurred away.
     assert np.min(np.mean(color[:, 96] - color[:, 95], axis=0)) > 50
-    assert np.max(np.abs(color[interior].mean((0, 1)) - clean[interior].mean((0, 1)))) < 0.5
+    assert (
+        np.max(np.abs(color[interior].mean((0, 1)) - clean[interior].mean((0, 1))))
+        < 0.5
+    )
     np.testing.assert_array_equal(rgb, original)
     np.testing.assert_allclose(
-        luminance, np.sum(color * np.array([4899, 9617, 1868]) / (16384 * 255), axis=2),
-        rtol=0, atol=1e-7,
+        luminance,
+        np.sum(color * np.array([4899, 9617, 1868]) / (16384 * 255), axis=2),
+        rtol=0,
+        atol=1e-7,
     )
     assert np.any(color != np.round(color))
 
@@ -56,11 +63,19 @@ def test_suppresses_fine_and_correlated_noise_without_flattening_edges(sigma, co
 def test_denoising_reduces_amplified_output_noise(variant, correlated):
     rgb, clean = noisy_source(correlated=correlated)
     config = Config()
-    reference = apply_core(np.round(clean).astype(np.uint8), variant,
-                           config.parameters, config.numerics).astype(np.float32)
-    before = apply_core(rgb, variant, config.parameters, config.numerics).astype(np.float32)
-    after = apply_core(rgb, variant, config.parameters, config.numerics,
-                       source_cleanup=SourceDenoise(1)).astype(np.float32)
+    reference = apply_core(
+        np.round(clean).astype(np.uint8), variant, config.parameters, config.numerics
+    ).astype(np.float32)
+    before = apply_core(rgb, variant, config.parameters, config.numerics).astype(
+        np.float32
+    )
+    after = apply_core(
+        rgb,
+        variant,
+        config.parameters,
+        config.numerics,
+        source_cleanup=SourceDenoise(1),
+    ).astype(np.float32)
     interior = np.s_[8:-8, 8:80, :]
     assert np.mean((after[interior] - reference[interior]) ** 2) < (
         0.5 * np.mean((before[interior] - reference[interior]) ** 2)
@@ -75,7 +90,9 @@ def test_strength_is_a_continuous_blend_and_zero_is_exact():
     disabled = SourceDenoise(0)(rgb, luminance)
     for original, a, b, off in zip((rgb, luminance), full, half, disabled):
         np.testing.assert_array_equal(off, original)
-        np.testing.assert_allclose(b, original + 0.5 * (a - original), rtol=0, atol=1e-5)
+        np.testing.assert_allclose(
+            b, original + 0.5 * (a - original), rtol=0, atol=1e-5
+        )
 
 
 @pytest.mark.parametrize("shape", [(1, 1), (1, 17), (17, 1), (2, 3), (11, 17)])
@@ -133,13 +150,17 @@ def test_original_fade_shadows_and_working_resolution_are_preserved(variant):
     result = list(process_frames([rgb], config=config, source_cleanup=capture))[0]
     assert shapes == [(64, 96, 3)]
     assert result.shape == rgb.shape
-    full = apply_core(rgb, variant, config.parameters, config.numerics,
-                      source_cleanup=callback)
+    full = apply_core(
+        rgb, variant, config.parameters, config.numerics, source_cleanup=callback
+    )
     np.testing.assert_array_equal(full[:10], rgb[:10])
-    faded = list(process_frames(
-        [rgb], config=replace(config, parameters=replace(config.parameters, fade=100)),
-        source_cleanup=capture,
-    ))[0]
+    faded = list(
+        process_frames(
+            [rgb],
+            config=replace(config, parameters=replace(config.parameters, fade=100)),
+            source_cleanup=capture,
+        )
+    )[0]
     np.testing.assert_array_equal(faded, rgb)
     assert len(shapes) == 1
 
@@ -149,13 +170,17 @@ def test_denoising_precedes_cleanup_and_intentional_noise():
     luminance = luminance_fractional(rgb)
     denoised = SourceDenoise(1)(rgb, luminance)
     expected = SourceNoise(0.75, cleanup=0.75)(*denoised)
-    actual = SourceDenoise(1, source_cleanup=SourceNoise(0.75, cleanup=0.75))(rgb, luminance)
+    actual = SourceDenoise(1, source_cleanup=SourceNoise(0.75, cleanup=0.75))(
+        rgb, luminance
+    )
     for a, b in zip(actual, expected):
         np.testing.assert_array_equal(a, b)
     assert not np.array_equal(actual[0], denoised[0])
 
 
-@pytest.mark.parametrize("value", [-1, 1.1, True, "auto", None, float("nan"), float("inf")])
+@pytest.mark.parametrize(
+    "value", [-1, 1.1, True, "auto", None, float("nan"), float("inf")]
+)
 def test_invalid_strengths_are_rejected(value):
     with pytest.raises(ValueError):
         SourceDenoise(value)
@@ -166,16 +191,21 @@ def test_invalid_strengths_are_rejected(value):
 @pytest.mark.parametrize("suffix", ["yaml", "toml", "json"])
 def test_denoise_configuration_roundtrips(tmp_path, suffix):
     config = Config(video=VideoConfig(denoise=0.7))
-    text = {"yaml": config.to_yaml(), "toml": config.to_toml(),
-            "json": json.dumps(config.to_dict())}[suffix]
+    text = {
+        "yaml": config.to_yaml(),
+        "toml": config.to_toml(),
+        "json": json.dumps(config.to_dict()),
+    }[suffix]
     path = tmp_path / f"denoise.{suffix}"
     path.write_text(text)
     assert Config.load(path) == config
 
 
-@pytest.mark.parametrize("path", sorted(
-    (Path(__file__).resolve().parents[1] / "configs").glob("*.yaml")
-), ids=lambda p: p.stem)
+@pytest.mark.parametrize(
+    "path",
+    sorted((Path(__file__).resolve().parents[1] / "configs").glob("*.yaml")),
+    ids=lambda p: p.stem,
+)
 def test_all_presets_leave_denoising_disabled_by_default(path):
     assert Config.load(path).video.denoise == 0.0
 
@@ -183,36 +213,99 @@ def test_all_presets_leave_denoising_disabled_by_default(path):
 @pytest.mark.parametrize("variant", [1, 2])
 @pytest.mark.parametrize("strength", [0, 0.6, 1])
 def test_video_cli_denoise_override_matches_pixels_and_records_metadata(
-    tmp_path, tools, capsys, variant, strength,
+    tmp_path,
+    tools,
+    capsys,
+    variant,
+    strength,
 ):
-    from luma_fatal.cli import main
     from test_video import run
+
+    from luma_fatal.cli import main
 
     rgb, _ = noisy_source()
     # Lossless RGB storage keeps controlled noise without codec artifacts.
     frames = [rgb, np.roll(rgb, 3, axis=1), 255 - rgb]
     source = tmp_path / "input.mkv"
-    run([
-        tools[0], "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
-        "-s", "192x128", "-r", "25", "-i", "pipe:0", "-c:v", "ffv1",
-        "-pix_fmt", "gbrp", "-color_trc", "iec61966-2-1", "-color_primaries", "bt709",
-        "-colorspace", "rgb", "-color_range", "pc", str(source),
-    ], b"".join(f.tobytes() for f in frames))
-    data = run([
-        tools[0], "-v", "error", "-i", str(source), "-an", "-vf",
-        "format=gbrp16le,zscale=matrixin=gbr:transferin=iec61966-2-1:"
-        "primariesin=709:rangein=full:matrix=gbr:transfer=iec61966-2-1:"
-        "primaries=709:range=full,format=gbrp,format=rgb24",
-        "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
-    ])
+    run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-s",
+            "192x128",
+            "-r",
+            "25",
+            "-i",
+            "pipe:0",
+            "-c:v",
+            "ffv1",
+            "-pix_fmt",
+            "gbrp",
+            "-color_trc",
+            "iec61966-2-1",
+            "-color_primaries",
+            "bt709",
+            "-colorspace",
+            "rgb",
+            "-color_range",
+            "pc",
+            str(source),
+        ],
+        b"".join(f.tobytes() for f in frames),
+    )
+    data = run(
+        [
+            tools[0],
+            "-v",
+            "error",
+            "-i",
+            str(source),
+            "-an",
+            "-vf",
+            "format=gbrp16le,zscale=matrixin=gbr:transferin=iec61966-2-1:"
+            "primariesin=709:rangein=full:matrix=gbr:transfer=iec61966-2-1:"
+            "primaries=709:range=full,format=gbrp,format=rgb24",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "pipe:1",
+        ]
+    )
     decoded = np.frombuffer(data, np.uint8).reshape(3, 128, 192, 3)
-    preset = Path(__file__).resolve().parents[1] / "configs" / f"fattal-{variant}-compressed.yaml"
+    preset = (
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / f"fattal-{variant}-compressed.yaml"
+    )
     output = tmp_path / "out.mp4"
-    main([
-        "video", str(source), str(output), "--config", str(preset),
-        "--denoise", str(strength), "--flat-cleanup", "0", "--deband", "off",
-        "--encoder", "libx264", "--ffmpeg", tools[0], "--ffprobe", tools[1], "--json",
-    ])
+    main(
+        [
+            "video",
+            str(source),
+            str(output),
+            "--config",
+            str(preset),
+            "--denoise",
+            str(strength),
+            "--flat-cleanup",
+            "0",
+            "--deband",
+            "off",
+            "--encoder",
+            "libx264",
+            "--ffmpeg",
+            tools[0],
+            "--ffprobe",
+            tools[1],
+            "--json",
+        ]
+    )
     record = json.loads(capsys.readouterr().out)
     config = Config.load(preset)
     callback = SourceDenoise(strength) if strength else None

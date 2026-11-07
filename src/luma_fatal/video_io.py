@@ -4,8 +4,19 @@ from __future__ import annotations
 
 from queue import Empty, Full, Queue
 from threading import Event, Thread
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from _hashlib import HASH
+
+
+class _EndOfStream:
+    """Mark completion independently of reusable frame slots."""
+
+
+_FrameSlot = list[np.ndarray]
 
 
 def read_frame(pipe, array):
@@ -34,21 +45,37 @@ def write_frame(pipe, array):
 class PooledVideoIO:
     """Transfer each slot from decoder to filter to encoder before reuse."""
 
-    def __init__(self, decoder, encoder, input_shape, output_shape, encoded_shape,
-                 depth, *, pinned=False, processor=None):
+    def __init__(
+        self,
+        decoder,
+        encoder,
+        input_shape,
+        output_shape,
+        encoded_shape,
+        depth,
+        *,
+        pinned=False,
+        processor=None,
+    ):
         self.decoder, self.encoder = decoder, encoder
         self.processor = processor
-        self.free, self.ready, self.output = (Queue(maxsize=depth) for _ in range(3))
+        self.free: Queue[_FrameSlot | _EndOfStream] = Queue(maxsize=depth)
+        self.ready: Queue[_FrameSlot | _EndOfStream] = Queue(maxsize=depth)
+        self.output: Queue[_FrameSlot | _EndOfStream] = Queue(maxsize=depth)
         self.stop = Event()
         self.errors = []
-        self.sentinel = object()
+        self.sentinel = _EndOfStream()
         self.finished = False
-        self.current = None
-        self.digest = None
+        self.current: _FrameSlot | None = None
+        self.digest: HASH | None = None
         self.pinned = pinned
         for _ in range(depth):
-            slot = [self._array(input_shape), self._array(output_shape), None]
-            slot[2] = slot[1] if output_shape == encoded_shape else self._array(encoded_shape)
+            source = self._array(input_shape)
+            output = self._array(output_shape)
+            encoded = (
+                output if output_shape == encoded_shape else self._array(encoded_shape)
+            )
+            slot = [source, output, encoded]
             self.free.put(slot)
         self.reader = Thread(target=self._decode, name="luma-fatal-decode", daemon=True)
         self.writer = Thread(target=self._encode, name="luma-fatal-encode", daemon=True)
@@ -56,7 +83,7 @@ class PooledVideoIO:
     def _array(self, shape):
         if self.pinned:
             try:
-                import cupy as cp
+                import cupy as cp  # pyright: ignore[reportMissingImports]
 
                 size = int(np.prod(shape))
                 memory = cp.cuda.alloc_pinned_memory(size)
@@ -69,7 +96,9 @@ class PooledVideoIO:
         if self.errors:
             raise self.errors[0]
 
-    def _get(self, queue):
+    def _get(
+        self, queue: Queue[_FrameSlot | _EndOfStream]
+    ) -> _FrameSlot | _EndOfStream:
         while not self.stop.is_set():
             self._check()
             try:
@@ -93,7 +122,7 @@ class PooledVideoIO:
         try:
             while not self.stop.is_set():
                 slot = self._get(self.free)
-                if slot is self.sentinel:
+                if isinstance(slot, _EndOfStream):
                     return
                 if not read_frame(self.decoder.stdout, slot[0]):
                     self._put(self.ready, self.sentinel)
@@ -107,9 +136,10 @@ class PooledVideoIO:
         try:
             while not self.stop.is_set():
                 slot = self._get(self.output)
-                if slot is self.sentinel:
+                if isinstance(slot, _EndOfStream):
                     return
-                self.digest.update(memoryview(slot[2]).cast("B"))
+                assert self.digest is not None
+                self.digest.update(slot[2].data.cast("B"))
                 write_frame(self.encoder.stdin, slot[2])
                 self._put(self.free, slot)
         except Exception as error:
@@ -124,7 +154,7 @@ class PooledVideoIO:
     def frames(self):
         while True:
             slot = self._get(self.ready)
-            if slot is self.sentinel:
+            if isinstance(slot, _EndOfStream):
                 return
             self.current = slot
             if self.processor is not None:
@@ -134,6 +164,7 @@ class PooledVideoIO:
     def submit(self, frame, digest):
         self._check()
         slot = self.current
+        assert slot is not None
         if frame is not slot[1]:
             np.copyto(slot[1], frame)
         encoded = slot[2]
@@ -141,7 +172,7 @@ class PooledVideoIO:
         if encoded is not slot[1]:
             encoded[:h, :w] = frame
             encoded[:h, w:] = frame[:, -1:]
-            encoded[h:] = encoded[h - 1:h]
+            encoded[h:] = encoded[h - 1 : h]
         self.digest = digest
         self._put(self.output, slot)
         self.current = None
