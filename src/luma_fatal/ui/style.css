@@ -930,3 +930,53 @@ h1, h2, h3, strong, b { font-weight: normal; }
 .video-column { align-self: stretch; }
 .previews { flex: 1; }
 @media (max-width: 720px) { .previews { flex: initial; } }
+
+/* The fixed desktop window uses the existing workbench as its whole canvas. */
+.desktop body { overflow: hidden; }
+.desktop .workbench {
+  width: 100%;
+  max-width: none;
+  height: 100vh;
+  margin: 0;
+  padding: 8px 12px 10px;
+  overflow: hidden;
+}
+.desktop .application-title { margin: 0 0 2px; align-items: center; }
+.desktop .masthead { min-height: 70px; padding: 1px 4px 4px; }
+.desktop .logo { padding: 0 8px; }
+.desktop .logo img { max-height: 62px; width: auto; max-width: 100%; }
+.desktop main { height: calc(100% - 74px); grid-template-rows: minmax(0, 1fr) auto; }
+.desktop .video-column, .desktop .config-column { min-height: 0; }
+.desktop .screen { height: min(43vh, 390px); aspect-ratio: auto; }
+.desktop .previews { min-height: 0; }
+.desktop .frame { height: min(15vh, 130px); aspect-ratio: auto; }
+.desktop #signal-chart { height: min(13vh, 115px); }
+.desktop .export { grid-column: 1 / -1; grid-row: 2; }
+.desktop .workbench:has(#export-panel:not([hidden])) main { height: calc(100% - 83px); }
+.desktop .workbench:has(#export-panel:not([hidden])) .screen { height: min(36vh, 325px); }
+.desktop .workbench:has(#export-panel:not([hidden])) .frame { height: min(12vh, 105px); }
+.desktop .workbench:has(.controls details[open]) {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.desktop .workbench:has(.controls details[open]) main {
+  height: auto;
+  min-height: calc(100% - 74px);
+  grid-template-rows: auto auto;
+}
+.desktop .workbench:has(.controls details[open]) .video-column { align-self: start; }
+.desktop .workbench:has(.controls details[open]) .previews { flex: initial; }
+.desktop .workbench::-webkit-scrollbar { width: 17px; background: #bdbdbd; }
+.desktop .workbench::-webkit-scrollbar-track {
+  background: repeating-linear-gradient(45deg, #e3e3e3 0 2px, #bcbcbc 2px 4px);
+  border-left: 1px solid #5c5c5c;
+  box-shadow: inset 1px 0 #fff;
+}
+.desktop .workbench::-webkit-scrollbar-thumb,
+.desktop .workbench::-webkit-scrollbar-button {
+  background: #c0c0c0;
+  border: 2px outset #efefef;
+  box-shadow: inset -1px -1px #777;
+}
+.desktop .workbench::-webkit-scrollbar-thumb { min-height: 28px; }
+.desktop .workbench::-webkit-scrollbar-button:single-button { height: 17px; }

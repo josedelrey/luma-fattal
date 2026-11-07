@@ -125,8 +125,11 @@ resources directory. The backend runs with the session directory as its working
 directory, so starting Electron from another location does not redirect files.
 
 The frameless window uses the interface's blue title bar as its draggable frame,
-with working minimize and close buttons. It opens at up to 1200 by 900 pixels
-and fits smaller displays. Resizing, maximizing, and fullscreen are disabled.
+with working minimize and close buttons. It opens at up to 1200 by 900 pixels,
+constrained by the display work area. Resizing, maximizing, and fullscreen are disabled.
+At its default size, the textured workbench fills the window and the preview,
+signal, and export panels fit without a page scrollbar. Opening More settings
+adds a classic gray scrollbar so the extra controls remain reachable.
 Closing the window exits Electron and stops its Python backend and child
 processes. Active processing is interrupted when the application exits.
 
@@ -151,6 +154,18 @@ uv run --locked python scripts/smoke_desktop_backend.py outputs/desktop-app/linu
 ```
 
 The assembled Linux prototype is in ignored `outputs/desktop-app/linux-unpacked/`.
+On Linux, the unpacked prototype's Chromium sandbox helper needs root ownership
+and mode 4755 before launching the executable without flags:
+
+```bash
+sudo chown root:root outputs/desktop-app/linux-unpacked/chrome-sandbox
+sudo chmod 4755 outputs/desktop-app/linux-unpacked/chrome-sandbox
+./outputs/desktop-app/linux-unpacked/luma-fattal-desktop
+```
+
+Reapply those permissions after rebuilding the app. For a temporary local test,
+`./outputs/desktop-app/linux-unpacked/luma-fattal-desktop --no-sandbox` also
+starts the prototype, with Chromium's process sandbox disabled.
 The smoke script generates a short video and checks bundled presets, textures,
 preview frames, processing, export, FFprobe output, and Numba caching from a
 temporary working directory. The desktop workflow builds corresponding Windows

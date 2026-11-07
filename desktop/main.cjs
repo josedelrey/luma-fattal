@@ -27,6 +27,28 @@ async function openWindow() {
       const deadline = Date.now() + 10000;
       while (document.querySelector('#presets').options.length < 2 && Date.now() < deadline)
         await new Promise(resolve => setTimeout(resolve, 100));
+      const exportPanel = document.querySelector('#export-panel');
+      exportPanel.hidden = false;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const exportLayout = {
+        bottom: exportPanel.getBoundingClientRect().bottom,
+        previewBottom: document.querySelector('.previews').getBoundingClientRect().bottom,
+        signalBottom: document.querySelector('.signal-lab').getBoundingClientRect().bottom
+      };
+      exportPanel.hidden = true;
+      const advanced = document.querySelector('.controls details');
+      advanced.open = true;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const workbench = document.querySelector('.workbench');
+      workbench.scrollTop = 200;
+      const expandedLayout = {
+        viewport: workbench.clientHeight,
+        content: workbench.scrollHeight,
+        scrollbar: getComputedStyle(workbench).overflowY,
+        scrolled: workbench.scrollTop
+      };
+      workbench.scrollTop = 0;
+      advanced.open = false;
       return ({
       title: document.title,
       presets: document.querySelector('#presets').options.length,
@@ -35,17 +57,39 @@ async function openWindow() {
       frame: !!window.desktopWindow && !document.querySelector('#app-frame-controls').hidden,
       styles: document.styleSheets.length,
       texture: getComputedStyle(document.documentElement).getPropertyValue('--body-texture').includes('/assets/viscera.png'),
-      background: getComputedStyle(document.body).backgroundColor
+      background: getComputedStyle(document.body).backgroundColor,
+      viewport: [innerWidth, innerHeight],
+      content: [document.documentElement.scrollWidth, document.documentElement.scrollHeight],
+      workbench: [document.querySelector('.workbench').offsetWidth, document.querySelector('.workbench').offsetHeight],
+      previewOverflow: document.querySelector('.previews').scrollHeight - document.querySelector('.previews').clientHeight,
+      signalOverflow: document.querySelector('.signal-lab').scrollHeight - document.querySelector('.signal-lab').clientHeight,
+      previewBottom: document.querySelector('.previews').getBoundingClientRect().bottom,
+      signalBottom: document.querySelector('.signal-lab').getBoundingClientRect().bottom,
+      signalKeyBottom: document.querySelector('.signal-key').getBoundingClientRect().bottom,
+      exportLayout,
+      expandedLayout
       });
     })()`)
     if (!state.title.includes('Luma Fattal') || state.presets < 2 ||
         !state.logo || !state.video || !state.background || !state.frame ||
-        !state.styles || !state.texture) {
+        !state.styles || !state.texture || state.content[1] > state.viewport[1] ||
+        state.previewBottom > state.viewport[1] || state.signalKeyBottom > state.viewport[1] ||
+        state.exportLayout.bottom > state.viewport[1] ||
+        state.exportLayout.previewBottom > state.viewport[1] ||
+        state.exportLayout.signalBottom > state.viewport[1] ||
+        state.expandedLayout.content <= state.expandedLayout.viewport ||
+        state.expandedLayout.scrollbar !== 'auto' || !state.expandedLayout.scrolled) {
       throw new Error(`Packaged window smoke failed: ${JSON.stringify(state)}`)
     }
     if (process.env.LUMA_FATTAL_SMOKE_SCREENSHOT) {
       const image = await window.webContents.capturePage()
       writeFileSync(process.env.LUMA_FATTAL_SMOKE_SCREENSHOT, image.toPNG())
+    }
+    if (process.env.LUMA_FATTAL_SMOKE_EXPANDED_SCREENSHOT) {
+      await window.webContents.executeJavaScript("document.querySelector('.controls details').open = true")
+      const image = await window.webContents.capturePage()
+      writeFileSync(process.env.LUMA_FATTAL_SMOKE_EXPANDED_SCREENSHOT, image.toPNG())
+      await window.webContents.executeJavaScript("document.querySelector('.controls details').open = false")
     }
     if (process.env.LUMA_FATTAL_SMOKE_VIDEO) {
       const endpoint = new URL('/api/upload', url)
@@ -72,11 +116,10 @@ async function openWindow() {
       })()`)
       if (played <= 0) throw new Error('Packaged video did not advance during playback')
     }
-    await window.webContents.executeJavaScript('window.desktopWindow.minimize()')
-    if (!window.isMinimized()) throw new Error('Custom minimize control failed')
-    window.restore()
     console.log(`Packaged window smoke passed: ${JSON.stringify(state)}`)
-    await window.webContents.executeJavaScript("document.querySelector('#window-close').click()")
+    await window.webContents.executeJavaScript('window.desktopWindow.minimize()')
+    window.restore()
+    await window.webContents.executeJavaScript("setTimeout(() => document.querySelector('#window-close').click(), 0)")
   }
 }
 
