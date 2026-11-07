@@ -11,7 +11,7 @@ function createWorkbenchWindow(value, iconPath) {
   if (!existsSync(iconPath)) throw new Error(`Window icon is missing: ${iconPath}`)
   const icon = nativeImage.createFromPath(iconPath)
   if (app.dock) app.dock.setIcon(icon)
-  const isolatedSession = session.fromPartition('luma-fatal-workbench')
+  const isolatedSession = session.fromPartition('luma-fattal-workbench')
   isolatedSession.setPermissionRequestHandler((_contents, permission, callback) => {
     callback(permission === 'fullscreen')
   })
@@ -19,7 +19,7 @@ function createWorkbenchWindow(value, iconPath) {
 
   const window = new BrowserWindow({
     ...windowSize(screen.getPrimaryDisplay().workAreaSize),
-    title: 'Luma Fatal',
+    title: 'Luma Fattal',
     icon,
     backgroundColor: '#030000',
     resizable: true,

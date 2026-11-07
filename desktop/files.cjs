@@ -63,7 +63,7 @@ function installFileDialogs(window, entry) {
     return { name: path.basename(filename), config: result }
   }
   const save = async (kind, mediaPath, content) => {
-    const names = { video: 'luma-fatal.mp4', metadata: 'luma-fatal.meta.json', config: 'luma-fatal-config.json' }
+    const names = { video: 'luma-fattal.mp4', metadata: 'luma-fattal.meta.json', config: 'luma-fattal-config.json' }
     if (!Object.hasOwn(names, kind)) throw new Error('Invalid export type')
     if (kind === 'config') {
       if (typeof content !== 'string' || Buffer.byteLength(content) > 1024 ** 2) throw new Error('Invalid config')

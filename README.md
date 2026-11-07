@@ -1,10 +1,10 @@
-# Luma Fatal
+# Luma Fattal
 
 [![CI](https://github.com/josedelrey/luma-fattal/actions/workflows/ci.yml/badge.svg)](https://github.com/josedelrey/luma-fattal/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 [![License](https://img.shields.io/badge/License-MIT%20%2B%20BSD--3--Clause-22A559)](LICENSE)
 
-Luma Fatal provides image and video stylization through gradient-domain
+Luma Fattal provides image and video stylization through gradient-domain
 filtering. Its processing pipeline is configurable through a Python API or the
 command line.
 
@@ -44,7 +44,7 @@ Numba compiles numerical kernels on first use, so the first run takes longer.
 Apply both filters to the bundled image:
 
 ```bash
-luma-fatal apply assets/tea-by-the-water-original.png outputs/comparison \
+luma-fattal apply assets/tea-by-the-water-original.png outputs/comparison \
   --config configs/fattal-1.yaml --filter both --shadow-softness 6 --output-format png
 ```
 
@@ -58,14 +58,14 @@ for that run.
 For one result, pass an output filename and select `--filter fattal1` or `fattal2`.
 
 The [configuration guide](docs/configuration.md) covers presets, tone controls,
-resolution, and export. Use `luma-fatal apply --help` for CLI options.
+resolution, and export. Use `luma-fattal apply --help` for CLI options.
 
 ## Process a video
 
 Install FFmpeg and ffprobe with `zscale` and `libx264` support, then run:
 
 ```bash
-luma-fatal video local_inputs/input.mp4 outputs/stylized.mp4 \
+luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
   --config configs/fattal-1.yaml --progress
 ```
 

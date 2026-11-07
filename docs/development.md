@@ -75,7 +75,7 @@ encoding changes in the bundled preset cases.
 Regenerate the opening comparison from its bundled input:
 
 ```bash
-luma-fatal apply assets/lantern-garden-original.png outputs/readme-comparison-new \
+luma-fattal apply assets/lantern-garden-original.png outputs/readme-comparison-new \
   --config configs/fattal-1.yaml --filter both --shadow-softness 6 --output-format png
 ```
 
@@ -86,7 +86,7 @@ published results are 880×1100 PNGs.
 Regenerate the image in the CLI example:
 
 ```bash
-luma-fatal apply assets/tea-by-the-water-original.png outputs/readme-tea-new.png \
+luma-fattal apply assets/tea-by-the-water-original.png outputs/readme-tea-new.png \
   --config configs/fattal-1.yaml --filter fattal1 --shadow-softness 6 --output-format png
 ```
 
@@ -127,8 +127,21 @@ directory, so starting Electron from another location does not redirect files.
 The window uses the existing logo, opens at up to 1200 by 900 pixels, and fits
 smaller displays. It supports resizing, maximizing, and fullscreen. Closing the
 window exits Electron and stops its Python backend and child processes. Active
-processing is interrupted when the application exits. Executable bundles are
-not implemented yet.
+processing is interrupted when the application exits.
+
+Build the Python backend with PyInstaller 6.22.3 installed in the project
+environment:
+
+```bash
+.venv/bin/python scripts/build_desktop_backend.py --ffmpeg-license /path/to/ffmpeg-license
+```
+
+The builder checks for FFmpeg with libx264 and zscale, then includes ffmpeg,
+ffprobe, UI assets, Python package metadata, and the supplied FFmpeg license.
+Output is in ignored `outputs/desktop-backend/`. Run the frozen executable with
+`--self-test` and `NUMBA_CACHE_DIR` set to a writable directory to check Numba
+compilation. Electron expects this folder under `resources/backend/` when
+packaged. Assembling and testing that complete app is step 6.
 The desktop window uses native Open dialogs for videos and YAML or JSON recipes.
 Save video, Run record, and Save config use native Save dialogs. The browser UI
 continues to use its file inputs and downloads. Run `npm --prefix desktop test`

@@ -195,7 +195,7 @@ $('save-config').onclick = async () => {
     return;
   }
   const url = URL.createObjectURL(new Blob([JSON.stringify(resultConfig, null, 2)], {type:'application/json'}));
-  const link = document.createElement('a'); link.href = url; link.download = 'luma-fatal-config.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const link = document.createElement('a'); link.href = url; link.download = 'luma-fattal-config.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 for (const [id, kind] of [['save-video', 'video'], ['save-meta', 'metadata']]) {
   $(id).addEventListener('click', async event => {

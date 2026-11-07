@@ -253,7 +253,7 @@ def _show_comparison(record: dict, output: Path, original: Path | None) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Luma Fatal gradient-domain image and video processing. " + STATUS
+        description="Luma Fattal gradient-domain image and video processing. " + STATUS
     )
     commands = parser.add_subparsers(dest="command", required=True)
     apply = commands.add_parser(

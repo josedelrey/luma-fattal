@@ -19,11 +19,11 @@ defaults. It does not load `configs/default.yaml` automatically.
 To export all built-in defaults, run:
 
 ```bash
-luma-fatal config --output outputs/settings.yaml
+luma-fattal config --output outputs/settings.yaml
 ```
 
 The file extension selects the format. Existing files are never overwritten.
-Run `luma-fatal config` to print the defaults without writing a file.
+Run `luma-fattal config` to print the defaults without writing a file.
 
 ## File structure and validation
 
@@ -118,7 +118,7 @@ Alpha, beta, and noise interact, so their visual effects depend on the input.
 For a softer result:
 
 ```bash
-luma-fatal apply assets/lantern-garden-original.png outputs/softer.png \
+luma-fattal apply assets/lantern-garden-original.png outputs/softer.png \
   --config configs/fattal-1.yaml --output-format png \
   --tone-strength 60 --highlight-compression 60 --black-level 5 --white-level 95
 ```
@@ -209,7 +209,7 @@ requirements, input preparation, and examples. Output is silent SDR H.264 MP4.
 | --- | --- | --- |
 | `video.encoder` | `libx264` | `libx264` for CPU encoding or `h264_nvenc` for NVIDIA hardware encoding. Bundled YAML presets select `h264_nvenc`. A failed NVENC preflight automatically falls back to `libx264` using `video.crf` and `video.preset`. The actual encoder and fallback diagnostics are recorded in the sidecar's `encoding` section. |
 | `video.filter_backend` | `cpu` | `cpu` uses reference processing. `auto` benchmarks the complete CUDA frame pipeline, including transfers and setup cost, and checks RGB agreement with the CPU reference. It selects CUDA when the measured speedup justifies setup cost. Otherwise, or on GPU failure, it uses the CPU. Bundled YAML presets select `auto`. Independent of `video.encoder`. |
-| `video.calibration_cache` | `false` | Reuse compatible CUDA calibration across runs. A cache hit still compares the first GPU frame with the CPU reference. The cache is stored under `XDG_CACHE_HOME/luma-fatal` or the user's default cache directory. |
+| `video.calibration_cache` | `false` | Reuse compatible CUDA calibration across runs. A cache hit still compares the first GPU frame with the CPU reference. The cache is stored under `XDG_CACHE_HOME/luma-fattal` or the user's default cache directory. |
 | `video.gpu_iterations` | `null` | `null` uses `numerics.iterations` on both backends. A positive integer overrides the GPU solver iteration count. CPU processing uses `numerics.iterations`. |
 | `video.lighting_scale` | `1.0` | Fraction `0.25–1`. Below `1`, the GPU estimates the remaining lighting correction on a smaller grid and applies it at full resolution. Applies only to GPU processing. |
 | `video.decode_prefetch` | `0` | Integer `0–16`. Simple decoded-frame prefetch when `pipeline_depth` is `0`. Fast presets keep it off and use reusable pipeline slots instead. |
@@ -284,7 +284,7 @@ form, such as `--no-resize`, `--no-embed-icc`, and `--no-pre-noise-masked`.
 
 Image input/output flags apply to `apply` and `evaluate`. Video flags apply to
 `video`. Effect, processing, and numerical flags apply to all three commands.
-Run `luma-fatal COMMAND --help` for command-specific options.
+Run `luma-fattal COMMAND --help` for command-specific options.
 
 Changing `--device-class` clears inherited explicit size limits unless they are
 also supplied on the CLI. `--no-resize` clears inherited limits, and

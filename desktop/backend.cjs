@@ -13,15 +13,18 @@ class Backend {
     for (const directory of [paths.sessions, paths.logs, paths.cache]) mkdirSync(directory, { recursive: true })
     const localPython = path.join(paths.sourceRoot, '.venv',
       process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
-    const python = process.env.LUMA_FATAL_PYTHON ||
+    const python = paths.packaged ? paths.backend : process.env.LUMA_FATAL_PYTHON ||
       (existsSync(localPython) ? localPython : process.platform === 'win32' ? 'python' : 'python3')
+    if (paths.packaged && !existsSync(python)) throw new Error(`Packaged backend is missing: ${python}`)
+    const backendArgs = paths.packaged ? [] : ['-u', '-m', 'luma_fatal.ui']
+    const toolPath = paths.packaged ? `${paths.tools}${path.delimiter}${process.env.PATH || ''}` : process.env.PATH
     this.stopping = false
     this.diagnostics = ''
     this.log = createWriteStream(path.join(paths.logs, 'backend.log'), { flags: 'a', mode: 0o600 })
-    this.child = spawn(python, ['-u', '-m', 'luma_fatal.ui', '--no-browser',
+    this.child = spawn(python, [...backendArgs, '--no-browser',
       '--presets', paths.presets, '--output-dir', paths.sessions], {
       cwd: paths.sessions,
-      env: { ...process.env, NUMBA_CACHE_DIR: paths.cache },
+      env: { ...process.env, PATH: toolPath, NUMBA_CACHE_DIR: paths.cache },
       windowsHide: true,
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -53,10 +56,10 @@ class Backend {
         if (this.started && !this.stopping) onUnexpectedExit(error)
       })
       lines.on('line', async line => {
-        if (!line.startsWith('Luma Fatal: ')) return
+        if (!line.startsWith('Luma Fattal: ')) return
         finish()
         try {
-          const url = workbenchURL(line.slice('Luma Fatal: '.length).trim())
+          const url = workbenchURL(line.slice('Luma Fattal: '.length).trim())
           const response = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: 'error' })
           await response.body?.cancel()
           if (!response.ok) throw new Error('The Python backend did not accept its session URL.')

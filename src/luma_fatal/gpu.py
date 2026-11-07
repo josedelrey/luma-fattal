@@ -611,7 +611,7 @@ class AdaptiveFrameProcessor:
     @staticmethod
     def _cache_path():
         root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-        return root / "luma-fatal" / "calibration-v1.json"
+        return root / "luma-fattal" / "calibration-v1.json"
 
     def _cache_read(self, key):
         try:

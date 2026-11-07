@@ -442,7 +442,7 @@ class Server(ThreadingHTTPServer):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Open the local Luma Fatal video workbench"
+        description="Open the local Luma Fattal video workbench"
     )
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--no-browser", action="store_true")
@@ -456,7 +456,7 @@ def main():
     app = Workbench(directory, args.presets)
     server = Server(args.port, app)
     url = f"http://127.0.0.1:{server.server_port}/?token={app.token}"
-    print(f"Luma Fatal: {url}\nSession files: {directory.resolve()}", flush=True)
+    print(f"Luma Fattal: {url}\nSession files: {directory.resolve()}", flush=True)
     if not args.no_browser:
         webbrowser.open(url)
     try:

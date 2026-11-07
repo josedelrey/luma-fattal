@@ -625,7 +625,7 @@ def _prefetched_frames(frames, capacity):
             except Full:
                 pass
 
-    worker = Thread(target=produce, daemon=True, name="luma-fatal-decoder")
+    worker = Thread(target=produce, daemon=True, name="luma-fattal-decoder")
     worker.start()
     try:
         while True:
@@ -894,7 +894,7 @@ def process_video(
         )
         cleanup_options = {"frame_processor": filter_solver}
     with tempfile.TemporaryDirectory(
-        prefix=".luma-fatal-", dir=destination.parent
+        prefix=".luma-fattal-", dir=destination.parent
     ) as directory:
         temporary = Path(directory) / "video.mp4"
         temporary_meta = Path(directory) / "video.meta.json"

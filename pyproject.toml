@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "luma-fatal"
+name = "luma-fattal"
 version = "0.1.0"
 description = "Configurable gradient-domain image and video processing"
 readme = "README.md"
@@ -20,10 +20,14 @@ gpu = [
 ]
 
 [project.scripts]
-luma-fatal = "luma_fatal.cli:main"
+luma-fattal = "luma_fatal.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/luma_fatal"]
 
 [dependency-groups]
 dev = [
+    "pyinstaller==6.22.3",
     "pyright>=1.1.414,<2",
     "pytest>=8,<10",
     "ruff>=0.17.4,<0.18",

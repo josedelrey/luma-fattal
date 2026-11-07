@@ -16,7 +16,7 @@ cover art. Its dimensions, pixel format, color interpretation, and pixel shape
 must remain stable, with strictly increasing presentation timestamps.
 
 ```bash
-luma-fatal video local_inputs/input.mp4 outputs/stylized.mp4 \
+luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
   --config configs/fattal-1.yaml --progress
 ```
 
@@ -50,7 +50,7 @@ using zscale's display-referred BT.709/BT.1886 interpretation.
 For missing or incorrect metadata, specify the source interpretation and cadence:
 
 ```bash
-luma-fatal video local_inputs/input.mp4 outputs/stylized.mp4 \
+luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
   --config configs/fattal-1.yaml --input-color bt709 --input-range limited \
   --frame-rate 30000/1001 --progress
 ```
@@ -85,7 +85,7 @@ an NVENC-capable NVIDIA GPU, a working NVIDIA driver, and an FFmpeg build that
 includes `h264_nvenc`. No additional Python packages are required.
 
 ```bash
-luma-fatal video local_inputs/input.mp4 outputs/stylized.mp4 \
+luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
   --config configs/fattal-1.yaml --progress
 ```
 
@@ -126,7 +126,7 @@ Install the optional GPU dependencies and run a video:
 
 ```bash
 uv sync --locked --extra gpu
-uv run --extra gpu luma-fatal video local_inputs/input.mp4 outputs/stylized.mp4 \
+uv run --extra gpu luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
   --config configs/fattal-1-compressed.yaml --progress
 ```
 
@@ -183,7 +183,7 @@ calibration, and encoding, so longer inputs give a better throughput comparison.
 Use a [compressed-source preset](configuration.md#presets):
 
 ```bash
-luma-fatal video local_inputs/input.mp4 outputs/cleaned.mp4 \
+luma-fattal video local_inputs/input.mp4 outputs/cleaned.mp4 \
   --config configs/fattal-1-compressed.yaml --progress
 ```
 

@@ -45,7 +45,7 @@ def assert_no_artifacts(source, original, destination):
     assert source.read_bytes() == original
     assert not destination.exists()
     assert not destination.with_suffix(".meta.json").exists()
-    assert not list(destination.parent.glob(".luma-fatal-*"))
+    assert not list(destination.parent.glob(".luma-fattal-*"))
 
 
 def assert_rejected(source, destination, entry_point, capsys):
@@ -154,7 +154,7 @@ def test_existing_destinations_are_preserved(tmp_path, entry_point, target, kind
         assert not list(existing.iterdir())
     other = sidecar if target == "output" else destination
     assert not other.exists()
-    assert not list(tmp_path.glob(".luma-fatal-*"))
+    assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
 @pytest.mark.parametrize("target", ["output", "sidecar"])
@@ -172,7 +172,7 @@ def test_dangling_destination_links_are_preserved(tmp_path, target):
         run_image(source, destination, "api")
     assert existing.is_symlink()
     assert not (tmp_path / "missing.png").exists()
-    assert not list(tmp_path.glob(".luma-fatal-*"))
+    assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
 @pytest.mark.parametrize("entry_point", ["api", "cli"])
@@ -251,4 +251,4 @@ def test_publication_races_preserve_other_writer(
     assert competing.read_bytes() == b"other writer"
     other = sidecar if target == "output" else destination
     assert not other.exists()
-    assert not list(tmp_path.glob(".luma-fatal-*"))
+    assert not list(tmp_path.glob(".luma-fattal-*"))

@@ -231,7 +231,7 @@ def test_nvenc_preflight_failure_falls_back_to_cpu(
     assert record["frame_count"] == 5
     assert len(inspect(destination, tools)["frames"]) == 5
     assert json.loads(destination.with_suffix(".meta.json").read_text()) == record
-    assert not list(destination.parent.glob(".luma-fatal-*"))
+    assert not list(destination.parent.glob(".luma-fattal-*"))
 
 
 @pytest.mark.parametrize("force_cpu", [False, True])
@@ -291,7 +291,7 @@ def test_cpu_encoding_failure_after_nvenc_fallback_publishes_no_output(
 
     def unavailable_cpu(*args):
         command = original(*args)
-        command[command.index("libx264")] = "luma-fatal-nonexistent-codec"
+        command[command.index("libx264")] = "luma-fattal-nonexistent-codec"
         return command
 
     monkeypatch.setattr(video, "_validate_nvenc", unavailable)
@@ -307,7 +307,7 @@ def test_cpu_encoding_failure_after_nvenc_fallback_publishes_no_output(
         )
     assert not destination.exists()
     assert not destination.with_suffix(".meta.json").exists()
-    assert not list(tmp_path.glob(".luma-fatal-*"))
+    assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
 def test_nvenc_hardware_output_matches_cpu_filtering(tmp_path, tools):
@@ -367,7 +367,7 @@ def test_nvenc_hardware_output_matches_cpu_filtering(tmp_path, tools):
         int(frame["pts"]) * Fraction(stream["time_base"]) for frame in output["frames"]
     ]
     assert times == [Fraction(i, 25) for i in range(5)]
-    assert not list(tmp_path.glob(".luma-fatal-*"))
+    assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
 def test_gpu_filtering_fallback_preserves_source_treatments_and_records_selection(
@@ -555,7 +555,7 @@ def inspect(path, tools):
 def reference_rgb(
     path, tools, width, height, color_range="limited", deblock="off", deband="off"
 ):
-    # This is the documented video-to-filter boundary, before any Luma Fatal effects.
+    # This is the documented video-to-filter boundary, before any Luma Fattal effects.
     conversion = (
         "zscale=matrixin=709:transferin=709:primariesin=709:"
         f"rangein={color_range}:matrix=gbr:transfer=iec61966-2-1:"
@@ -873,7 +873,7 @@ def test_video_matches_image_processing_and_preserves_timing(
     times = [int(frame["pts"]) * Fraction(stream["time_base"]) for frame in frames]
     assert times == [Fraction(i, 25) for i in range(5)]
     assert Fraction(stream["duration"]) == Fraction(1, 5)
-    assert not list(destination.parent.glob(".luma-fatal-*"))
+    assert not list(destination.parent.glob(".luma-fattal-*"))
 
 
 @pytest.mark.parametrize("filter_name", ["fattal1", "fattal2"])
@@ -1262,7 +1262,7 @@ def test_filter_failure_cleans_up_processes_and_outputs(tmp_path, tools, monkeyp
         process_video(source, destination, ffmpeg=tools[0], ffprobe=tools[1])
     assert not destination.exists()
     assert not destination.with_suffix(".meta.json").exists()
-    assert not list(tmp_path.glob(".luma-fatal-*"))
+    assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows launcher and file-lock regression")
@@ -1319,7 +1319,7 @@ def test_encoder_failure_reports_diagnostics_and_cleans_up(
 
     def unavailable_codec(*args):
         command = original(*args)
-        command[command.index("libx264")] = "luma-fatal-nonexistent-codec"
+        command[command.index("libx264")] = "luma-fattal-nonexistent-codec"
         return command
 
     monkeypatch.setattr(video, "_encode_command", unavailable_codec)
@@ -1328,7 +1328,7 @@ def test_encoder_failure_reports_diagnostics_and_cleans_up(
         process_video(source, destination, ffmpeg=tools[0], ffprobe=tools[1])
     assert not destination.exists()
     assert not destination.with_suffix(".meta.json").exists()
-    assert not list(tmp_path.glob(".luma-fatal-*"))
+    assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
 def test_multiple_video_streams_are_rejected(tmp_path, tools):
@@ -1378,7 +1378,7 @@ def test_sidecar_race_preserves_other_writer_and_rolls_back_video(
         process_video(source, destination, ffmpeg=tools[0], ffprobe=tools[1])
     assert not destination.exists()
     assert sidecar.read_bytes() == b"other writer"
-    assert not list(tmp_path.glob(".luma-fatal-*"))
+    assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
 def test_variable_rate_repeats_frames_at_nominal_cadence(tmp_path, tools):
@@ -1778,7 +1778,7 @@ def test_preparation_failure_reports_diagnostics_and_leaves_no_outputs(
         process_video(source, destination, ffmpeg=tools[0], ffprobe=tools[1])
     assert not destination.exists()
     assert not destination.with_suffix(".meta.json").exists()
-    assert not list(tmp_path.glob(".luma-fatal-*"))
+    assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
 @pytest.mark.parametrize(

@@ -112,7 +112,7 @@ def process_image(
         )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(
-        prefix=".luma-fatal-", dir=output_path.parent
+        prefix=".luma-fattal-", dir=output_path.parent
     ) as directory:
         temporary_image = Path(directory) / ("image" + output_path.suffix)
         temporary_meta = Path(directory) / "image.meta.json"

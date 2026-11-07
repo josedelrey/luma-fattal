@@ -77,8 +77,8 @@ class PooledVideoIO:
             )
             slot = [source, output, encoded]
             self.free.put(slot)
-        self.reader = Thread(target=self._decode, name="luma-fatal-decode", daemon=True)
-        self.writer = Thread(target=self._encode, name="luma-fatal-encode", daemon=True)
+        self.reader = Thread(target=self._decode, name="luma-fattal-decode", daemon=True)
+        self.writer = Thread(target=self._encode, name="luma-fattal-encode", daemon=True)
 
     def _array(self, shape):
         if self.pinned:

@@ -5,7 +5,7 @@ const { Backend } = require('./backend.cjs')
 const { createWorkbenchWindow } = require('./window.cjs')
 const { runtimePaths } = require('./paths.cjs')
 
-app.setName('Luma Fatal')
+app.setName('Luma Fattal')
 
 let backend
 let quitting = false
@@ -14,7 +14,7 @@ async function openWindow() {
   const paths = runtimePaths(__dirname, process.resourcesPath, app.getPath('userData'), app.isPackaged)
   backend = new Backend(paths, error => {
     if (quitting) return
-    dialog.showErrorBox('Luma Fatal backend stopped', error.message)
+    dialog.showErrorBox('Luma Fattal backend stopped', error.message)
     app.quit()
   })
   const url = await backend.ready
@@ -37,7 +37,7 @@ app.whenReady().then(() => {
   return openWindow()
 }).catch(error => {
   if (quitting) return
-  dialog.showErrorBox('Luma Fatal could not start', error.message)
+  dialog.showErrorBox('Luma Fattal could not start', error.message)
   app.quit()
 })
 
@@ -50,7 +50,7 @@ app.on('before-quit', event => {
     backend = null
     app.quit()
   }).catch(error => {
-    dialog.showErrorBox('Luma Fatal could not stop its backend', error.message)
+    dialog.showErrorBox('Luma Fattal could not stop its backend', error.message)
     app.exit(1)
   })
 })
