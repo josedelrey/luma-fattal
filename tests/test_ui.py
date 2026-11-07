@@ -160,3 +160,54 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path):
         assert b"416" in request("/media/clip.mp4", headers="Range: bytes=30-\r\n")[0]
     finally:
         app.executor.shutdown()
+
+
+def test_signal_metrics_measure_constant_and_changing_pixels():
+    from luma_fatal.ui.server import signal_metrics
+
+    black = np.zeros((4, 4, 3), np.uint8)
+    record = signal_metrics(black)
+    assert record["rgb"] == [0, 0, 0]
+    assert record["luma"] == record["contrast"] == record["detail"] == 0
+    assert record["dark"] == 100 and record["bright"] == 0
+    assert record["histogram"] == [100] + [0] * 31
+    assert record["delta"] is None
+    white = np.full_like(black, 255)
+    record = signal_metrics(white, black)
+    assert record["delta"] == 255
+    assert record["bright"] == 100 and record["dark"] == 0
+    assert record["histogram"] == [0] * 31 + [100]
+    split = black.copy()
+    split[:, 2:] = 255
+    record = signal_metrics(split)
+    assert record["contrast"] == pytest.approx(127.5)
+    assert record["detail"] == pytest.approx(42.5)
+
+
+def test_clip_analysis_is_bounded_and_uses_real_source_samples(tmp_path, tools):
+    from test_video import make_clip
+
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    source = make_clip(tmp_path / "signal.mkv", tools, width=256, height=192)
+    app.uploads["test"] = dict(path=source, duration=0.2)
+    try:
+        identifier = app.submit(
+            "analyze", dict(upload="test", config=Config().to_dict())
+        )
+        deadline = time.monotonic() + 60
+        while app.busy and time.monotonic() < deadline:
+            time.sleep(0.02)
+        job = app.jobs[identifier]
+        assert job["state"] == "done", job
+        assert job["completed"] == job["total"] == 16
+        analysis = job["analysis"]
+        assert analysis["dimensions"] == [128, 96]
+        samples = analysis["samples"]
+        assert len(samples) == 16
+        assert samples[0]["delta"] is None
+        assert any(sample["delta"] > 0 for sample in samples[1:])
+        assert all(0 < sample["time"] < 0.2 for sample in samples)
+        assert all(sum(sample["histogram"]) == pytest.approx(100) for sample in samples)
+        json.dumps(analysis, allow_nan=False)
+    finally:
+        app.executor.shutdown()

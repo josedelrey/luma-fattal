@@ -36,9 +36,9 @@ button,.button {
   color: #080808;
   padding: 3px 7px;
   cursor: pointer;
-  font-weight: bold;
+  font-weight: normal;
   text-decoration: none;
-  font: bold 11px Arial;
+  font: 11px Arial;
 }
 button:hover:not(:disabled),.button:hover {
   background: #ddd;
@@ -102,7 +102,7 @@ input[type=checkbox] {
   margin: 0 0 12px;
   padding: 3px 7px;
   border: 2px outset #eee;
-  font-weight: bold;
+  font-weight: normal;
   font-size: 11px;
   font: 11px Arial;
 }
@@ -142,7 +142,7 @@ main {
   font-size: 11px;
   letter-spacing: 0;
   margin: 0;
-  font: bold 12px 'Times New Roman',serif;
+  font: 12px 'Times New Roman',serif;
 }
 .titlebar>span {
   font-size: 10px;
@@ -312,7 +312,7 @@ main {
   font-size: 10px;
   display: table;
   margin-bottom: 6px;
-  font: bold 12px 'Times New Roman',serif;
+  font: 12px 'Times New Roman',serif;
   background: #ece4d19c;
   padding: 1px 3px;
 }
@@ -358,7 +358,7 @@ main {
   padding: 1px 4px;
   font-size: 10px;
   color: #100000;
-  font: bold 11px 'Times New Roman',serif;
+  font: 11px 'Times New Roman',serif;
   border: 1px outset #ddd;
 }
 .slider {
@@ -403,7 +403,7 @@ summary {
   color: #080000;
   cursor: pointer;
   letter-spacing: 0;
-  font: bold 11px 'Times New Roman',serif;
+  font: 11px 'Times New Roman',serif;
   background: #d5c5acbd;
   width: fit-content;
   padding: 1px 3px;
@@ -444,7 +444,7 @@ summary {
   font-size: 14px;
   letter-spacing: 0;
   text-align: center;
-  font: bold 14px 'Times New Roman',serif;
+  font: 14px 'Times New Roman',serif;
 }
 .process:hover:not(:disabled) {
   background: #ddd;
@@ -558,7 +558,7 @@ progress {
   margin-right: auto;
 }
 .export-body a:not(.button) {
-  color: #190074;
+  color: #0000ff;
   text-decoration: underline;
 }
 .export-body button {
@@ -615,7 +615,7 @@ dialog p {
   justify-content: space-between;
   background: #000078;
   color: #fff;
-  font: bold 12px Arial;
+  font: 12px Arial;
   padding: 3px 5px;
   margin: -8px -18px 10px;
   border-bottom: 2px solid #bdbdbd;
@@ -633,7 +633,7 @@ dialog p {
 .logo h1 {
   font-family: 'Times New Roman',serif;
   font-style: italic;
-  font-weight: 900;
+  font-weight: normal;
   transform: scaleX(.94);
   font-size: 42px;
   line-height: .95;
@@ -674,7 +674,7 @@ dialog p {
   line-height: 1.7;
 }
 .filter-row label {
-  font-weight: bold;
+  font-weight: normal;
   background: #e5dacaac;
   padding: 2px;
 }
@@ -805,16 +805,16 @@ dialog p {
 .previews, .export { background: #f2d3b9 var(--previews-texture) repeat; background-size: 460px; }
 body, .slider label, .section-label, .filter-row, .preview-toolbar,
 .preview-note, .job-status, .filebar, .sourcebar, .fineprint, summary,
-.select-row, .export-body { font-family: Arial, Helvetica, sans-serif; color: #151a92; }
+.select-row, .export-body { font-family: Arial, Helvetica, sans-serif; color: #0000ff; }
 .slider label, .section-label, .filter-row label, .preview-toolbar > span,
 .preview-toolbar label, summary, .select-row, .fineprint, .job-status,
 .export-body { background: transparent; }
-.slider label, .section-label, summary { font-size: 12px; font-weight: bold; }
+.slider label, .section-label, summary { font-size: 12px; font-weight: normal; }
 .titlebar { background: #c3c3c3; color: #000; }
-.titlebar h2 { font: bold 12px Arial, Helvetica, sans-serif; color: #000; }
+.titlebar h2 { font: 12px Arial, Helvetica, sans-serif; color: #000; }
 .screen { aspect-ratio: 4 / 3; border: 0; margin: 0 5px; }
 .transport { height: 29px; gap: 2px; border: 2px outset #ddd; background: linear-gradient(#f4f4f4 0%, #aaa 48%, #dedede 51%, #858585 100%); padding: 2px; }
-.transport button { border: 0; padding: 2px 5px; background: transparent; color: #151515; font: bold 13px Arial, sans-serif; text-shadow: 1px 1px #fff; }
+.transport button { border: 0; padding: 2px 5px; background: transparent; color: #151515; font: 13px Arial, sans-serif; text-shadow: 1px 1px #fff; }
 .transport button:hover:not(:disabled) { background: #ddd; }
 .transport #timecode { order: 4; color: #ddd; background: #222; border: 1px inset #777; font: 10px Arial, sans-serif; padding: 3px; }
 .transport #seek { order: 3; accent-color: #333; height: 9px; }
@@ -827,7 +827,7 @@ body, .slider label, .section-label, .filter-row, .preview-toolbar,
 .local-tag, #preview-state, .preview-toolbar label span, summary span,
 .select-row > span, .fineprint span, #status, #export-info {
   background: #000;
-  color: #3366ff;
+  color: #0000ff;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
@@ -851,8 +851,8 @@ body, .slider label, .section-label, .filter-row, .preview-toolbar,
   .export { grid-row: 3; }
 }
 
-.process { background: #c99b36; border-color: #f2d780 #60430f #60430f #f2d780; }
-.process:hover:not(:disabled) { background: #e1b74e; }
+.process { background: rgba(201, 155, 54, .55); border-color: #f2d780 #60430f #60430f #f2d780; }
+.process:hover:not(:disabled) { background: rgba(225, 183, 78, .55); }
 .process:disabled { opacity: 1; background: rgba(201, 155, 54, .55); border-color: rgba(242, 215, 128, .55) rgba(96, 67, 15, .55) rgba(96, 67, 15, .55) rgba(242, 215, 128, .55); color: #080808; }
 
 .logo h1 { width: 360px; max-width: 70vw; aspect-ratio: 4; overflow: visible; }
@@ -876,3 +876,41 @@ body, .slider label, .section-label, .filter-row, .preview-toolbar,
 
 .config-column { align-self: stretch; }
 .logo { padding: 8px 14px; background: radial-gradient(ellipse at center, #0009 0%, #0005 48%, transparent 75%); }
+
+/* Dense old HTML instrument readout, with intentionally clashing ink. */
+.signal-lab { margin-top: 8px; padding: 5px; border: 3px ridge #965b50; background: #100907 var(--previews-texture) repeat; background-size: 260px; color: #dbc69a; font: 10px 'Courier New', monospace; }
+.signal-heading { display: flex; justify-content: space-between; align-items: center; background: #210000; color: #d7b063; border: 1px outset #8f5736; padding: 3px; }
+.signal-heading h2 { font: 11px 'Courier New', monospace; margin: 0; letter-spacing: -.5px; }
+.signal-sub { display: flex; justify-content: space-between; align-items: center; gap: 2px; margin: 3px 0; }
+.signal-sub span { background: #000; color: #c48b53; font-size: 9px; }
+.signal-sub button { font-size: 9px; padding: 1px 3px; }
+#signal-chart { display: block; width: 100%; height: auto; background: #100b09; border: 1px inset #773b31; image-rendering: pixelated; cursor: crosshair; }
+.signal-readings { min-height: 48px; background: #070000e8; color: #c8ad6c; margin-top: 3px; font-size: 10px; line-height: 1.5; padding: 3px; }
+.signal-key { background: #090000; font-size: 9px; padding: 2px; display: flex; gap: 6px; flex-wrap: wrap; }
+.signal-key span:nth-child(1) { color: #ef4b34; }.signal-key span:nth-child(2) { color: #d6aa39; }.signal-key span:nth-child(3) { color: #4c70ff; }.signal-key span:nth-child(4) { color: #e3cfb0; }
+.signal-lab p { background: #000b; color: #ae8876; font: 8px 'Courier New', monospace; line-height: 1.5; margin: 3px 0 0; }
+.signal-readings { white-space: pre-wrap; }
+
+/* Plain old-HTML text, except for the main window title. */
+h1, h2, h3, strong, b { font-weight: normal; }
+.application-title > span:first-child { font-weight: bold; }
+.signal-lab { border-color: #ff0000; color: #ffffff; }
+.signal-heading { background: #ffffff; color: #0000ff; border-color: #0000ff; }
+.signal-sub span { background: #000000; color: #0000ff; }
+#signal-chart { background: #000000; border-color: #ff0000; }
+.signal-readings { background: #000000; color: #ffffff; }
+.signal-key { background: #ffffff; color: #000000; }
+.signal-key span:nth-child(1) { color: #0000ff; }
+.signal-key span:nth-child(2) { color: #ffffff; background: #000000; }
+.signal-key span:nth-child(3) { color: #0000ff; }
+.signal-key span:nth-child(4) { color: #ffffff; background: #000000; }
+.signal-lab p { background: #000000; color: #0000ff; }
+
+.signal-lab { flex: 1; display: flex; flex-direction: column; }
+.signal-readings { margin-top: auto; }
+@media (max-width: 720px) { .signal-lab { flex: initial; } .signal-readings { margin-top: 3px; } }
+
+/* Keep the lower panel edges aligned as either column changes height. */
+.video-column { align-self: stretch; }
+.previews { flex: 1; }
+@media (max-width: 720px) { .previews { flex: initial; } }

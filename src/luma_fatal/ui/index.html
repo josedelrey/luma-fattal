@@ -28,11 +28,10 @@
         <div class="titlebar"><h2 id="monitor-title">Video</h2></div>
         <div class="sourcebar"><div class="tabs" role="group" aria-label="Video source"><button id="original-tab" class="active" aria-pressed="true">Original</button><button id="result-tab" disabled aria-pressed="false">Processed</button></div><span id="signal-name">No file selected</span></div>
         <div class="screen">
-          <video id="player" playsinline preload="metadata" aria-label="Video monitor"></video>
+          <video id="player" playsinline muted preload="metadata" aria-label="Video monitor"></video>
           <div id="empty-screen"><div class="test-pattern">LF</div><strong>No video loaded</strong><span>Select a video file to begin</span><button id="screen-load">Open video…</button></div>
-          <span class="screen-label" id="screen-label">● SOURCE</span>
         </div>
-        <div class="transport"><button id="play" aria-label="Play or pause" disabled>▶</button><button id="rewind" aria-label="Return to start" disabled>▮◀</button><span id="timecode">00:00 / 00:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Video position" disabled><button id="mute" aria-label="Mute or unmute" disabled>VOL</button><button id="fullscreen" aria-label="Fullscreen video" disabled>⛶</button></div>
+        <div class="transport"><button id="play" aria-label="Play or pause" disabled>▶</button><button id="rewind" aria-label="Return to start" disabled>▮◀</button><span id="timecode">00:00 / 00:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Video position" disabled><button id="mute" aria-label="Mute or unmute" disabled>MUTE</button><button id="fullscreen" aria-label="Fullscreen video" disabled>⛶</button></div>
         <div class="filebar"><button id="open-video">Open video…</button><input id="video-file" type="file" accept="video/*,.mkv,.avi,.mov" hidden><span id="file-info">MP4 / MOV / MKV / AVI</span><span class="local-tag">local</span></div>
       </section>
       <section class="previews panel" aria-labelledby="preview-title">
@@ -56,6 +55,13 @@
           <div class="job-status"><span id="status" role="status" aria-live="polite">READY. LOAD YOUR SOURCE.</span><progress id="progress" max="100" value="0"></progress></div>
         </div>
       </aside>
+      <section class="signal-lab" aria-labelledby="signal-title">
+        <div class="signal-heading"><h2 id="signal-title">CLIP / SIGNAL</h2><span>LF:16</span></div>
+        <div class="signal-sub"><span id="analysis-state" role="status">NO SOURCE / WAITING</span><button id="rescan" disabled>SCAN ↻</button></div>
+        <canvas id="signal-chart" width="580" height="440" role="img" aria-label="Source RGB levels and luminance histogram"></canvas>
+        <div id="signal-readings" class="signal-readings" aria-live="polite">Y: -- / σ: -- / Δ: --<br>LOAD SOURCE TO ACQUIRE SIGNAL</div>
+        <div class="signal-key"><span>■ R</span><span>■ G</span><span>■ B</span><span>+ Y</span> / SOURCE SAMPLES</div>
+      </section>
       </div>
       <section id="export-panel" class="export panel" hidden>
         <div class="titlebar"><h2>Processed video</h2><span>render complete</span></div>

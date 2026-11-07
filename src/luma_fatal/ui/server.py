@@ -47,8 +47,10 @@ def sample_times(duration: float) -> list[float]:
     return [duration * (index + 0.5) / 5 for index in range(5)]
 
 
-def preview_frame(source: Path, config: Config, timestamp: float) -> Image.Image:
-    """Use the video color/geometry path and independently initialized treatment."""
+def decoded_sample(
+    source: Path, config: Config, timestamp: float, max_edge: int | None = None
+) -> np.ndarray:
+    """Decode one color-normalized sample with an optional output size bound."""
     stream = _probe(source, "ffprobe")
     dimensions, rotation, _ = _geometry(stream)
     color, _ = _resolve_color(stream, config.video)
@@ -65,6 +67,10 @@ def preview_frame(source: Path, config: Config, timestamp: float) -> Image.Image
     )
     # Input seeking avoids decoding the whole clip for every thumbnail.
     command[command.index("-i") : command.index("-i")] = ["-ss", str(timestamp)]
+    if max_edge is not None:
+        scale = min(1, max_edge / max(dimensions))
+        dimensions = tuple(max(2, round(edge * scale)) for edge in dimensions)
+        command[command.index("-vf") + 1] += f",scale={dimensions[0]}:{dimensions[1]}"
     command[-1:-1] = ["-frames:v", "1"]
     decoded = subprocess.run(command, capture_output=True, check=True, timeout=120)
     width, height = dimensions
@@ -78,7 +84,12 @@ def preview_frame(source: Path, config: Config, timestamp: float) -> Image.Image
         decoded = subprocess.run(command, capture_output=True, check=True, timeout=120)
     if len(decoded.stdout) != width * height * 3:
         raise ValueError("Could not decode a preview frame at this timestamp")
-    frame = np.frombuffer(decoded.stdout, np.uint8).reshape(height, width, 3).copy()
+    return np.frombuffer(decoded.stdout, np.uint8).reshape(height, width, 3).copy()
+
+
+def preview_frame(source: Path, config: Config, timestamp: float) -> Image.Image:
+    """Use the video color/geometry path and independently initialized treatment."""
+    frame = decoded_sample(source, config, timestamp)
     settings = config.video
     treatment = None
     if settings.flat_cleanup:
@@ -103,6 +114,31 @@ def preview_frame(source: Path, config: Config, timestamp: float) -> Image.Image
         treatment = SourceDenoise(settings.denoise, source_cleanup=treatment)
     result = next(process_frames([frame], config=config, source_cleanup=treatment))
     return Image.fromarray(result)
+
+
+def signal_metrics(frame: np.ndarray, previous: np.ndarray | None = None) -> dict:
+    """Measure normalized RGB8 pixels, without interpreting deltas as optical flow."""
+    rgb = frame.astype(np.float32)
+    luma = rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    histogram = np.histogram(luma, bins=32, range=(0, 256))[0]
+    return dict(
+        rgb=rgb.mean(axis=(0, 1)).tolist(),
+        luma=float(luma.mean()),
+        contrast=float(luma.std()),
+        delta=None
+        if previous is None
+        else float(np.abs(rgb - previous.astype(np.float32)).mean()),
+        dark=float(np.mean(luma < 5) * 100),
+        bright=float(np.mean(luma >= 250) * 100),
+        detail=float(
+            (
+                np.abs(np.diff(luma, axis=0)).mean()
+                + np.abs(np.diff(luma, axis=1)).mean()
+            )
+            / 2
+        ),
+        histogram=(histogram / luma.size * 100).tolist(),
+    )
 
 
 class Workbench:
@@ -135,7 +171,7 @@ class Workbench:
             self.jobs[identifier] = dict(
                 state="running",
                 completed=0,
-                total=5 if kind == "preview" else None,
+                total=16 if kind == "analyze" else 5 if kind == "preview" else None,
                 kind=kind,
             )
         self.executor.submit(self.run, identifier, kind, upload, config)
@@ -149,7 +185,29 @@ class Workbench:
         folder = self.directory / identifier
         folder.mkdir()
         try:
-            if kind == "preview":
+            if kind == "analyze":
+                samples = []
+                previous = None
+                for index in range(16):
+                    timestamp = upload["duration"] * (index + 0.5) / 16
+                    frame = decoded_sample(
+                        upload["path"], Config(), timestamp, max_edge=128
+                    )
+                    samples.append(
+                        dict(time=timestamp, **signal_metrics(frame, previous))
+                    )
+                    previous = frame
+                    self.update(
+                        identifier,
+                        completed=index + 1,
+                        analysis=dict(
+                            samples=list(samples),
+                            duration=upload["duration"],
+                            dimensions=list(frame.shape[1::-1]),
+                        ),
+                    )
+                self.update(identifier, state="done")
+            elif kind == "preview":
                 frames = []
                 for index, timestamp in enumerate(sample_times(upload["duration"])):
                     filename = f"frame-{index}.png"
@@ -360,7 +418,7 @@ class Handler(BaseHTTPRequestHandler):
                 if config.filter == "both":
                     raise ValueError("Choose fattal1 or fattal2 for a video recipe")
                 self.send_json(config.to_dict())
-            elif path in ("/api/preview", "/api/process"):
+            elif path in ("/api/preview", "/api/process", "/api/analyze"):
                 data = json.loads(self.rfile.read(length))
                 self.send_json(dict(job=app.submit(path.rsplit("/", 1)[-1], data)))
             else:

@@ -247,3 +247,19 @@ needed. A browser refresh starts a fresh UI state. Previous files remain on disk
 but are not restored into the interface. Stop the server with Ctrl+C. Only the
 printed session URL grants access to its API and media. No files go to a hosted
 service. Uploads are streamed to disk with a 20 GiB per-file limit.
+
+The signal analyzer below the configuration panel samples the original source
+when a clip loads. It measures 16 evenly spaced frames, reduced to at most
+128 pixels on the longest edge before pixel statistics. The plots show RGB
+means and encoded-sRGB luma over time, a mean 32-bin luma histogram, and a numeric readout with sampled RGB differences, luma standard deviation
+and mean spatial differences. Hover the plot to inspect a sample. SCAN repeats the measurement. These approximate source
+statistics do not change with effect presets. Temporal differences compare
+widely spaced samples and do not estimate optical flow or continuous motion.
+The panel updates as samples arrive and does not keep decoding after completion.
+
+If the running server predates the analysis endpoint and returns HTTP 404, the UI
+falls back to the browser's video decoder for the same 16 low-resolution samples.
+It uses a separate video element and leaves player position unchanged. Browser
+color conversion and seeking can differ from FFmpeg, so the approximate readings
+can differ. A codec unsupported by the browser requires restarting the current
+server to enable FFmpeg analysis. No new dependencies are required.
