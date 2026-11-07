@@ -22,8 +22,6 @@ function windowSize(workArea) {
   return {
     width,
     height,
-    minWidth: Math.min(760, width),
-    minHeight: Math.min(600, height),
   }
 }
 

@@ -98,7 +98,7 @@ README image sources and filtered results are kept in `assets/`. Use the ignored
 
 ## Workbench appearance
 
-The Electron shell in `desktop/` displays the same UI in a resizable desktop
+The Electron shell in `desktop/` displays the same UI in a fixed-size desktop
 window. Development requires Node.js 22.12 or later and the existing Python
 environment with FFmpeg and ffprobe. Install the desktop dependencies once:
 
@@ -124,10 +124,11 @@ the source tree during development. A packaged build will read them from its
 resources directory. The backend runs with the session directory as its working
 directory, so starting Electron from another location does not redirect files.
 
-The window uses the existing logo, opens at up to 1200 by 900 pixels, and fits
-smaller displays. It supports resizing, maximizing, and fullscreen. Closing the
-window exits Electron and stops its Python backend and child processes. Active
-processing is interrupted when the application exits.
+The frameless window uses the interface's blue title bar as its draggable frame,
+with working minimize and close buttons. It opens at up to 1200 by 900 pixels
+and fits smaller displays. Resizing, maximizing, and fullscreen are disabled.
+Closing the window exits Electron and stops its Python backend and child
+processes. Active processing is interrupted when the application exits.
 
 Build the Python backend with PyInstaller 6.22.3 installed in the project
 environment:
@@ -140,8 +141,21 @@ The builder checks for FFmpeg with libx264 and zscale, then includes ffmpeg,
 ffprobe, UI assets, Python package metadata, and the supplied FFmpeg license.
 Output is in ignored `outputs/desktop-backend/`. Run the frozen executable with
 `--self-test` and `NUMBA_CACHE_DIR` set to a writable directory to check Numba
-compilation. Electron expects this folder under `resources/backend/` when
-packaged. Assembling and testing that complete app is step 6.
+compilation. Assemble the app after rebuilding the backend whenever the UI
+changes:
+
+```bash
+npm --prefix desktop ci
+npm --prefix desktop run package:dir -- --linux
+uv run --locked python scripts/smoke_desktop_backend.py outputs/desktop-app/linux-unpacked/resources
+```
+
+The assembled Linux prototype is in ignored `outputs/desktop-app/linux-unpacked/`.
+The smoke script generates a short video and checks bundled presets, textures,
+preview frames, processing, export, FFprobe output, and Numba caching from a
+temporary working directory. The desktop workflow builds corresponding Windows
+and macOS directories on their own GitHub Actions runners and runs the same
+backend check plus a packaged window check. These are prototype artifacts.
 The desktop window uses native Open dialogs for videos and YAML or JSON recipes.
 Save video, Run record, and Save config use native Save dialogs. The browser UI
 continues to use its file inputs and downloads. Run `npm --prefix desktop test`

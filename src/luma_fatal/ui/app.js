@@ -9,7 +9,13 @@ for (const [surface, filename] of Object.entries({body: 'viscera', controls: 'pa
 document.documentElement.style.setProperty('--monitor-texture', `url('${secured('/assets/panel-078-red.png')}')`);
 let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, revision = 0, previewRevision = -1, timer, resultConfig;
 const player = $('player');
-const desktopFiles = window.desktopFiles;
+const fileDialogs = window.desktopFiles;
+if (window.desktopWindow) {
+  document.documentElement.classList.add('desktop');
+  $('app-frame-controls').hidden = false;
+  $('window-minimize').onclick = () => window.desktopWindow.minimize();
+  $('window-close').onclick = () => window.desktopWindow.close();
+}
 const definitions = [
   ['parameters', 'alpha', 'Alpha / gradient scale', 0.01, 100, 0.01],
   ['parameters', 'beta', 'Beta / detail response', 0, 100, 0.1],
@@ -143,10 +149,10 @@ async function loadVideo(file, nextUpload) {
   if (upload && $('auto-preview').checked) preview();
 }
 $('open-video').onclick = $('screen-load').onclick = async () => {
-  if (!desktopFiles) return $('video-file').click();
+  if (!fileDialogs) return $('video-file').click();
   if (busy) return;
   setBusy(true);
-  try { const selected = await desktopFiles.open('video'); if (selected) await loadVideo({name: selected.name}, selected.upload); }
+  try { const selected = await fileDialogs.open('video'); if (selected) await loadVideo({name: selected.name}, selected.upload); }
   catch (error) { status(error.message, true); }
   finally { setBusy(false); }
 };
@@ -160,10 +166,10 @@ $('filter').onchange = () => { config.filter = $('filter').value; changed(); };
 $('encoder').onchange = () => { config.video.encoder = $('encoder').value; changed(); };
 $('auto-preview').onchange = () => { if ($('auto-preview').checked) preview(); else clearTimeout(timer); };
 $('import-preset').onclick = async () => {
-  if (!desktopFiles) return $('preset-file').click();
+  if (!fileDialogs) return $('preset-file').click();
   if (busy) return;
   setBusy(true);
-  try { const selected = await desktopFiles.open('preset'); if (selected) { loadConfig(selected.config); status(`RECIPE LOADED / ${selected.name}`); } }
+  try { const selected = await fileDialogs.open('preset'); if (selected) { loadConfig(selected.config); status(`RECIPE LOADED / ${selected.name}`); } }
   catch (error) { status(error.message, true); }
   finally { setBusy(false); }
 };
@@ -189,8 +195,8 @@ $('process').onclick = async () => {
   finally { setBusy(false); }
 };
 $('save-config').onclick = async () => {
-  if (desktopFiles) {
-    try { await desktopFiles.save('config', null, JSON.stringify(resultConfig, null, 2)); }
+  if (fileDialogs) {
+    try { await fileDialogs.save('config', null, JSON.stringify(resultConfig, null, 2)); }
     catch (error) { status(error.message, true); }
     return;
   }
@@ -199,9 +205,9 @@ $('save-config').onclick = async () => {
 };
 for (const [id, kind] of [['save-video', 'video'], ['save-meta', 'metadata']]) {
   $(id).addEventListener('click', async event => {
-    if (!desktopFiles) return;
+    if (!fileDialogs) return;
     event.preventDefault();
-    try { await desktopFiles.save(kind, new URL($(id).href).pathname); }
+    try { await fileDialogs.save(kind, new URL($(id).href).pathname); }
     catch (error) { status(error.message, true); }
   });
 }

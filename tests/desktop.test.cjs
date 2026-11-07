@@ -41,7 +41,7 @@ test('keeps page navigation inside the authenticated workbench', () => {
   ]) assert.equal(isWorkbenchNavigation(target, entry), false)
 })
 
-test('fits small displays while retaining usable resize limits', () => {
+test('fits the fixed desktop window on small displays', () => {
   for (const area of [
     { width: 1920, height: 1080 },
     { width: 1024, height: 768 },
@@ -49,7 +49,8 @@ test('fits small displays while retaining usable resize limits', () => {
   ]) {
     const size = windowSize(area)
     assert.ok(size.width <= area.width && size.height <= area.height)
-    assert.ok(size.minWidth <= size.width && size.minHeight <= size.height)
+    assert.equal(size.minWidth, undefined)
+    assert.equal(size.minHeight, undefined)
     assert.ok(size.width > 0 && size.height > 0)
   }
 })

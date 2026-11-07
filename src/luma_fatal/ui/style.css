@@ -620,6 +620,22 @@ dialog p {
   margin: -8px -18px 10px;
   border-bottom: 2px solid #bdbdbd;
 }
+.desktop .application-title { -webkit-app-region: drag; user-select: none; }
+.application-title #app-frame-controls { display: flex; gap: 2px; }
+.application-title #app-frame-controls[hidden] { display: none; }
+.application-title #app-frame-controls button {
+  -webkit-app-region: no-drag;
+  width: 24px;
+  height: 16px;
+  padding: 0;
+  border: 1px outset #dedede;
+  background: #c0c0c0;
+  color: #000;
+  font: bold 13px Arial, sans-serif;
+  line-height: 12px;
+  cursor: pointer;
+}
+.desktop #fullscreen { display: none; }
 .logo {
   background: #d3cbb3 var(--body-texture);
   background-size: 250px;

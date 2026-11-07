@@ -7,12 +7,30 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test ../tests/desktop.test.cjs"
+    "test": "node --test ../tests/desktop.test.cjs",
+    "package:dir": "electron-builder --dir --publish never"
   },
   "engines": {
     "node": ">=22.12.0"
   },
   "devDependencies": {
-    "electron": "45.2.3"
+    "electron": "45.2.3",
+    "electron-builder": "26.18.1"
+  },
+  "build": {
+    "appId": "org.lumafattal.desktop",
+    "productName": "Luma Fattal",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": { "output": "../outputs/desktop-app" },
+    "files": ["*.cjs", "package.json"],
+    "extraResources": [
+      { "from": "../configs", "to": "configs" },
+      { "from": "../src/luma_fatal/ui/assets/logo-purple.png", "to": "assets/logo-purple.png" },
+      { "from": "../outputs/desktop-backend/luma-fattal-backend", "to": "backend/luma-fattal-backend" }
+    ],
+    "linux": { "target": "dir", "category": "Graphics" },
+    "win": { "target": "dir" },
+    "mac": { "target": "dir" }
   }
 }

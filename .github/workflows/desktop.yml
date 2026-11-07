@@ -1,0 +1,122 @@
+name: Desktop prototype
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop.yml'
+      - 'desktop/**'
+      - 'scripts/backend_entry.py'
+      - 'scripts/build_desktop_backend.py'
+      - 'scripts/smoke_desktop_backend.py'
+      - 'scripts/pyinstaller_hooks/**'
+      - 'src/luma_fatal/**'
+      - 'configs/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/desktop.yml'
+      - 'desktop/**'
+      - 'scripts/backend_entry.py'
+      - 'scripts/build_desktop_backend.py'
+      - 'scripts/smoke_desktop_backend.py'
+      - 'scripts/pyinstaller_hooks/**'
+      - 'src/luma_fatal/**'
+      - 'configs/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.label }} desktop
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux, os: ubuntu-24.04, platform: linux, resources: 'outputs/desktop-app/linux-unpacked/resources', executable: 'outputs/desktop-app/linux-unpacked/luma-fattal-desktop', artifact: 'outputs/desktop-app/linux-unpacked' }
+          - { label: windows, os: windows-2025, platform: win, resources: 'outputs/desktop-app/win-unpacked/resources', executable: 'outputs/desktop-app/win-unpacked/Luma Fattal.exe', artifact: 'outputs/desktop-app/win-unpacked' }
+          - { label: macos, os: macos-15, platform: mac, resources: 'outputs/desktop-app/mac/Luma Fattal.app/Contents/Resources', executable: 'outputs/desktop-app/mac/Luma Fattal.app/Contents/MacOS/Luma Fattal', artifact: 'outputs/desktop-app/mac/Luma Fattal.app' }
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      LUMA_FATTAL_SMOKE_VIDEO: outputs/desktop-app/smoke.mp4
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.11.6'
+          python-version: '3.11'
+          enable-cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install FFmpeg on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends ffmpeg xvfb
+
+      - name: Install FFmpeg on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: choco install ffmpeg-full --yes --no-progress
+
+      - name: Install FFmpeg on macOS
+        if: runner.os == 'macOS'
+        run: command -v ffmpeg >/dev/null || brew install ffmpeg
+
+      - name: Prepare FFmpeg notices
+        shell: bash
+        run: |
+          mkdir -p outputs
+          curl --fail --location --silent --show-error https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/LICENSE.md > outputs/ffmpeg-license.txt
+          curl --fail --location --silent --show-error https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/COPYING.GPLv2 >> outputs/ffmpeg-license.txt
+          ffmpeg -version
+          ffprobe -version
+
+      - name: Install locked Python dependencies
+        run: uv sync --locked
+
+      - name: Build and verify frozen backend
+        run: uv run --locked python scripts/build_desktop_backend.py --ffmpeg-license outputs/ffmpeg-license.txt
+
+      - name: Install Electron dependencies
+        run: npm --prefix desktop ci
+
+      - name: Check desktop logic
+        run: npm --prefix desktop test
+
+      - name: Assemble desktop app
+        run: npm --prefix desktop run package:dir -- --${{ matrix.platform }}
+
+      - name: Check packaged video pipeline
+        run: uv run --locked python scripts/smoke_desktop_backend.py "${{ matrix.resources }}" --save-video outputs/desktop-app/smoke.mp4
+
+      - name: Check packaged window on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: LUMA_FATTAL_SMOKE=1 xvfb-run -a "${{ matrix.executable }}" --no-sandbox
+
+      - name: Check packaged window on Windows and macOS
+        if: runner.os != 'Linux'
+        shell: bash
+        run: LUMA_FATTAL_SMOKE=1 "${{ matrix.executable }}"
+
+      - name: Upload unpacked prototype
+        uses: actions/upload-artifact@v4
+        with:
+          name: luma-fattal-${{ matrix.label }}-prototype
+          path: ${{ matrix.artifact }}
+          retention-days: 7

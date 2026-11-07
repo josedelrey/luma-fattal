@@ -2,7 +2,7 @@
 
 const path = require('node:path')
 const { existsSync } = require('node:fs')
-const { app, BrowserWindow, nativeImage, screen, session } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeImage, screen, session } = require('electron')
 const { workbenchURL, windowSize, isWorkbenchNavigation } = require('./config.cjs')
 const { installFileDialogs } = require('./files.cjs')
 
@@ -12,19 +12,18 @@ function createWorkbenchWindow(value, iconPath) {
   const icon = nativeImage.createFromPath(iconPath)
   if (app.dock) app.dock.setIcon(icon)
   const isolatedSession = session.fromPartition('luma-fattal-workbench')
-  isolatedSession.setPermissionRequestHandler((_contents, permission, callback) => {
-    callback(permission === 'fullscreen')
-  })
-  isolatedSession.setPermissionCheckHandler((_contents, permission) => permission === 'fullscreen')
+  isolatedSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+  isolatedSession.setPermissionCheckHandler(() => false)
 
   const window = new BrowserWindow({
     ...windowSize(screen.getPrimaryDisplay().workAreaSize),
     title: 'Luma Fattal',
     icon,
     backgroundColor: '#030000',
-    resizable: true,
-    maximizable: true,
-    fullscreenable: true,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     center: true,
     show: false,
     webPreferences: {
@@ -38,6 +37,19 @@ function createWorkbenchWindow(value, iconPath) {
     },
   })
   window.setMenu(null)
+  const handleControl = (event, action) => {
+    if (event.sender !== window.webContents ||
+        event.senderFrame !== window.webContents.mainFrame ||
+        event.sender.getURL() !== url) throw new Error('Invalid window control request')
+    if (action === 'minimize') window.minimize()
+    else if (action === 'close') window.close()
+    else throw new Error('Invalid window control')
+  }
+  ipcMain.handle('desktop:window', handleControl)
+  window.on('closed', () => ipcMain.removeHandler('desktop:window'))
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F11' || (input.alt && input.key === 'Enter')) event.preventDefault()
+  })
   installFileDialogs(window, url)
   window.once('ready-to-show', () => window.show())
   window.on('page-title-updated', event => event.preventDefault())

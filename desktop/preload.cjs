@@ -6,3 +6,8 @@ contextBridge.exposeInMainWorld('desktopFiles', {
   open: kind => ipcRenderer.invoke('desktop:open', kind),
   save: (kind, path, content) => ipcRenderer.invoke('desktop:save', kind, path, content),
 })
+
+contextBridge.exposeInMainWorld('desktopWindow', {
+  minimize: () => ipcRenderer.invoke('desktop:window', 'minimize'),
+  close: () => ipcRenderer.invoke('desktop:window', 'close'),
+})
