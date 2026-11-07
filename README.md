@@ -1,6 +1,6 @@
 # Luma Fatal
 
-[![CI](https://github.com/josedelrey/luma-fatal/actions/workflows/ci.yml/badge.svg)](https://github.com/josedelrey/luma-fatal/actions/workflows/ci.yml)
+[![CI](https://github.com/josedelrey/luma-fattal/actions/workflows/ci.yml/badge.svg)](https://github.com/josedelrey/luma-fattal/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 [![License](https://img.shields.io/badge/License-MIT%20%2B%20BSD--3--Clause-22A559)](LICENSE)
 
@@ -29,8 +29,8 @@ Requires Git, Python 3.11 or later, and [uv](https://docs.astral.sh/uv/).
 CI covers Linux and Windows with Python 3.11 and 3.12.
 
 ```bash
-git clone https://github.com/josedelrey/luma-fatal.git
-cd luma-fatal
+git clone https://github.com/josedelrey/luma-fattal.git
+cd luma-fattal
 uv sync --locked --python 3.11
 source .venv/bin/activate
 ```

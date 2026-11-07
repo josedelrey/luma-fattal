@@ -98,6 +98,36 @@ README image sources and filtered results are kept in `assets/`. Use the ignored
 
 ## Workbench appearance
 
+The Electron shell in `desktop/` displays the same UI in a resizable desktop
+window. Development requires Node.js 22.12 or later and the existing Python
+environment with FFmpeg and ffprobe. Install the desktop dependencies once:
+
+```bash
+npm --prefix desktop ci
+```
+
+Launch the desktop application:
+
+```bash
+npm --prefix desktop start
+```
+
+Electron starts the Python backend privately and loads the interface after the
+server responds. It uses the repository's `.venv` Python when available, otherwise
+`python3` on Linux/macOS or `python` on Windows. Set `LUMA_FATAL_PYTHON` to an
+executable path to select another environment. Run `uv sync --locked` first if
+the Python environment has not been installed.
+
+The window uses the existing logo, opens at up to 1200 by 900 pixels, and fits
+smaller displays. It supports resizing, maximizing, and fullscreen. Closing the
+window exits Electron and stops its Python backend and child processes. Active
+processing is interrupted when the application exits. Executable bundles are
+not implemented yet.
+The desktop window uses native Open dialogs for videos and YAML or JSON recipes.
+Save video, Run record, and Save config use native Save dialogs. The browser UI
+continues to use its file inputs and downloads. Run `npm --prefix desktop test`
+for the desktop URL and sizing checks.
+
 The local UI lives in `src/luma_fatal/ui/`. Edit `index.html`, `style.css`, and
 `app.js` directly. The server reads these files on each request, so refresh the
 browser after frontend edits. Restart it after Python changes.

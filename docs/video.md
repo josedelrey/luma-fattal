@@ -217,9 +217,9 @@ See [source denoising](configuration.md#source-denoising),
 Run `uv run --locked python -m luma_fatal.ui` from the repository root.
 Use `--no-browser` to open the printed URL yourself, or `--port 8765` for a
 fixed port. The UI uses a loopback-only Python server and requires no Node build
-or additional Python dependencies. The first version runs in a browser.
-A standalone desktop window is not implemented yet. Its HTML/CSS/JavaScript
-frontend is separated from the local processing API so it can be reused later.
+or additional Python dependencies. To use the same interface in its own desktop
+window, follow the [Electron development setup](development.md#workbench-appearance).
+The desktop shell starts and stops its own local server automatically.
 
 1. Open a source video. Original playback depends on browser codec support.
    FFmpeg preview and rendering can still work for a source the browser cannot play.

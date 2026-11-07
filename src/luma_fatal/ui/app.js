@@ -9,6 +9,7 @@ for (const [surface, filename] of Object.entries({body: 'viscera', controls: 'pa
 document.documentElement.style.setProperty('--monitor-texture', `url('${secured('/assets/panel-078-red.png')}')`);
 let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, revision = 0, previewRevision = -1, timer, resultConfig;
 const player = $('player');
+const desktopFiles = window.desktopFiles;
 const definitions = [
   ['parameters', 'alpha', 'Alpha / gradient scale', 0.01, 100, 0.01],
   ['parameters', 'beta', 'Beta / detail response', 0, 100, 0.1],
@@ -126,12 +127,10 @@ async function preview() {
   } catch (error) { status(error.message, true); $('preview-state').textContent = 'PREVIEW FAILED / adjust settings and retry'; }
   finally { setBusy(false); }
 }
-$('open-video').onclick = $('screen-load').onclick = () => $('video-file').click();
-$('video-file').onchange = async event => {
-  const file = event.target.files[0]; if (!file || busy) return;
+async function loadVideo(file, nextUpload) {
   clearTimeout(timer); setBusy(true); status('COPYING SOURCE TO LOCAL SESSION…'); $('progress').removeAttribute('value');
   try {
-    const nextUpload = await api('/api/upload', {method: 'POST', body: file});
+    nextUpload ??= await api('/api/upload', {method: 'POST', body: file});
     upload = nextUpload; originalUrl = upload.url; resultUrl = undefined;
     $('result-tab').disabled = true; $('export-panel').hidden = true; $('empty-screen').hidden = true;
     $('signal-name').textContent = file.name; $('file-info').textContent = `${upload.width} × ${upload.height} / ${formatTime(upload.duration)}`;
@@ -140,15 +139,34 @@ $('video-file').onchange = async event => {
     await acquireSignal();
     status('Video loaded.'); $('progress').value = 0;
   } catch (error) { status(error.message, true); }
-  finally { setBusy(false); event.target.value = ''; }
+  finally { setBusy(false); }
   if (upload && $('auto-preview').checked) preview();
+}
+$('open-video').onclick = $('screen-load').onclick = async () => {
+  if (!desktopFiles) return $('video-file').click();
+  if (busy) return;
+  setBusy(true);
+  try { const selected = await desktopFiles.open('video'); if (selected) await loadVideo({name: selected.name}, selected.upload); }
+  catch (error) { status(error.message, true); }
+  finally { setBusy(false); }
+};
+$('video-file').onchange = async event => {
+  const file = event.target.files[0]; if (!file || busy) return;
+  await loadVideo(file); event.target.value = '';
 };
 $('presets').onchange = () => loadConfig(presets[$('presets').value]);
 $('reset').onclick = () => loadConfig(baseline);
 $('filter').onchange = () => { config.filter = $('filter').value; changed(); };
 $('encoder').onchange = () => { config.video.encoder = $('encoder').value; changed(); };
 $('auto-preview').onchange = () => { if ($('auto-preview').checked) preview(); else clearTimeout(timer); };
-$('import-preset').onclick = () => $('preset-file').click();
+$('import-preset').onclick = async () => {
+  if (!desktopFiles) return $('preset-file').click();
+  if (busy) return;
+  setBusy(true);
+  try { const selected = await desktopFiles.open('preset'); if (selected) { loadConfig(selected.config); status(`RECIPE LOADED / ${selected.name}`); } }
+  catch (error) { status(error.message, true); }
+  finally { setBusy(false); }
+};
 $('preset-file').onchange = async event => {
   const file = event.target.files[0]; if (!file || busy) return;
   setBusy(true);
@@ -170,10 +188,23 @@ $('process').onclick = async () => {
   } catch (error) { status(error.message, true); }
   finally { setBusy(false); }
 };
-$('save-config').onclick = () => {
+$('save-config').onclick = async () => {
+  if (desktopFiles) {
+    try { await desktopFiles.save('config', null, JSON.stringify(resultConfig, null, 2)); }
+    catch (error) { status(error.message, true); }
+    return;
+  }
   const url = URL.createObjectURL(new Blob([JSON.stringify(resultConfig, null, 2)], {type:'application/json'}));
   const link = document.createElement('a'); link.href = url; link.download = 'luma-fatal-config.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
+for (const [id, kind] of [['save-video', 'video'], ['save-meta', 'metadata']]) {
+  $(id).addEventListener('click', async event => {
+    if (!desktopFiles) return;
+    event.preventDefault();
+    try { await desktopFiles.save(kind, new URL($(id).href).pathname); }
+    catch (error) { status(error.message, true); }
+  });
+}
 $('original-tab').onclick = () => { if (originalUrl) showVideo(false); };
 $('result-tab').onclick = () => showVideo(true);
 $('play').onclick = () => { if (player.paused) player.play().catch(error => status(error.message, true)); else player.pause(); };
