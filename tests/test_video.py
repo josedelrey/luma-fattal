@@ -983,9 +983,11 @@ def test_progress_reports_frames_without_changing_video(tmp_path, tools, capsys)
         ffmpeg=tools[0],
         ffprobe=tools[1],
     )
+    events = []
     shown = process_video(
         source,
         tmp_path / "shown.mp4",
+        on_progress=lambda count, total: events.append((count, total)),
         config=config,
         progress=True,
         ffmpeg=tools[0],
@@ -993,6 +995,7 @@ def test_progress_reports_frames_without_changing_video(tmp_path, tools, capsys)
     )
     assert plain["processed_rgb_sha256"] == shown["processed_rgb_sha256"]
     assert plain["output_sha256"] == shown["output_sha256"]
+    assert events == [(count, 5) for count in range(1, 6)]
     assert "Filtering frames" in capsys.readouterr().err
 
 

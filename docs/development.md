@@ -94,3 +94,24 @@ Its source and filtered result are 1080×810 PNGs.
 
 README image sources and filtered results are kept in `assets/`. Use the ignored
 `local_inputs/` directory for experimental inputs and `outputs/` for generated artifacts.
+
+
+## Workbench appearance
+
+The local UI lives in `src/luma_fatal/ui/`. Edit `index.html`, `style.css`, and
+`app.js` directly. The server reads these files on each request, so refresh the
+browser after frontend edits. Restart it after Python changes.
+
+Replace `assets/viscera.png` for the outer frame, or `assets/panel-078-red.png`
+for the video, configuration, and preview panels. The header logo is
+`assets/logo-purple.png`, with its red color shift applied in CSS.
+The texture variables and panel rules in `style.css` control their placement.
+The bundled abstract red, black, and bone texture was generated with the built-in
+image generator. Its brief was dense organic cavities with pale rims, scraped
+membranes, extreme scanned contrast, and early web photomanipulation artifacts.
+No external font, image, analytics, or JavaScript requests are required at runtime.
+
+`server.py` owns local uploads, preset validation, independent preview jobs,
+render jobs, and byte-range media serving. It uses the existing video pipeline
+for export and exposes frame progress through `process_video(on_progress=...)`.
+Run `python -m pytest -q tests/test_ui.py tests/test_video.py` for focused checks.

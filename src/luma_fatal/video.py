@@ -780,6 +780,7 @@ def process_video(
     config_path: str | Path | None = None,
     video_config: VideoConfig | None = None,
     progress: bool = False,
+    on_progress: Callable[[int, int | None], None] | None = None,
     ffmpeg: str | Path = "ffmpeg",
     ffprobe: str | Path = "ffprobe",
 ) -> dict:
@@ -799,6 +800,7 @@ def process_video(
     filter as full-range sRGB RGB8. Odd output edges are padded by replication.
     Unavailable NVENC encoding falls back to libx264 before effect processing.
     Existing destinations are refused. Failed runs publish no output or sidecar.
+    on_progress receives completed frames and the expected total, which may be None.
     """
     start = time.perf_counter()
     source, destination = Path(input_path).resolve(), Path(output_path).resolve()
@@ -984,6 +986,8 @@ def process_video(
                                 processed_hash.update(frame.data.cast("B"))
                             count += 1
                             bar.update(1)
+                            if on_progress is not None:
+                                on_progress(count, expected)
                         if pool is not None:
                             pool.finish()
                         else:

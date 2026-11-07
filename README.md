@@ -77,6 +77,18 @@ Each YAML preset also has a `-fast.yaml` copy that reuses buffers, overlaps vide
 I/O, and validates compatible sources during decoding.
 See the [video guide](docs/video.md) for processing options and encoding settings.
 
+## Local video interface
+
+```bash
+uv run --locked python -m luma_fatal.ui
+```
+
+The local workbench opens in your browser. Load a video, choose or import a
+preset, adjust the controls, and inspect five evenly spaced filtered frames.
+Click a frame to enlarge it. Process the video, compare the original and result,
+and save the silent MP4. FFmpeg and ffprobe are required.
+See the [video guide](docs/video.md#local-workbench) for storage and preview limits.
+
 ## Documentation
 
 - [Configuration](docs/configuration.md): presets, inheritance, and effect controls.

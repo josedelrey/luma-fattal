@@ -210,3 +210,40 @@ The sidecar records cleanup time and mask resets.
 See [source denoising](configuration.md#source-denoising),
 [smooth-area cleanup](configuration.md#smooth-area-cleanup), and
 [source noise](configuration.md#source-noise) for controls, defaults, and ranges.
+
+
+## Local workbench
+
+Run `uv run --locked python -m luma_fatal.ui` from the repository root.
+Use `--no-browser` to open the printed URL yourself, or `--port 8765` for a
+fixed port. The UI uses a loopback-only Python server and requires no Node build
+or additional Python dependencies. The first version runs in a browser.
+A standalone desktop window is not implemented yet. Its HTML/CSS/JavaScript
+frontend is separated from the local processing API so it can be reused later.
+
+1. Open a source video. Original playback depends on browser codec support.
+   FFmpeg preview and rendering can still work for a source the browser cannot play.
+2. Choose a bundled preset or open a standalone YAML/JSON configuration.
+   Imported files cannot reference parent files through `inherits`. Bundled
+   presets resolve their existing inheritance automatically.
+3. Adjust sliders or numeric fields. Automatic previews update after you stop
+   changing a value. Turn off auto preview to make several changes, then Refresh.
+4. Inspect the samples at 10%, 30%, 50%, 70%, and 90% of the clip. Click a sample
+   to open the full-size filtered image. Escape closes it.
+5. Process video, then switch between Original and Processed playback. Save
+   the MP4, run metadata, and the exact render configuration from the output panel.
+
+Previews use the video adapter's geometry, color conversion, source treatments,
+and recipe resolution. They process isolated frames on the CPU. Temporal cleanup
+history, cadence conversion, and adaptive GPU approximation can differ in a full
+render. Samples are an effect preview, not a guarantee of identical output pixels.
+Short clips may repeat their last available frame. Full-resolution presets can
+make previews slow. Settings are locked during each operation.
+
+Uploads, previews, and outputs stay under `outputs/ui/<session>/` by default.
+Use `--output-dir` to choose another location. Files remain after shutdown, even
+if you do not download the output. Remove old sessions manually when no longer
+needed. A browser refresh starts a fresh UI state. Previous files remain on disk,
+but are not restored into the interface. Stop the server with Ctrl+C. Only the
+printed session URL grants access to its API and media. No files go to a hosted
+service. Uploads are streamed to disk with a 20 GiB per-file limit.
