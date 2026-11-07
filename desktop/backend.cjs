@@ -1,23 +1,27 @@
 'use strict'
 
 const { spawn } = require('node:child_process')
-const { existsSync } = require('node:fs')
+const { existsSync, mkdirSync, createWriteStream } = require('node:fs')
 const path = require('node:path')
 const readline = require('node:readline')
 const { setTimeout: delay } = require('node:timers/promises')
 const { workbenchURL } = require('./config.cjs')
 
 class Backend {
-  constructor(onUnexpectedExit) {
-    const root = path.resolve(__dirname, '..')
-    const localPython = path.join(root, '.venv',
+  constructor(paths, onUnexpectedExit) {
+    if (!existsSync(paths.presets)) throw new Error(`Preset resources are missing: ${paths.presets}`)
+    for (const directory of [paths.sessions, paths.logs, paths.cache]) mkdirSync(directory, { recursive: true })
+    const localPython = path.join(paths.sourceRoot, '.venv',
       process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
     const python = process.env.LUMA_FATAL_PYTHON ||
       (existsSync(localPython) ? localPython : process.platform === 'win32' ? 'python' : 'python3')
     this.stopping = false
     this.diagnostics = ''
-    this.child = spawn(python, ['-u', '-m', 'luma_fatal.ui', '--no-browser'], {
-      cwd: root,
+    this.log = createWriteStream(path.join(paths.logs, 'backend.log'), { flags: 'a', mode: 0o600 })
+    this.child = spawn(python, ['-u', '-m', 'luma_fatal.ui', '--no-browser',
+      '--presets', paths.presets, '--output-dir', paths.sessions], {
+      cwd: paths.sessions,
+      env: { ...process.env, NUMBA_CACHE_DIR: paths.cache },
       windowsHide: true,
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -26,7 +30,9 @@ class Backend {
     this.child.stderr.setEncoding('utf8')
     this.child.stderr.on('data', text => {
       this.diagnostics = (this.diagnostics + text).slice(-8192)
+      this.log.write(text)
     })
+    this.child.once('close', () => this.log.end())
 
     this.ready = new Promise((resolve, reject) => {
       this.rejectReady = reject

@@ -118,6 +118,12 @@ server responds. It uses the repository's `.venv` Python when available, otherwi
 executable path to select another environment. Run `uv sync --locked` first if
 the Python environment has not been installed.
 
+Desktop sessions, backend logs, and Numba cache files are stored under
+Electron's application data directory. Presets and the window icon are read from
+the source tree during development. A packaged build will read them from its
+resources directory. The backend runs with the session directory as its working
+directory, so starting Electron from another location does not redirect files.
+
 The window uses the existing logo, opens at up to 1200 by 900 pixels, and fits
 smaller displays. It supports resizing, maximizing, and fullscreen. Closing the
 window exits Electron and stops its Python backend and child processes. Active

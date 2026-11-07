@@ -3,6 +3,7 @@
 const { app, dialog, Menu } = require('electron')
 const { Backend } = require('./backend.cjs')
 const { createWorkbenchWindow } = require('./window.cjs')
+const { runtimePaths } = require('./paths.cjs')
 
 app.setName('Luma Fatal')
 
@@ -10,14 +11,15 @@ let backend
 let quitting = false
 
 async function openWindow() {
-  backend = new Backend(error => {
+  const paths = runtimePaths(__dirname, process.resourcesPath, app.getPath('userData'), app.isPackaged)
+  backend = new Backend(paths, error => {
     if (quitting) return
     dialog.showErrorBox('Luma Fatal backend stopped', error.message)
     app.quit()
   })
   const url = await backend.ready
   if (quitting) return
-  const { loaded } = createWorkbenchWindow(url)
+  const { loaded } = createWorkbenchWindow(url, paths.icon)
   await loaded
 }
 

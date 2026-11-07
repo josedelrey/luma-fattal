@@ -1,15 +1,15 @@
 'use strict'
 
 const path = require('node:path')
+const { existsSync } = require('node:fs')
 const { app, BrowserWindow, nativeImage, screen, session } = require('electron')
 const { workbenchURL, windowSize, isWorkbenchNavigation } = require('./config.cjs')
 const { installFileDialogs } = require('./files.cjs')
 
-function createWorkbenchWindow(value) {
+function createWorkbenchWindow(value, iconPath) {
   const url = workbenchURL(value)
-  const icon = nativeImage.createFromPath(path.join(
-    __dirname, '..', 'src', 'luma_fatal', 'ui', 'assets', 'logo-purple.png',
-  ))
+  if (!existsSync(iconPath)) throw new Error(`Window icon is missing: ${iconPath}`)
+  const icon = nativeImage.createFromPath(iconPath)
   if (app.dock) app.dock.setIcon(icon)
   const isolatedSession = session.fromPartition('luma-fatal-workbench')
   isolatedSession.setPermissionRequestHandler((_contents, permission, callback) => {

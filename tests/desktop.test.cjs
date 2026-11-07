@@ -3,6 +3,8 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
 const { workbenchURL, windowSize, isWorkbenchNavigation } = require('../desktop/config.cjs')
+const { runtimePaths } = require('../desktop/paths.cjs')
+const path = require('node:path')
 
 const entry = 'http://127.0.0.1:8765/?token=session-secret'
 
@@ -49,5 +51,18 @@ test('fits small displays while retaining usable resize limits', () => {
     assert.ok(size.width <= area.width && size.height <= area.height)
     assert.ok(size.minWidth <= size.width && size.minHeight <= size.height)
     assert.ok(size.width > 0 && size.height > 0)
+  }
+})
+
+test('resolves desktop resources separately from writable application data', () => {
+  const source = runtimePaths('/checkout/desktop', '/bundle/resources', '/home/user/app-data', false)
+  const bundle = runtimePaths('/bundle/app.asar', '/bundle/resources', '/home/user/app-data', true)
+  assert.equal(source.presets, path.join('/checkout', 'configs'))
+  assert.equal(bundle.presets, path.join('/bundle/resources', 'configs'))
+  assert.equal(bundle.icon, path.join('/bundle/resources', 'assets', 'logo-purple.png'))
+  for (const paths of [source, bundle]) {
+    for (const name of ['sessions', 'logs', 'cache']) {
+      assert.equal(paths[name], path.join('/home/user/app-data', name))
+    }
   }
 })
