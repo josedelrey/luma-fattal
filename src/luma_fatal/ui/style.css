@@ -936,23 +936,31 @@ h1, h2, h3, strong, b { font-weight: normal; }
 .desktop .workbench {
   width: 100%;
   max-width: none;
-  height: 100vh;
-  margin: 0;
+  height: calc(100vh - 24px);
+  margin: 24px 0 0;
   padding: 8px 12px 10px;
   overflow: hidden;
 }
-.desktop .application-title { margin: 0 0 2px; align-items: center; }
+.desktop .application-title {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 10;
+  height: 24px;
+  margin: 0;
+  padding: 3px 5px;
+  align-items: center;
+}
 .desktop .masthead { min-height: 70px; padding: 1px 4px 4px; }
 .desktop .logo { padding: 0 8px; }
 .desktop .logo img { max-height: 62px; width: auto; max-width: 100%; }
-.desktop main { height: calc(100% - 74px); grid-template-rows: minmax(0, 1fr) auto; }
+.desktop main { height: calc(100% - 50px); grid-template-rows: minmax(0, 1fr) auto; }
 .desktop .video-column, .desktop .config-column { min-height: 0; }
 .desktop .screen { height: min(43vh, 390px); aspect-ratio: auto; }
 .desktop .previews { min-height: 0; }
 .desktop .frame { height: min(15vh, 130px); aspect-ratio: auto; }
 .desktop #signal-chart { height: min(13vh, 115px); }
 .desktop .export { grid-column: 1 / -1; grid-row: 2; }
-.desktop .workbench:has(#export-panel:not([hidden])) main { height: calc(100% - 83px); }
+.desktop .workbench:has(#export-panel:not([hidden])) main { height: calc(100% - 59px); }
 .desktop .workbench:has(#export-panel:not([hidden])) .screen { height: min(36vh, 325px); }
 .desktop .workbench:has(#export-panel:not([hidden])) .frame { height: min(12vh, 105px); }
 .desktop .workbench:has(.controls details[open]) {
@@ -961,7 +969,7 @@ h1, h2, h3, strong, b { font-weight: normal; }
 }
 .desktop .workbench:has(.controls details[open]) main {
   height: auto;
-  min-height: calc(100% - 74px);
+  min-height: calc(100% - 50px);
   grid-template-rows: auto auto;
 }
 .desktop .workbench:has(.controls details[open]) .video-column { align-self: start; }

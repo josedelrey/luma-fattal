@@ -125,8 +125,10 @@ resources directory. The backend runs with the session directory as its working
 directory, so starting Electron from another location does not redirect files.
 
 The frameless window uses the interface's blue title bar as its draggable frame,
-with working minimize and close buttons. It opens at up to 1200 by 900 pixels,
-constrained by the display work area. Resizing, maximizing, and fullscreen are disabled.
+with working minimize and close buttons. The bar spans the top edge and stays
+visible while expanded settings scroll beneath it. It opens at up to 1200 by
+900 pixels, constrained by the display work area. Resizing, maximizing, and
+fullscreen are disabled. Electron requests square outer corners.
 At its default size, the textured workbench fills the window and the preview,
 signal, and export panels fit without a page scrollbar. Opening More settings
 adds a classic gray scrollbar so the extra controls remain reachable.

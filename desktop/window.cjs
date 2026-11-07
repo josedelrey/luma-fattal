@@ -21,6 +21,7 @@ function createWorkbenchWindow(value, iconPath) {
     icon,
     backgroundColor: '#030000',
     frame: false,
+    roundedCorners: false,
     resizable: false,
     maximizable: false,
     fullscreenable: false,

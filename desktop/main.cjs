@@ -45,7 +45,9 @@ async function openWindow() {
         viewport: workbench.clientHeight,
         content: workbench.scrollHeight,
         scrollbar: getComputedStyle(workbench).overflowY,
-        scrolled: workbench.scrollTop
+        scrolled: workbench.scrollTop,
+        titleTop: document.querySelector('.application-title').getBoundingClientRect().top,
+        titleWidth: document.querySelector('.application-title').getBoundingClientRect().width
       };
       workbench.scrollTop = 0;
       advanced.open = false;
@@ -78,7 +80,9 @@ async function openWindow() {
         state.exportLayout.previewBottom > state.viewport[1] ||
         state.exportLayout.signalBottom > state.viewport[1] ||
         state.expandedLayout.content <= state.expandedLayout.viewport ||
-        state.expandedLayout.scrollbar !== 'auto' || !state.expandedLayout.scrolled) {
+        state.expandedLayout.scrollbar !== 'auto' || !state.expandedLayout.scrolled ||
+        state.expandedLayout.titleTop !== 0 ||
+        Math.abs(state.expandedLayout.titleWidth - state.viewport[0]) > 1) {
       throw new Error(`Packaged window smoke failed: ${JSON.stringify(state)}`)
     }
     if (process.env.LUMA_FATTAL_SMOKE_SCREENSHOT) {
@@ -86,10 +90,10 @@ async function openWindow() {
       writeFileSync(process.env.LUMA_FATTAL_SMOKE_SCREENSHOT, image.toPNG())
     }
     if (process.env.LUMA_FATTAL_SMOKE_EXPANDED_SCREENSHOT) {
-      await window.webContents.executeJavaScript("document.querySelector('.controls details').open = true")
+      await window.webContents.executeJavaScript("document.querySelector('.controls details').open = true; document.querySelector('.workbench').scrollTop = 200")
       const image = await window.webContents.capturePage()
       writeFileSync(process.env.LUMA_FATTAL_SMOKE_EXPANDED_SCREENSHOT, image.toPNG())
-      await window.webContents.executeJavaScript("document.querySelector('.controls details').open = false")
+      await window.webContents.executeJavaScript("document.querySelector('.workbench').scrollTop = 0; document.querySelector('.controls details').open = false")
     }
     if (process.env.LUMA_FATTAL_SMOKE_VIDEO) {
       const endpoint = new URL('/api/upload', url)
