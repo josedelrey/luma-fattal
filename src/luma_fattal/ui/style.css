@@ -1040,6 +1040,7 @@ h1, h2, h3, strong, b { font-weight: normal; }
 .desktop .signal-readings { flex-shrink: 0; }
 .desktop .export {
   position: fixed;
+  max-width: none;
   top: var(--desktop-export-top);
   right: var(--desktop-export-right);
   transform: scale(var(--desktop-scale, 1));
