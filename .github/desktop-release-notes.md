@@ -1,10 +1,11 @@
-First desktop prerelease of Luma Fattal. Python, Electron, FFmpeg, ffprobe,
+Desktop prerelease of Luma Fattal. Python, Electron, FFmpeg, ffprobe,
 presets and processing dependencies are included. Python and Node.js do not
 need to be installed to run these downloads.
 
 | Download | Platform |
 | --- | --- |
 | `*-win-x64.zip` | Windows 10/11 x64. Extract the entire ZIP and launch Luma Fattal.exe. |
+| `*-linux-amd64.deb` | Recommended for Ubuntu 22.04 or newer and compatible Debian-based systems. Install with the package manager, then launch Luma Fattal from the application menu. |
 | `*-linux-x64.tar.gz` | Linux x64, Ubuntu 22.04 or newer baseline with desktop GTK/NSS libraries. Extract the entire archive and launch luma-fattal-desktop. |
 | `*-mac-arm64.dmg` | Apple Silicon Macs, macOS 14 or newer. Copy the app to Applications. Intel Macs are not included. |
 | `*-ffmpeg-sources.tar.gz` | Exact unmodified FFmpeg, x264, zimg, zlib and NVENC header sources with checksums and the build recipe. |
@@ -19,7 +20,18 @@ A compatible NVIDIA GPU and driver are required for acceleration. CPU fallback
 is available. macOS uses CPU processing. Hardware acceleration was not tested on
 the GitHub-hosted build runners.
 
-On Linux systems that restrict unprivileged user namespaces, set up the extracted
+The Linux `.deb` installer configures Chromium's sandbox and installs an
+application-menu entry. From the directory containing the download, install it with:
+
+```bash
+sudo apt install ./Luma-Fattal-*-linux-amd64.deb
+```
+
+Launch Luma Fattal from the application menu or run `luma-fattal-desktop`.
+The package handles sandbox configuration again on upgrades.
+
+The portable `.tar.gz` archive does not have an installation step. On Linux
+systems that restrict unprivileged user namespaces, set up its extracted
 Chromium helper once, from the application's directory:
 
 ```bash

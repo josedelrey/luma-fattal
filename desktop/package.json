@@ -3,6 +3,7 @@
   "version": "0.1.0-beta.2",
   "private": true,
   "description": "Desktop window for the Luma Fattal workbench",
+  "homepage": "https://github.com/josedelrey/luma-fattal",
   "license": "MIT AND BSD-3-Clause AND OFL-1.1",
   "main": "main.cjs",
   "scripts": {
@@ -50,7 +51,8 @@
       }
     ],
     "linux": {
-      "target": "tar.gz",
+      "target": ["deb", "tar.gz"],
+      "maintainer": "José del Rey <188334189+josedelrey@users.noreply.github.com>",
       "category": "Graphics",
       "icon": "icons/app-icon.png"
     },

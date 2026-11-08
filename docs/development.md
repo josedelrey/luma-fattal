@@ -201,8 +201,13 @@ The smoke script generates a short video and checks bundled presets, textures,
 preview frames, processing, export, FFprobe output, and Numba caching from a
 temporary working directory. The desktop workflow builds Windows x64, Linux x64
 and macOS arm64 on native GitHub runners and checks both the backend and window.
-It then creates Windows ZIP, Linux tar.gz and macOS DMG downloads with version
-metadata. macOS requires version 14 or newer. The Linux baseline is Ubuntu 22.04
+It then creates Windows ZIP, Linux DEB and tar.gz, and macOS DMG downloads with
+version metadata. The DEB is the recommended Linux download. Electron Builder's
+standard installer configures the sandbox helper and installs a scoped AppArmor
+profile on supported Ubuntu versions. It also creates an application-menu entry.
+CI installs the DEB on Ubuntu 22.04 and 24.04, launches it as a normal user with
+sandboxing enabled, then uninstalls it. Publication waits for these checks.
+macOS requires version 14 or newer. The Linux baseline is Ubuntu 22.04
 with desktop GTK/NSS libraries. Intel Mac and Linux ARM builds are not included.
 
 The first desktop version is `0.1.0-beta.1`. These prerelease builds have no
