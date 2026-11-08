@@ -6,6 +6,7 @@ import json
 import math
 import re
 import tomllib
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from fractions import Fraction
 from numbers import Real
@@ -485,6 +486,31 @@ class Config:
         return cls.from_dict(cls._load_data(Path(path), ()))
 
     @classmethod
+    def from_sources(cls, path: str | Path, sources: Mapping[str, str]):
+        """Load supplied file contents, resolving inheritance without disk access."""
+        contents = {Path(name).resolve(): content for name, content in sources.items()}
+
+        def read_source(source):
+            try:
+                return contents[source.resolve()]
+            except KeyError:
+                raise FileNotFoundError(
+                    2, "Select the parent configuration", str(source)
+                ) from None
+
+        return cls.from_dict(cls._load_data(Path(path), (), read_source=read_source))
+
+    @staticmethod
+    def _parse_data(content: str, suffix: str):
+        if suffix.lower() in (".yaml", ".yml"):
+            return yaml.load(content, Loader=_ConfigLoader)
+        if suffix.lower() == ".toml":
+            return tomllib.loads(content)
+        if suffix.lower() == ".json":
+            return json.loads(content, object_pairs_hook=_unique_json_object)
+        raise ValueError("Configuration files must use .yaml, .yml, .toml or .json")
+
+    @classmethod
     def source_paths(cls, path: str | Path) -> tuple[Path, ...]:
         """List a configuration and its inherited files in resolution order."""
         sources = []
@@ -493,26 +519,21 @@ class Config:
 
     @classmethod
     def _load_data(
-        cls, path: Path, ancestors: tuple[Path, ...], sources: list[Path] | None = None
+        cls,
+        path: Path,
+        ancestors: tuple[Path, ...],
+        sources: list[Path] | None = None,
+        read_source: Callable[[Path], str] | None = None,
     ):
         resolved = path.resolve()
         if resolved in ancestors:
             raise ValueError(f"Configuration inheritance cycle at {path}")
         path = Path(path)
         try:
-            if path.suffix.lower() in (".yaml", ".yml"):
-                data = yaml.load(path.read_text(encoding="utf-8"), Loader=_ConfigLoader)
-            elif path.suffix.lower() == ".toml":
-                data = tomllib.loads(path.read_text(encoding="utf-8"))
-            elif path.suffix.lower() == ".json":
-                data = json.loads(
-                    path.read_text(encoding="utf-8"),
-                    object_pairs_hook=_unique_json_object,
-                )
-            else:
-                raise ValueError(
-                    "Configuration files must use .yaml, .yml, .toml or .json"
-                )
+            content = (
+                read_source(path) if read_source else path.read_text(encoding="utf-8")
+            )
+            data = cls._parse_data(content, path.suffix)
         except (yaml.YAMLError, tomllib.TOMLDecodeError, json.JSONDecodeError) as error:
             raise ValueError(f"Invalid configuration file {path}: {error}") from error
         if sources is not None:
@@ -526,7 +547,10 @@ class Config:
         if not isinstance(parent_name, str) or not parent_name.strip():
             raise ValueError("extends must name a configuration file")
         parent = cls._load_data(
-            path.parent / parent_name, (*ancestors, resolved), sources
+            path.parent / parent_name,
+            (*ancestors, resolved),
+            sources,
+            read_source=read_source,
         )
         if not isinstance(parent, dict):
             raise ValueError("Inherited configuration must be an object")

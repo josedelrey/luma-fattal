@@ -1,6 +1,8 @@
 """Workbench contracts with controlled media and isolated session directories."""
 
 import json
+import shutil
+import subprocess
 import time
 
 import numpy as np
@@ -9,8 +11,92 @@ from PIL import Image
 from test_video import tools as tools
 
 from luma_fattal import Config, FilterParams
-from luma_fattal.ui.server import REPOSITORY, Workbench, preview_frame, sample_times
+from luma_fattal.ui.server import (
+    REPOSITORY,
+    Workbench,
+    preview_frame,
+    sample_times,
+    thumbnail_config,
+)
 from luma_fattal.video import _decode_command, _geometry, _probe, _resolve_color
+
+
+def test_gui_controls_cover_every_configuration_field():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is needed to inspect GUI control definitions")
+    script = REPOSITORY / "src/luma_fattal/ui/settings.js"
+    definitions = json.loads(
+        subprocess.run(
+            [
+                node,
+                "-e",
+                "process.stdout.write(JSON.stringify(require(process.argv[1]).settingGroups))",
+                str(script),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
+    defaults = Config().to_dict()
+    expected = {
+        (section, key)
+        for section, values in defaults.items()
+        if isinstance(values, dict)
+        for key in values
+    }
+    actual = [(section, item[0]) for section, _, items in definitions for item in items]
+    assert len(actual) == len(set(actual))
+    assert set(actual) == expected
+    for section, _, items in definitions:
+        for key, _, control, *rest in items:
+            if isinstance(control, list):
+                for choice in control:
+                    candidate = Config().to_dict()
+                    candidate[section][key] = choice
+                    Config.from_dict(candidate)
+
+
+def test_gui_size_edits_keep_the_processing_contract_valid():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is needed to verify GUI setting changes")
+    script = REPOSITORY / "src/luma_fattal/ui/settings.js"
+    original = Config.load(REPOSITORY / "configs/fattal-1.yaml").to_dict()
+    snapshots = json.loads(
+        subprocess.run(
+            [
+                node,
+                "-e",
+                """
+const {updateSetting} = require(process.argv[1]);
+const config = JSON.parse(process.argv[2]);
+const snapshots = [];
+for (const [key, value] of [['resize', false], ['max_edge', 2048],
+    ['limit_input_pixels', false], ['max_input_pixels', 4000000], ['device_class', 'high']]) {
+  updateSetting(config, 'processing', key, value);
+  snapshots.push(structuredClone(config));
+}
+process.stdout.write(JSON.stringify(snapshots));
+""",
+                str(script),
+                json.dumps(original),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
+    configs = [Config.from_dict(snapshot) for snapshot in snapshots]
+    assert configs[0].processing.effective_max_edge is None
+    assert configs[0].processing.max_input_pixels is None
+    assert configs[1].processing.effective_max_edge == 2048
+    assert configs[2].processing.effective_max_input_pixels is None
+    assert configs[3].processing.effective_max_input_pixels == 4000000
+    assert configs[4].processing.max_edge is None
+    assert configs[4].processing.max_input_pixels is None
+    assert configs[4].processing.effective_max_edge == 2048
 
 
 def test_samples_cover_equal_segments_without_eof():
@@ -132,6 +218,8 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path, monkeypatch):
         assert b"404" in request("/media/../../pyproject.toml")[0]
         assert b"404" in request("/server.py")[0]
         assert b"200" in request("/")[0]
+        assert b"200" in request("/settings.js")[0]
+        assert b"403" in request("/settings.js", token=False)[0]
         with monkeypatch.context() as patch:
             patch.setattr("mimetypes.guess_type", lambda *_: (None, None))
             head, body = request("/assets/Arimo-Regular.ttf")
@@ -146,6 +234,22 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path, monkeypatch):
         assert b"200" in head
         assert json.loads(body)["parameters"]["beta"] == 70
         assert json.loads(body)["video"]["deblock"] == "off"
+        head, body = request(
+            "/api/import",
+            method="POST",
+            body=b'{"filter":"fattal2"}',
+            headers="Content-Type: application/json\r\n",
+        )
+        assert b"200" in head and json.loads(body)["filter"] == "fattal2"
+        assert (
+            b"400"
+            in request(
+                "/api/import",
+                method="POST",
+                body=b'{"filter":"fattal1","filter":"fattal2"}',
+                headers="Content-Type: application/json\r\n",
+            )[0]
+        )
         assert (
             b"400"
             in request(
@@ -153,6 +257,42 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path, monkeypatch):
             )[0]
         )
         assert b"400" in request("/api/import", method="POST", body=b"filter: both")[0]
+        sources = {
+            "filename": "recipe.toml",
+            "files": {
+                "recipe.toml": 'extends = "base.json"\n[video]\npre_noise_rms = 0.75'
+            },
+        }
+        head, body = request(
+            "/api/import",
+            method="POST",
+            body=json.dumps(sources).encode(),
+            headers="Content-Type: application/json\r\n",
+        )
+        assert b"400" in head
+        assert json.loads(body)["missing_source"] == "base.json"
+        sources["files"]["base.json"] = '{"video":{"pre_noise_kind":"fbm"}}'
+        head, body = request(
+            "/api/import",
+            method="POST",
+            body=json.dumps(sources).encode(),
+            headers="Content-Type: application/json\r\n",
+        )
+        assert b"200" in head
+        imported = json.loads(body)
+        assert imported["video"]["pre_noise_kind"] == "fbm"
+        assert imported["video"]["pre_noise_rms"] == 0.75
+        head, body = request(
+            "/api/config", method="POST", body=json.dumps(imported).encode()
+        )
+        assert b"200" in head and json.loads(body) == imported
+        imported["parameters"]["alpha"] = 0
+        assert (
+            b"400"
+            in request(
+                "/api/config", method="POST", body=json.dumps(imported).encode()
+            )[0]
+        )
         assert (
             b"400"
             in request("/api/import", method="POST", body=b"inherits: /etc/passwd")[0]
@@ -263,6 +403,103 @@ def test_preview_reduces_frame_before_processing(tmp_path, monkeypatch):
     assert calls == [256]
 
 
+@pytest.mark.parametrize("variant", (1, 2))
+@pytest.mark.parametrize("relaxation", (1.0, 1.5, 1.9))
+def test_thumbnail_is_closer_to_full_result(variant, relaxation):
+    from dataclasses import replace
+
+    from luma_fattal.pipeline import apply_filter
+
+    # A smooth scene, fine texture and a sharp colored object exercise both
+    # large-scale reconstruction and multiscale attenuation.
+    height, width = 432, 768
+    y, x = np.mgrid[:height, :width].astype(float)
+    x /= width
+    y /= height
+    light = 0.3 + 0.2 * np.sin(8 * x) + 0.2 * y
+    light += 0.04 * np.sin(270 * x) * np.sin(190 * y)
+    scene = np.stack(
+        (
+            light + 0.08 * np.sin(37 * y),
+            light * 0.8 + 0.1 * x,
+            light * 0.7 + 0.1 * np.cos(17 * x),
+        ),
+        axis=-1,
+    )
+    scene[(x - 0.65) ** 2 + (y - 0.4) ** 2 < 0.12**2] = (0.85, 0.4, 0.15)
+    source = np.clip(scene * 255, 0, 255).astype(np.uint8)
+    config = Config(filter=f"fattal{variant}")
+    config = replace(config, numerics=replace(config.numerics, relaxation=relaxation))
+    size = (128, 72)
+    small = np.asarray(Image.fromarray(source).resize(size, Image.Resampling.BICUBIC))
+    reference = np.asarray(
+        Image.fromarray(apply_filter(source, config=config)).resize(
+            size, Image.Resampling.LANCZOS
+        )
+    ).astype(float)
+    original = apply_filter(small, config=config)
+    adjusted = apply_filter(
+        small, config=thumbnail_config(config, (width, height), 128)
+    )
+    original_error = np.abs(original.astype(float) - reference).mean()
+    adjusted_error = np.abs(adjusted.astype(float) - reference).mean()
+    assert adjusted_error < original_error * 0.6
+
+
+def test_thumbnail_uses_effective_working_resolution():
+    from dataclasses import replace
+
+    config = Config()
+    bounded = replace(config, processing=replace(config.processing, max_edge=512))
+    # Both sources reach the same working grid before filtering.
+    assert thumbnail_config(bounded, (1920, 1080), 256) == thumbnail_config(
+        bounded, (3840, 2160), 256
+    )
+    area_limited = replace(
+        config,
+        processing=replace(
+            config.processing, max_edge=4096, max_input_pixels=512 * 288
+        ),
+    )
+    assert thumbnail_config(area_limited, (1920, 1080), 256).numerics == (
+        thumbnail_config(bounded, (1920, 1080), 256).numerics
+    )
+    before = config.to_dict()
+    adjusted = thumbnail_config(config, (1920, 1080), 256)
+    assert config.to_dict() == before
+    assert adjusted.parameters == config.parameters
+    assert adjusted.processing == config.processing
+    assert adjusted.video == config.video
+    assert adjusted.numerics.iterations == config.numerics.iterations
+    assert thumbnail_config(config, (256, 144), 256) is config
+    assert (
+        thumbnail_config(
+            replace(config, processing=replace(config.processing, max_edge=128)),
+            (1920, 1080),
+            256,
+        ).numerics
+        == config.numerics
+    )
+    bypass = replace(config, parameters=FilterParams(fade=100))
+    assert thumbnail_config(bypass, (1920, 1080), 256) is bypass
+
+
+@pytest.mark.parametrize("size", ((1920, 1200), (1024, 1024), (1080, 1920)))
+def test_thumbnail_preserves_attenuation_depth(size):
+    from luma_fattal.core import _pyramid
+    from luma_fattal.processing import working_size
+
+    config = Config()
+    adjusted = thumbnail_config(config, size, 256)
+    full_size = working_size(size, config.processing.effective_max_edge)
+    small_size = working_size(size, 256)
+    full = np.zeros(full_size[::-1], np.float32)
+    small = np.zeros(small_size[::-1], np.float32)
+    assert len(_pyramid(small, adjusted.numerics.pyramid_min_size)) == len(
+        _pyramid(full, config.numerics.pyramid_min_size)
+    )
+
+
 def test_preview_publishes_all_thumbnails_before_full_frames(tmp_path, monkeypatch):
     import threading
 
@@ -278,6 +515,10 @@ def test_preview_publishes_all_thumbnails_before_full_frames(tmp_path, monkeypat
 
     def frame(source, config, timestamp, max_edge=None):
         calls.append((timestamp, max_edge))
+        if max_edge is not None:
+            assert config.numerics.relaxation < Config().numerics.relaxation
+        else:
+            assert config == Config()
         if max_edge is None:
             entered_full.set()
             assert resume.wait(10)

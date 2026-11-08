@@ -566,3 +566,26 @@ def test_exported_configuration_is_reusable_and_preserves_existing_files(
     with pytest.raises(SystemExit):
         main(["config", "--output", str(path)])
     assert Config.load(path) == Config()
+
+
+def test_supplied_sources_match_file_loading_and_never_read_missing_parents(tmp_path):
+    parent = tmp_path / "base.toml"
+    child = tmp_path / "recipe.yaml"
+    parent.write_text('[parameters]\nbeta = 72\n[video]\npre_noise_kind = "fbm"\n')
+    child.write_text("extends: base.toml\nvideo:\n  pre_noise_rms: 0.75\n")
+    assert Config.from_sources(
+        "recipe.yaml",
+        {"recipe.yaml": child.read_text(), "base.toml": parent.read_text()},
+    ) == Config.load(child)
+    with pytest.raises(FileNotFoundError) as error:
+        Config.from_sources(str(child), {str(child): child.read_text()})
+    assert error.value.filename == str(parent)
+
+
+def test_supplied_sources_reject_cycles_and_duplicate_json_keys():
+    with pytest.raises(ValueError, match="cycle"):
+        Config.from_sources("recipe.yaml", {"recipe.yaml": "extends: recipe.yaml"})
+    with pytest.raises(ValueError, match="Duplicate"):
+        Config.from_sources(
+            "recipe.json", {"recipe.json": '{"filter":"fattal1","filter":"fattal2"}'}
+        )

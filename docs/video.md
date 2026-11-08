@@ -223,19 +223,28 @@ The desktop shell starts and stops its own local server automatically.
 
 1. Open a source video. Original playback depends on browser codec support.
    FFmpeg preview and rendering can still work for a source the browser cannot play.
-2. Choose a bundled preset or open a standalone YAML/JSON configuration.
-   Imported files cannot reference parent files through `inherits`. Bundled
-   presets resolve their existing inheritance automatically.
-3. Adjust sliders or numeric fields. Automatic previews update after you stop
-   changing a value. Turn off auto preview to make several changes, then Refresh.
+2. Choose a bundled preset or open a YAML, TOML, or JSON configuration.
+   The desktop resolves parent files named by `extends` automatically. In the
+   browser, use Open again to select each requested parent file. Cancel the file
+   picker to abandon an incomplete import. Bundled presets resolve inheritance
+   automatically.
+3. Adjust sliders, numeric fields, and selectors. **More settings** always shows
+   the same controls, including settings inactive for the selected mode or backend.
+   Automatic previews update after you stop changing a value. Turn off auto
+   preview to make several changes, then Refresh. **Save…** beside the filter
+   saves your current configuration before rendering, and **Reset** restores the
+   loaded preset values.
 4. Inspect the samples at 10%, 30%, 50%, 70%, and 90% of the clip. Click a sample
    to open the full-size filtered image. Escape closes it.
 5. Process video, then switch between Original and Processed playback. Save
    the MP4, run metadata, and the exact render configuration from the output panel.
 
-Previews use the video adapter's geometry, color conversion, source treatments,
-and recipe resolution. They process isolated frames on the CPU. Temporal cleanup
-history, cadence conversion, and adaptive GPU approximation can differ in a full
+A fast pass first shows thumbnails bounded to 256 pixels, with solver and pyramid
+settings adjusted for scale to approximate the full result. Each thumbnail is then
+replaced by its full-resolution sample. Fine detail can still change between passes.
+Full-resolution samples use the video adapter's geometry, color conversion, source
+treatments, and recipe resolution. They process isolated frames on the CPU. Temporal
+cleanup history, cadence conversion, and adaptive GPU approximation can differ in a full
 render. Samples are an effect preview, not a guarantee of identical output pixels.
 Short clips may repeat their last available frame. Full-resolution presets can
 make previews slow. Settings are locked during each operation.

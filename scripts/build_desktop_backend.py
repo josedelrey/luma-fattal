@@ -70,7 +70,7 @@ def main() -> None:
     if args.gpu:
         for package in ("cupy-cuda12x", "nvidia-cuda-runtime-cu12", "nvidia-cuda-nvrtc-cu12", "cuda-pathfinder"):
             command += ["--copy-metadata", package]
-    for file in ("index.html", "style.css", "app.js"):
+    for file in ("index.html", "style.css", "settings.js", "app.js"):
         command += ["--add-data", f"{UI / file}{separator}luma_fattal/ui"]
     for pattern in ("*.png", "*.ttf"):
         for file in (UI / "assets").glob(pattern):

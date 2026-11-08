@@ -50,17 +50,31 @@ function installFileDialogs(window, entry) {
       properties: ['openFile'],
       filters: video
         ? [{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'avi', 'webm'] }]
-        : [{ name: 'Recipes', extensions: ['yaml', 'yml', 'json'] }],
+        : [{ name: 'Recipes', extensions: ['yaml', 'yml', 'toml', 'json'] }],
     })
     if (choice.canceled) return null
     const filename = choice.filePaths[0]
     if (video) return { name: path.basename(filename), upload: await postFile('/api/upload', filename) }
-    const data = await fs.readFile(filename)
-    if (!data.length || data.length > 1024 ** 2) throw new Error('Recipe is empty or too large')
-    const response = await fetch(endpoint('/api/import'), { method: 'POST', body: data })
-    const result = await response.json()
-    if (!response.ok) throw new Error(result.error || `Import failed (${response.status})`)
-    return { name: path.basename(filename), config: result }
+    const root = path.basename(filename)
+    const files = Object.create(null)
+    let source = root
+    while (true) {
+      if (!['.yaml', '.yml', '.toml', '.json'].includes(path.extname(source).toLowerCase())) {
+        throw new Error('Parent recipes must use YAML, TOML or JSON')
+      }
+      files[source] = await fs.readFile(path.resolve(path.dirname(filename), source), 'utf8')
+      const content = JSON.stringify({ filename: root, files })
+      if (!files[source].length || Buffer.byteLength(content) > 1024 ** 2) throw new Error('Recipe is empty or too large')
+      const response = await fetch(endpoint('/api/import'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: content,
+      })
+      const result = await response.json()
+      if (response.ok) return { name: root, config: result }
+      if (!result.missing_source || Object.hasOwn(files, result.missing_source)) {
+        throw new Error(result.error || `Import failed (${response.status})`)
+      }
+      source = result.missing_source
+    }
   }
   const save = async (kind, mediaPath, content) => {
     const names = { video: 'luma-fattal.mp4', metadata: 'luma-fattal.meta.json', config: 'luma-fattal-config.json' }

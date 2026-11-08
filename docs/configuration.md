@@ -78,6 +78,33 @@ All `compressed` presets process frames at full resolution with
 `processing.resize: false`. They disable both the input-area cap and
 working-resolution reduction.
 
+Presets are configuration values. Loading one resolves inheritance and fills
+omitted fields from `Config()` defaults. It replaces the previous configuration,
+so values from a previously selected preset do not carry over. No processing
+behavior depends on the preset filename.
+
+The GUI keeps the same controls for every preset. Seven common effect controls
+are visible initially. **More settings** contains every remaining setting,
+including resolution, numerical controls, source treatment, encoding, and GPU
+performance. Controls stay available when their mode or backend is inactive.
+Image input and image export settings are also editable and saved, although they
+do not affect video processing. Schema version `1` is fixed, and video requires
+one filter rather than `both`. `extends` selects inherited values and is resolved
+before they reach the panel.
+
+Loading a preset only sets control values. **Reset** restores the loaded values.
+**Save…** beside the filter saves the current configuration without rendering.
+**Save config** in the completed output panel saves the configuration used for
+that render. Both produce a complete JSON file that can be reopened in the GUI
+or loaded through the CLI and Python API.
+
+Numeric fields retain the preset's exact values and allow finer changes than
+the sliders' practical increments. Blank size limits use the selected size
+budget. Blank GPU iterations use `numerics.iterations`. Changing the size budget
+clears explicit size limits. Disabling resize clears both limits, and disabling
+the input-area cap clears its limit. Entering an explicit limit enables the
+corresponding resize controls.
+
 Use `extends` to inherit from a parent configuration and override selected settings.
 Parent paths are relative to the child file. Named sections merge by setting,
 and the child can add sections absent from its parent. For example, save this

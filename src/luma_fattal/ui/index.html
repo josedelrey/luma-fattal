@@ -11,10 +11,16 @@
     stylesheet.rel = 'stylesheet';
     stylesheet.href = `style.css?token=${encodeURIComponent(access)}`;
     document.head.append(stylesheet);
-    document.addEventListener('DOMContentLoaded', () => {
-      const script = document.createElement('script');
-      script.src = `app.js?token=${encodeURIComponent(access)}`;
-      document.body.append(script);
+    document.addEventListener('DOMContentLoaded', async () => {
+      for (const file of ['settings.js', 'app.js']) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = `${file}?token=${encodeURIComponent(access)}`;
+          script.onload = resolve;
+          script.onerror = reject;
+          document.body.append(script);
+        });
+      }
     });
   </script>
 </head>
@@ -52,10 +58,10 @@
         <div class="titlebar"><h2 id="control-title">Configuration</h2></div>
         <div class="control-body">
           <label class="section-label" for="presets">Preset:</label>
-          <div class="preset-row"><select id="presets" aria-label="Bundled preset"></select><button id="import-preset" title="Open a standalone YAML or JSON config">Open…</button><input id="preset-file" type="file" accept=".yaml,.yml,.json" hidden></div>
-          <div class="filter-row"><label for="filter">Filter:</label><select id="filter"><option value="fattal1">FATTAL 1</option><option value="fattal2">FATTAL 2</option></select><button id="reset" title="Restore the selected recipe">Reset</button></div>
+          <div class="preset-row"><select id="presets" aria-label="Bundled preset"></select><button id="import-preset" title="Open a YAML, TOML or JSON config">Open…</button><input id="preset-file" type="file" accept=".yaml,.yml,.toml,.json" hidden></div>
+          <div class="filter-row"><label for="filter">Filter:</label><select id="filter"><option value="fattal1">FATTAL 1</option><option value="fattal2">FATTAL 2</option></select><button id="save-preset" title="Save the current configuration">Save…</button><button id="reset" title="Restore the selected recipe">Reset</button></div>
           <div id="parameters"></div>
-          <details><summary><span>More settings</span></summary><div id="advanced"></div><label class="select-row"><span>Encoder</span><select id="encoder"><option value="libx264">CPU / H.264</option><option value="h264_nvenc">NVIDIA / auto fallback</option></select></label></details>
+          <details><summary><span>More settings</span></summary><p class="fineprint">All controls stay available for every preset. Some apply only to the selected mode or backend. Blank limits use the size budget. Blank GPU iterations use solver iterations.</p><div id="advanced"></div><p class="fineprint">Configuration schema: 1</p></details>
           <div class="process-footer">
           <div class="process-slot"><button id="process" class="process" disabled>Process video <span>▶▶</span></button><div id="process-metrics" class="process-metrics" role="status" aria-live="polite" hidden><span id="process-speed">Preparing…</span><span id="process-eta">ETA —</span></div></div>
           <div class="job-status"><span id="status" role="status" aria-live="polite">READY. LOAD YOUR SOURCE.</span><progress id="progress" max="100" value="0"></progress></div>

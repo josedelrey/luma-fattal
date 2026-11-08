@@ -245,13 +245,13 @@ async function openWindow() {
       }
     }
     const originalSize = window.getContentSize()
-    const contentRatio = originalSize[0] / (originalSize[1] - 34)
+    const contentRatio = originalSize[0] / (originalSize[1] - 44)
     for (const [width, height] of [[originalSize[0] - 200, originalSize[1]],
       [originalSize[0] - 200, originalSize[1] - 300]]) {
       window.setContentSize(width, height)
       await new Promise(resolve => setTimeout(resolve, 100))
       const [actualWidth, actualHeight] = window.getContentSize()
-      if (Math.abs(actualWidth - (actualHeight - 34) * contentRatio) > 2)
+      if (Math.abs(actualWidth - (actualHeight - 44) * contentRatio) > 2)
         throw new Error(`Window resize left unused space at ${actualWidth}x${actualHeight}`)
     }
     window.setContentSize(...originalSize)
@@ -260,7 +260,7 @@ async function openWindow() {
     let checkedSizes = 0
     for (const factor of [1, 0.75, 0.5, 0.3]) {
       const width = Math.floor(originalSize[0] * factor)
-      const height = Math.round(34 + width * (originalSize[1] - 34) / originalSize[0])
+      const height = Math.round(44 + width * (originalSize[1] - 44) / originalSize[0])
       if (width < 300 || height < 225) continue
       window.setContentSize(width, height)
       const layout = await window.webContents.executeJavaScript(`(async () => {
@@ -277,7 +277,7 @@ async function openWindow() {
           const scale = Number(getComputedStyle(document.documentElement).getPropertyValue('--desktop-scale'));
           const title = document.querySelector('.application-title').getBoundingClientRect();
           const close = document.querySelector('#window-close').getBoundingClientRect();
-          if (Math.abs(title.height - 34) > 1 || Math.abs(close.height - 22) > 1)
+          if (Math.abs(title.height - 44) > 1 || Math.abs(close.height - 28) > 1)
             throw new Error('Title bar changed size while resizing');
           const origin = workbench.getBoundingClientRect();
           const selectors = ['.monitor', '.controls', '.previews', '.signal-lab',

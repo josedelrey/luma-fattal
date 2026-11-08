@@ -13,6 +13,7 @@ import threading
 import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -29,6 +30,7 @@ from ..configuration import Config, _ConfigLoader
 from ..denoise import SourceDenoise
 from ..pipeline import process_frames
 from ..prenoise import SourceNoise
+from ..processing import input_size, working_size
 from ..video import (
     _decode_command,
     _geometry,
@@ -117,6 +119,41 @@ def preview_frame(
         treatment = SourceDenoise(settings.denoise, source_cleanup=treatment)
     result = next(process_frames([frame], config=config, source_cleanup=treatment))
     return Image.fromarray(result)
+
+
+def thumbnail_config(config: Config, size: tuple[int, int], max_edge: int) -> Config:
+    """Approximate full-size spatial behavior on a reduced preview grid."""
+    processing = config.processing
+
+    def work_size(dimensions):
+        return working_size(
+            input_size(dimensions, processing.effective_max_input_pixels),
+            processing.effective_max_edge,
+        )
+
+    decode_scale = min(1, max_edge / max(size))
+    thumbnail_size = tuple(max(2, round(edge * decode_scale)) for edge in size)
+    full_work, small_work = work_size(size), work_size(thumbnail_size)
+    scale = min(1, max(small_work) / max(full_work))
+    if scale == 1 or config.parameters.fade == 100:
+        return config
+    numerics = config.numerics
+    omega = numerics.relaxation
+    # Match the approximate SOR diffusion distance in source-image coordinates.
+    # Its squared distance scales with omega / (2 - omega) per iteration.
+    relaxation = 2 * omega * scale**2 / (2 - omega + omega * scale**2)
+    # Keep the same number of attenuation levels where the small grid permits.
+    levels = max(1, (min(full_work) // numerics.pyramid_min_size).bit_length())
+    last_level = min(small_work) // 2 ** (levels - 1)
+    minimum = max(last_level // 2 + 1, round(numerics.pyramid_min_size * scale))
+    return replace(
+        config,
+        numerics=replace(
+            numerics,
+            relaxation=max(float(np.finfo(np.float32).eps), relaxation),
+            pyramid_min_size=max(2, min(last_level, minimum)),
+        ),
+    )
 
 
 def signal_metrics(frame: np.ndarray, previous: np.ndarray | None = None) -> dict:
@@ -239,10 +276,18 @@ class Workbench:
                 self.update(identifier, total=10, frames=frames, phase="thumbnail")
                 for phase, max_edge in (("thumbnail", 256), ("full", None)):
                     self.update(identifier, phase=phase)
+                    preview_config = (
+                        thumbnail_config(config, dimensions, max_edge)
+                        if max_edge is not None
+                        else config
+                    )
                     for index, frame in enumerate(frames):
                         filename = f"{phase}-{index}.png"
                         preview_frame(
-                            upload["path"], config, frame["time"], max_edge=max_edge
+                            upload["path"],
+                            preview_config,
+                            frame["time"],
+                            max_edge=max_edge,
                         ).save(folder / filename)
                         url = f"/media/{identifier}/{filename}"
                         # Publish snapshots only after the image is fully written.
@@ -455,10 +500,44 @@ class Handler(BaseHTTPRequestHandler):
                     shutil.rmtree(folder)
                     raise
             elif path == "/api/import":
-                data = yaml.load(self.rfile.read(length).decode(), Loader=_ConfigLoader)
-                config = Config.from_dict(data)
+                content = self.rfile.read(length).decode()
+                if self.headers.get_content_type() == "application/json":
+                    request = Config._parse_data(content, ".json")
+                    if not isinstance(request, dict) or "files" not in request:
+                        config = Config.from_dict(request)
+                        if config.filter == "both":
+                            raise ValueError(
+                                "Choose fattal1 or fattal2 for a video recipe"
+                            )
+                        self.send_json(config.to_dict())
+                        return
+                    files = request["files"]
+                    filename = request["filename"]
+                    if (
+                        not isinstance(files, dict)
+                        or not files
+                        or not all(
+                            isinstance(name, str) and isinstance(text, str)
+                            for name, text in files.items()
+                        )
+                        or not isinstance(filename, str)
+                    ):
+                        raise ValueError("Import requires named configuration files")
+                    try:
+                        config = Config.from_sources(filename, files)
+                    except FileNotFoundError as error:
+                        self.send_json(
+                            dict(error=str(error), missing_source=error.filename), 400
+                        )
+                        return
+                else:
+                    data = yaml.load(content, Loader=_ConfigLoader)
+                    config = Config.from_dict(data)
                 if config.filter == "both":
                     raise ValueError("Choose fattal1 or fattal2 for a video recipe")
+                self.send_json(config.to_dict())
+            elif path == "/api/config":
+                config = Config.from_dict(json.loads(self.rfile.read(length)))
                 self.send_json(config.to_dict())
             elif path in ("/api/preview", "/api/process", "/api/analyze"):
                 data = json.loads(self.rfile.read(length))

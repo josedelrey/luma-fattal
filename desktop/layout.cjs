@@ -4,7 +4,7 @@ function installDisplayScaling(window, screen, initialSize) {
   const contents = window.webContents
   const [initialWidth, initialHeight] = initialSize
     ? [initialSize.width, initialSize.height] : window.getContentSize()
-  const ratio = initialWidth / (initialHeight - 34)
+  const ratio = initialWidth / (initialHeight - 44)
   let lastSize = [initialWidth, initialHeight]
   let correcting = false
   let displayKey
@@ -20,8 +20,8 @@ function installDisplayScaling(window, screen, initialSize) {
     const heightChange = Math.abs(height - lastSize[1]) / lastSize[1]
     let nextWidth = width
     let nextHeight = height
-    if (widthChange >= heightChange) nextHeight = Math.round(34 + width / ratio)
-    else nextWidth = Math.round((height - 34) * ratio)
+    if (widthChange >= heightChange) nextHeight = Math.round(44 + width / ratio)
+    else nextWidth = Math.round((height - 44) * ratio)
     nextWidth = Math.max(1, nextWidth)
     nextHeight = Math.max(35, nextHeight)
     lastSize = [nextWidth, nextHeight]
@@ -41,10 +41,10 @@ function installDisplayScaling(window, screen, initialSize) {
     fitting = true
     try {
       const [width, height] = window.getContentSize()
-      const fitWidth = Math.min(width, area.width, Math.max(1, (area.height - 34) * ratio))
+      const fitWidth = Math.min(width, area.width, Math.max(1, (area.height - 44) * ratio))
       if (fitWidth < width || height > area.height) {
         const nextWidth = Math.floor(fitWidth)
-        const nextHeight = Math.min(area.height, Math.round(34 + nextWidth / ratio))
+        const nextHeight = Math.min(area.height, Math.round(44 + nextWidth / ratio))
         lastSize = [nextWidth, nextHeight]
         window.setContentSize(nextWidth, nextHeight)
       }

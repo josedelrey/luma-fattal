@@ -18,7 +18,7 @@ for (const [surface, filename] of Object.entries({body: 'viscera', controls: 'pa
   document.documentElement.style.setProperty(`--${surface}-texture`, `url('${secured(`/assets/${filename}.png`)}')`);
 }
 document.documentElement.style.setProperty('--monitor-texture', `url('${secured('/assets/panel-078-red.png')}')`);
-let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, revision = 0, previewRevision = -1, timer, resultConfig;
+let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, revision = 0, previewRevision = -1, timer, resultConfig, pendingImport;
 const player = $('player');
 const fileDialogs = window.desktopFiles;
 if (window.desktopWindow) {
@@ -26,11 +26,11 @@ if (window.desktopWindow) {
   document.documentElement.style.setProperty('--desktop-width', `${width}px`);
   document.documentElement.style.setProperty('--desktop-height', `${height}px`);
   const fitCanvas = () => {
-    const scale = Math.min(innerWidth / width, Math.max(0, innerHeight - 34) / (height - 34));
+    const scale = Math.min(innerWidth / width, Math.max(0, innerHeight - 44) / (height - 44));
     const left = (innerWidth - width * scale) / 2;
     document.documentElement.style.setProperty('--desktop-scale', scale);
     document.documentElement.style.setProperty('--desktop-left', `${left}px`);
-    document.documentElement.style.setProperty('--desktop-export-top', `${34 + 19 * scale}px`);
+    document.documentElement.style.setProperty('--desktop-export-top', `${44 + 19 * scale}px`);
     document.documentElement.style.setProperty('--desktop-export-right', `${innerWidth - left - (width - 19) * scale}px`);
   };
   window.addEventListener('resize', fitCanvas);
@@ -41,31 +41,13 @@ if (window.desktopWindow) {
   $('window-minimize').onclick = () => window.desktopWindow.minimize();
   $('window-close').onclick = () => window.desktopWindow.close();
 }
-const definitions = [
-  ['parameters', 'alpha', 'Alpha / gradient scale', 0.01, 100, 0.01],
-  ['parameters', 'beta', 'Beta / detail response', 0, 100, 0.1],
-  ['parameters', 'saturation', 'Saturation', 0, 100, 1],
-  ['parameters', 'tone_strength', 'Tone strength', 0, 100, 1],
-  ['parameters', 'noise', 'Noise', 0, 100, 1],
-  ['parameters', 'fade', 'Fade / original blend', 0, 100, 1],
-  ['parameters', 'output_gamma', 'Output gamma', 0.1, 5, 0.05],
-  ['parameters', 'highlight_compression', 'Highlight compression', 0, 100, 1],
-  ['parameters', 'black_level', 'Black level', 0, 100, 1],
-  ['parameters', 'white_level', 'White level', 0, 100, 1],
-  ['parameters', 'vibrance', 'Vibrance', 0, 100, 1],
-  ['numerics', 'shadow_softness', 'Shadow softness', 0, 255, 1],
-  ['video', 'denoise', 'Source denoise', 0, 1, 0.05],
-  ['video', 'flat_cleanup', 'Flat cleanup', 0, 1, 0.05],
-  ['video', 'pre_noise_rms', 'Source noise RMS', 0, 4, 0.05],
-  ['video', 'crf', 'CPU quality / CRF', 0, 51, 1],
-  ['video', 'nvenc_cq', 'NVIDIA quality / CQ', 0, 51, 1],
-];
+const settingsPanel = new ConfigurationPanel($('parameters'), $('advanced'), changed);
 function status(message, error = false) { $('status').textContent = message; $('status').dataset.error = error; }
 async function api(path, options = {}) {
   const response = await fetch(secured(path), options);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw Object.assign(new Error(body.error || `Request failed (${response.status})`), {status: response.status});
+    throw Object.assign(new Error(body.error || `Request failed (${response.status})`), {status: response.status, missingSource: body.missing_source});
   }
   return response.json();
 }
@@ -74,8 +56,8 @@ function setBusy(value) {
   busy = value;
   $('rescan').disabled = value || !upload;
   for (const id of ['process', 'refresh']) $(id).disabled = value || !upload;
-  for (const id of ['open-video', 'screen-load', 'presets', 'import-preset', 'filter', 'reset', 'encoder']) $(id).disabled = value;
-  document.querySelectorAll('.slider input').forEach(element => element.disabled = value);
+  for (const id of ['open-video', 'screen-load', 'presets', 'import-preset', 'filter', 'reset', 'save-preset']) $(id).disabled = value;
+  settingsPanel.setBusy(value);
 }
 function setProcessing(value) {
   document.querySelector('.process-slot').classList.toggle('is-processing', value);
@@ -94,28 +76,21 @@ function changed() {
   clearTimeout(timer);
   if (upload && $('auto-preview').checked) timer = setTimeout(preview, 700);
 }
-function buildControls() {
-  $('parameters').replaceChildren(); $('advanced').replaceChildren();
-  definitions.forEach(([section, key, label, min, max, step], index) => {
-    const row = document.createElement('div'); row.className = 'slider';
-    const text = document.createElement('label'); text.textContent = label; text.htmlFor = `${section}-${key}-range`;
-    const number = document.createElement('input'); number.type = 'number'; number.setAttribute('aria-label', `${label} value`);
-    const range = document.createElement('input'); range.type = 'range'; range.id = text.htmlFor; range.setAttribute('aria-label', label);
-    for (const input of [number, range]) {
-      input.min = min; input.max = max; input.step = step; input.value = config[section][key];
-      input.addEventListener('input', () => {
-        if (input.value === '' || !input.validity.valid) return;
-        const value = Number(input.value);
-        config[section][key] = value;
-        (input === range ? number : range).value = value;
-        changed();
-      });
-    }
-    row.append(text, number, range); $(index < 7 ? 'parameters' : 'advanced').append(row);
-  });
-  $('filter').value = config.filter; $('encoder').value = config.video.encoder;
+function loadConfig(value, name = $('presets').value) {
+  config = structuredClone(value);
+  baseline = structuredClone(value);
+  settingsPanel.load(config);
+  $('filter').value = config.filter;
+  $('presets').value = name;
+  changed();
 }
-function loadConfig(value) { config = structuredClone(value); baseline = structuredClone(value); buildControls(); changed(); }
+function loadImported(value, name) {
+  let option = $('presets').querySelector('option[value="imported"]');
+  if (!option) { option = document.createElement('option'); option.value = 'imported'; $('presets').append(option); }
+  option.textContent = name;
+  presets.imported = structuredClone(value);
+  loadConfig(value, 'imported');
+}
 let previewFrames = [], selectedFrame = null, previewError = false;
 function updateLightbox() {
   if (selectedFrame === null) return;
@@ -200,7 +175,7 @@ async function start(kind, onUpdate) {
   return poll(response.job, onUpdate);
 }
 async function preview() {
-  if (busy || !upload || previewRevision === revision) return;
+  if (busy || !upload || previewRevision === revision || !settingsPanel.valid()) return;
   clearTimeout(timer); setBusy(true); $('preview-state').textContent = 'Generating previews…';
   status('PREPARING PREVIEW / first use may compile numerical kernels');
   try {
@@ -238,29 +213,42 @@ $('video-file').onchange = async event => {
   const file = event.target.files[0]; if (!file || busy) return;
   await loadVideo(file); event.target.value = '';
 };
-$('presets').onchange = () => loadConfig(presets[$('presets').value]);
+$('presets').onchange = () => { pendingImport = undefined; loadConfig(presets[$('presets').value]); };
 $('reset').onclick = () => loadConfig(baseline);
 $('filter').onchange = () => { config.filter = $('filter').value; changed(); };
-$('encoder').onchange = () => { config.video.encoder = $('encoder').value; changed(); };
 $('auto-preview').onchange = () => { if ($('auto-preview').checked) preview(); else clearTimeout(timer); };
 $('import-preset').onclick = async () => {
   if (!fileDialogs) return $('preset-file').click();
   if (busy) return;
   setBusy(true);
-  try { const selected = await fileDialogs.open('preset'); if (selected) { loadConfig(selected.config); status(`RECIPE LOADED / ${selected.name}`); } }
+  try { const selected = await fileDialogs.open('preset'); if (selected) { loadImported(selected.config, selected.name); status(`RECIPE LOADED / ${selected.name}`); } }
   catch (error) { status(error.message, true); }
   finally { setBusy(false); }
 };
 $('preset-file').onchange = async event => {
   const file = event.target.files[0]; if (!file || busy) return;
   setBusy(true);
-  try { const imported = await api('/api/import', {method:'POST', body:await file.text()}); loadConfig(imported); status(`RECIPE LOADED / ${file.name}`); }
-  catch (error) { status(error.message, true); }
+  try {
+    pendingImport ??= {filename: file.name, files: {}};
+    const name = pendingImport.missingSource || file.name;
+    if (file.name !== name.split(/[\\/]/).at(-1)) throw new Error(`Select ${name} to complete this recipe, or cancel the file picker to start over.`);
+    pendingImport.files[name] = await file.text();
+    const imported = await api('/api/import', {method:'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(pendingImport)});
+    loadImported(imported, pendingImport.filename);
+    status(`RECIPE LOADED / ${pendingImport.filename}`);
+    pendingImport = undefined;
+  } catch (error) {
+    if (error.missingSource) {
+      pendingImport.missingSource = error.missingSource;
+      status(`Open… ${error.missingSource} to complete this recipe. Cancel the file picker to start over.`, true);
+    } else { pendingImport = undefined; status(error.message, true); }
+  }
   finally { setBusy(false); event.target.value = ''; }
 };
-$('refresh').onclick = () => { previewRevision = -1; preview(); };
+$('preset-file').oncancel = () => { pendingImport = undefined; };
+$('refresh').onclick = () => { if (!settingsPanel.valid(true)) return; previewRevision = -1; preview(); };
 $('process').onclick = async () => {
-  if (busy || !upload) return;
+  if (busy || !upload || !settingsPanel.valid(true)) return;
   clearTimeout(timer); setBusy(true); setProcessing(true); $('export-panel').hidden = true; status('VALIDATING SOURCE / preparing encoder and filter');
   const snapshot = structuredClone(config);
   try {
@@ -273,15 +261,17 @@ $('process').onclick = async () => {
   finally { setProcessing(false); setBusy(false); }
 };
 $('close-export').onclick = () => { $('export-panel').hidden = true; };
-$('save-config').onclick = async () => {
-  if (fileDialogs) {
-    try { await fileDialogs.save('config', null, JSON.stringify(resultConfig, null, 2)); }
-    catch (error) { status(error.message, true); }
-    return;
-  }
-  const url = URL.createObjectURL(new Blob([JSON.stringify(resultConfig, null, 2)], {type:'application/json'}));
-  const link = document.createElement('a'); link.href = url; link.download = 'luma-fattal-config.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-};
+async function saveConfig(value) {
+  try {
+    const validated = await api('/api/config', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(value)});
+    const content = JSON.stringify(validated, null, 2);
+    if (fileDialogs) { await fileDialogs.save('config', null, content); return; }
+    const url = URL.createObjectURL(new Blob([content], {type:'application/json'}));
+    const link = document.createElement('a'); link.href = url; link.download = 'luma-fattal-config.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) { status(error.message, true); }
+}
+$('save-config').onclick = () => saveConfig(resultConfig);
+$('save-preset').onclick = () => { if (config && settingsPanel.valid(true)) saveConfig(config); };
 for (const [id, kind] of [['save-video', 'video'], ['save-meta', 'metadata']]) {
   $(id).addEventListener('click', async event => {
     if (!fileDialogs) return;
@@ -316,10 +306,12 @@ new ResizeObserver(() => {
   }
 }).observe(previewDialog);
 placeholders();
+setBusy(true);
 api('/api/presets').then(value => {
   presets = value;
   Object.keys(value).forEach(name => { const option = document.createElement('option'); option.value = name; option.textContent = name.toUpperCase().replaceAll('-', ' '); $('presets').append(option); });
   $('presets').value = value['fattal-1'] ? 'fattal-1' : Object.keys(value)[0]; loadConfig(value[$('presets').value]);
+  setBusy(false);
 }).catch(error => status(error.message, true));
 
 const spectrumSize = 64;
