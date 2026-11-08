@@ -22,13 +22,18 @@ def main() -> None:
     for name, source in sources.items():
         suffix = ".tar.xz" if source["url"].endswith(".xz") else ".tar.gz"
         archive = downloads / f"{name}-{source['version']}{suffix}"
-        if not archive.exists():
+        if not archive.exists() or hashlib.sha256(archive.read_bytes()).hexdigest() != source["sha256"]:
             for attempt in range(3):
                 try:
-                    with urllib.request.urlopen(source["url"], timeout=120) as response:
-                        archive.write_bytes(response.read())
+                    request = urllib.request.Request(source["url"], headers={"Accept-Encoding": "identity"})
+                    with urllib.request.urlopen(request, timeout=120) as response:
+                        data = response.read()
+                    actual = hashlib.sha256(data).hexdigest()
+                    if actual != source["sha256"]:
+                        raise ValueError(f"Source checksum mismatch for {archive.name}: {actual}")
+                    archive.write_bytes(data)
                     break
-                except OSError:
+                except (OSError, ValueError):
                     if attempt == 2:
                         raise
                     time.sleep(2 ** attempt)

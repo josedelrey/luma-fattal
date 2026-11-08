@@ -168,6 +168,8 @@ changes:
 
 ```bash
 npm --prefix desktop ci
+uv run --locked --extra gpu python scripts/prepare_desktop_release.py \
+  --resources outputs/desktop-release-metadata --platform linux --arch x64
 npm --prefix desktop run package:dir -- --linux
 uv run --locked --extra gpu python scripts/smoke_desktop_backend.py outputs/desktop-app/linux-unpacked/resources
 ```
