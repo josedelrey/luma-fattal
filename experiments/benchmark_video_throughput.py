@@ -10,9 +10,9 @@ from pathlib import Path
 from statistics import median
 from time import perf_counter
 
-from luma_fatal import Config
-from luma_fatal.gpu import AdaptiveFrameProcessor
-from luma_fatal.video import process_video
+from luma_fattal import Config
+from luma_fattal.gpu import AdaptiveFrameProcessor
+from luma_fattal.video import process_video
 
 
 @contextmanager

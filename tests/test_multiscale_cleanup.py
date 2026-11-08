@@ -9,12 +9,12 @@ import numpy as np
 import pytest
 from test_video import tools as tools
 
-from luma_fatal.cleanup import MultiscaleSourceCleanup as ScaleSeparatedCleanup
-from luma_fatal.cleanup import SourceCleanup
-from luma_fatal.configuration import Config, VideoConfig
-from luma_fatal.denoise import SourceDenoise
-from luma_fatal.numerics import luminance_u8
-from luma_fatal.pipeline import process_frames
+from luma_fattal.cleanup import MultiscaleSourceCleanup as ScaleSeparatedCleanup
+from luma_fattal.cleanup import SourceCleanup
+from luma_fattal.configuration import Config, VideoConfig
+from luma_fattal.denoise import SourceDenoise
+from luma_fattal.numerics import luminance_u8
+from luma_fattal.pipeline import process_frames
 
 
 def sample(shape=(101, 397)):
@@ -153,7 +153,7 @@ def test_cli_multiscale_preset_matches_working_frame_pipeline_and_metadata(
 ):
     from test_video import make_clip, reference_rgb
 
-    from luma_fatal.cli import main
+    from luma_fattal.cli import main
 
     root = Path(__file__).resolve().parents[1]
     preset = root / "configs" / f"fattal-{variant}-compressed-multiscale.yaml"
@@ -206,7 +206,7 @@ def test_cli_can_override_multiscale_settings_and_disable_cleanup(
 ):
     from test_video import make_clip, reference_rgb
 
-    from luma_fatal.cli import main
+    from luma_fattal.cli import main
 
     preset = (
         Path(__file__).resolve().parents[1]

@@ -847,6 +847,7 @@ body, .slider label, .section-label, .filter-row, .preview-toolbar,
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
+#signal-name, .local-tag, .preview-toolbar label span { color: #ffffff; }
 #status[data-error=true] { color: #ff9f9f; }
 .slider label, .section-label, .filter-row label, #preview-state, .local-tag {
   padding: 0;
@@ -901,25 +902,19 @@ body, .slider label, .section-label, .filter-row, .preview-toolbar,
 .signal-sub span { background: #000; color: #c48b53; font-size: 9px; }
 .signal-sub button { font-size: 9px; padding: 1px 3px; }
 #signal-chart { display: block; width: 100%; height: auto; background: #100b09; border: 1px inset #773b31; image-rendering: pixelated; cursor: crosshair; }
-.signal-readings { min-height: 48px; background: #070000e8; color: #c8ad6c; margin-top: 3px; font-size: 10px; line-height: 1.5; padding: 3px; }
-.signal-key { background: #090000; font-size: 9px; padding: 2px; display: flex; gap: 6px; flex-wrap: wrap; }
-.signal-key span:nth-child(1) { color: #ef4b34; }.signal-key span:nth-child(2) { color: #d6aa39; }.signal-key span:nth-child(3) { color: #4c70ff; }.signal-key span:nth-child(4) { color: #e3cfb0; }
+.signal-readings { min-height: 0; background: #070000e8; color: #c8ad6c; margin-top: 3px; font-size: 8px; line-height: 1.25; padding: 2px 3px; }
 .signal-lab p { background: #000b; color: #ae8876; font: 8px 'Courier New', monospace; line-height: 1.5; margin: 3px 0 0; }
 .signal-readings { white-space: pre-wrap; }
 
 /* Plain old-HTML text, except for the main window title. */
 h1, h2, h3, strong, b { font-weight: normal; }
-.application-title > span:first-child { font-weight: bold; }
+.application-title .title-brand { display: inline-flex; align-items: center; gap: 6px; font-weight: bold; }
+.application-title .title-brand img { display: none; width: 28px; height: 28px; object-fit: contain; }
 .signal-lab { border-color: #ff0000; color: #ffffff; }
 .signal-heading { background: #ffffff; color: #0000ff; border-color: #0000ff; }
-.signal-sub span { background: #000000; color: #0000ff; }
+.signal-sub span { background: #000000; color: #ffffff; }
 #signal-chart { background: #000000; border-color: #ff0000; }
 .signal-readings { background: #000000; color: #ffffff; }
-.signal-key { background: #ffffff; color: #000000; }
-.signal-key span:nth-child(1) { color: #0000ff; }
-.signal-key span:nth-child(2) { color: #ffffff; background: #000000; }
-.signal-key span:nth-child(3) { color: #0000ff; }
-.signal-key span:nth-child(4) { color: #ffffff; background: #000000; }
 .signal-lab p { background: #000000; color: #0000ff; }
 
 .signal-lab { flex: 1; display: flex; flex-direction: column; }
@@ -936,36 +931,40 @@ h1, h2, h3, strong, b { font-weight: normal; }
 .desktop .workbench {
   width: 100%;
   max-width: none;
-  height: calc(100vh - 24px);
-  margin: 24px 0 0;
-  padding: 8px 12px 10px;
+  height: calc(100vh - 34px);
+  margin: 34px 0 0;
+  padding: 16px;
   overflow: hidden;
 }
 .desktop .application-title {
   position: fixed;
   inset: 0 0 auto;
   z-index: 10;
-  height: 24px;
+  height: 34px;
   margin: 0;
-  padding: 3px 5px;
+  padding: 0 12px;
   align-items: center;
 }
-.desktop .masthead { min-height: 70px; padding: 1px 4px 4px; }
+.desktop .application-title .title-brand img { display: block; }
+.desktop .application-title #app-frame-controls button { height: 22px; }
+.desktop .masthead { height: 88px; min-height: 88px; padding: 3px 4px 7px; }
 .desktop .logo { padding: 0 8px; }
-.desktop .logo img { max-height: 62px; width: auto; max-width: 100%; }
-.desktop main { height: calc(100% - 50px); grid-template-rows: minmax(0, 1fr) 240px auto; align-items: stretch; }
+.desktop .logo h1 { width: 440px; }
+.desktop .logo img { max-height: 78px; width: auto; max-width: 100%; }
+.desktop main { height: calc(100% - 72px); grid-template-rows: minmax(0, 1fr) 214px auto; gap: 16px; align-items: stretch; }
 .desktop .video-column, .desktop .config-column { min-height: 0; }
 .desktop .screen { height: auto; min-height: 0; flex: 1; aspect-ratio: auto; }
-.desktop .previews { min-height: 0; display: flex; flex-direction: column; }
+.desktop .previews { min-height: 0; display: flex; flex-direction: column; padding-bottom: 4px; }
 .desktop .frames { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
 .desktop .frame { height: 100%; min-height: 0; aspect-ratio: auto; }
-.desktop #signal-chart { height: min(13vh, 115px); }
+.desktop #signal-chart { height: auto; min-height: 0; flex: 1 1 0; }
+.desktop .signal-readings { flex-shrink: 0; }
 .desktop .export { grid-column: 1 / -1; grid-row: 3; }
 .desktop .workbench:has(#export-panel:not([hidden])) main {
-  height: calc(100% - 59px);
+  height: calc(100% - 88px);
   grid-template-rows: minmax(0, 1fr) 200px auto;
 }
-.desktop .workbench:has(#export-panel:not([hidden])) #signal-chart { height: 85px; }
+.desktop .workbench:has(#export-panel:not([hidden])) #signal-chart { height: auto; }
 @media (min-width: 721px) {
   .desktop .video-column, .desktop .config-column { display: contents; }
   .desktop .monitor { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; }
@@ -979,7 +978,7 @@ h1, h2, h3, strong, b { font-weight: normal; }
 }
 .desktop .workbench:has(.controls details[open]) main {
   height: auto;
-  min-height: calc(100% - 50px);
+  min-height: calc(100% - 72px);
   grid-template-rows: auto;
 }
 .desktop .workbench:has(#export-panel:not([hidden])):has(.controls details[open]) main {

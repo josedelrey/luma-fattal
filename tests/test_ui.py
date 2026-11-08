@@ -8,9 +8,9 @@ import pytest
 from PIL import Image
 from test_video import tools as tools
 
-from luma_fatal import Config, FilterParams
-from luma_fatal.ui.server import REPOSITORY, Workbench, preview_frame, sample_times
-from luma_fatal.video import _decode_command, _geometry, _probe, _resolve_color
+from luma_fattal import Config, FilterParams
+from luma_fattal.ui.server import REPOSITORY, Workbench, preview_frame, sample_times
+from luma_fattal.video import _decode_command, _geometry, _probe, _resolve_color
 
 
 def test_samples_cover_equal_segments_without_eof():
@@ -95,7 +95,7 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path):
     from types import SimpleNamespace
     from typing import cast
 
-    from luma_fatal.ui.server import Handler, Server
+    from luma_fattal.ui.server import Handler, Server
 
     app = Workbench(tmp_path / "session", tmp_path / "no-presets")
     server = cast(Server, SimpleNamespace(workbench=app, server_port=8765))
@@ -163,7 +163,7 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path):
 
 
 def test_signal_metrics_measure_constant_and_changing_pixels():
-    from luma_fatal.ui.server import signal_metrics
+    from luma_fattal.ui.server import signal_metrics
 
     black = np.zeros((4, 4, 3), np.uint8)
     record = signal_metrics(black)

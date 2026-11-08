@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from luma_fatal import configuration
-from luma_fatal.cli import main as cli_main
+from luma_fattal import configuration
+from luma_fattal.cli import main as cli_main
 from scripts import check_presets
 
 

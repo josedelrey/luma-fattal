@@ -10,10 +10,10 @@ import pytest
 from PIL import Image
 from test_video import tools as tools
 
-from luma_fatal import Config, FilterParams, ProcessingConfig, apply_filter
-from luma_fatal.cli import main
-from luma_fatal.core import _compress_highlights, _recombine
-from luma_fatal.pipeline import process_frames
+from luma_fattal import Config, FilterParams, ProcessingConfig, apply_filter
+from luma_fattal.cli import main
+from luma_fattal.core import _compress_highlights, _recombine
+from luma_fattal.pipeline import process_frames
 
 
 @pytest.mark.parametrize(
@@ -232,7 +232,7 @@ def test_video_cli_compression_works_with_tone_strength_and_fbm(
 ):
     from test_video import make_clip, reference_rgb
 
-    from luma_fatal.prenoise import SourceNoise
+    from luma_fattal.prenoise import SourceNoise
 
     preset = (
         Path(__file__).resolve().parents[1] / "configs/fattal-2-compressed-fbm.yaml"

@@ -30,7 +30,7 @@ Run `ruff format .` to apply formatting changes.
 NVENC option validation, automatic CPU fallback, and failure cleanup are tested
 without NVIDIA hardware.
 The hardware integration test runs when NVENC can initialize, otherwise it is
-skipped. On an NVIDIA machine, set `LUMA_FATAL_REQUIRE_NVENC_TESTS=1` to require
+skipped. On an NVIDIA machine, set `LUMA_FATTAL_REQUIRE_NVENC_TESTS=1` to require
 that test to pass, and run `python -m pytest -q tests/test_video.py -k nvenc`.
 
 CUDA solver and frame agreement tests skip when the optional GPU dependencies or hardware
@@ -39,7 +39,7 @@ and fake devices on every platform. To require the real GPU tests:
 
 ```bash
 uv sync --locked --extra gpu
-LUMA_FATAL_REQUIRE_GPU_TESTS=1 uv run --extra gpu python -m pytest -q tests/test_gpu.py
+LUMA_FATTAL_REQUIRE_GPU_TESTS=1 uv run --extra gpu python -m pytest -q tests/test_gpu.py
 ```
 
 Set the environment variable with your shell's syntax on Windows. GPU tests
@@ -106,6 +106,16 @@ environment with FFmpeg and ffprobe. Install the desktop dependencies once:
 npm --prefix desktop ci
 ```
 
+On Linux systems that restrict unprivileged user namespaces, configure
+Electron's sandbox helper after installing desktop dependencies:
+
+```bash
+sudo chown root:root desktop/node_modules/electron/dist/chrome-sandbox
+sudo chmod 4755 desktop/node_modules/electron/dist/chrome-sandbox
+```
+
+Repeat this setup after `npm --prefix desktop ci` replaces `node_modules`.
+
 Launch the desktop application:
 
 ```bash
@@ -114,7 +124,7 @@ npm --prefix desktop start
 
 Electron starts the Python backend privately and loads the interface after the
 server responds. It uses the repository's `.venv` Python when available, otherwise
-`python3` on Linux/macOS or `python` on Windows. Set `LUMA_FATAL_PYTHON` to an
+`python3` on Linux/macOS or `python` on Windows. Set `LUMA_FATTAL_PYTHON` to an
 executable path to select another environment. Run `uv sync --locked` first if
 the Python environment has not been installed.
 
@@ -131,7 +141,7 @@ visible while expanded settings scroll beneath it. It opens at up to 1200 by
 fullscreen are disabled. Electron requests square outer corners.
 At its default size, the textured workbench fills the window and the preview,
 signal, and export panels fit without a page scrollbar. Video and Configuration
-share one row, with Filter preview and Clip / Signal aligned below them.
+share one row, with Filter preview and Frame / Spectrum aligned below them.
 Opening More settings adds a classic gray scrollbar so the extra controls
 remain reachable. The completed render panel appears beneath Filter preview
 when More settings is open.
@@ -213,7 +223,7 @@ Save video, Run record, and Save config use native Save dialogs. The browser UI
 continues to use its file inputs and downloads. Run `npm --prefix desktop test`
 for the desktop URL and sizing checks.
 
-The local UI lives in `src/luma_fatal/ui/`. Edit `index.html`, `style.css`, and
+The local UI lives in `src/luma_fattal/ui/`. Edit `index.html`, `style.css`, and
 `app.js` directly. The server reads these files on each request, so refresh the
 browser after frontend edits. Restart it after Python changes.
 

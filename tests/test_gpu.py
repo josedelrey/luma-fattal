@@ -5,7 +5,7 @@ import os
 import numpy as np
 import pytest
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
@@ -14,9 +14,9 @@ from luma_fatal import (
     gpu,
     process_frames,
 )
-from luma_fatal.cleanup import SourceCleanup
-from luma_fatal.denoise import SourceDenoise
-from luma_fatal.prenoise import SourceNoise
+from luma_fattal.cleanup import SourceCleanup
+from luma_fattal.denoise import SourceDenoise
+from luma_fattal.prenoise import SourceNoise
 
 
 @pytest.fixture(scope="module")
@@ -24,7 +24,7 @@ def cuda_solver():
     try:
         return gpu.CudaSolver()
     except gpu.GPUUnavailable as error:
-        if os.environ.get("LUMA_FATAL_REQUIRE_GPU_TESTS") == "1":
+        if os.environ.get("LUMA_FATTAL_REQUIRE_GPU_TESTS") == "1":
             pytest.fail(str(error))
         pytest.skip(str(error))
 
@@ -42,7 +42,7 @@ def cuda_composer(cuda_solver):
 def test_cuda_cleanup_composition_matches_cpu(
     cuda_composer, shape, factor, dtype, strength
 ):
-    from luma_fatal.cleanup import _compose
+    from luma_fattal.cleanup import _compose
 
     rng = np.random.default_rng(21)
     rgb = rng.integers(0, 256, (*shape, 3), np.uint8).astype(dtype)
@@ -66,7 +66,7 @@ def test_cuda_cleanup_composition_matches_cpu(
 
 
 def test_cuda_cleanup_device_arrays_avoid_host_round_trip(cuda_composer):
-    from luma_fatal.cleanup import _compose
+    from luma_fattal.cleanup import _compose
 
     cp = cuda_composer.cp
     rgb = np.random.default_rng(17).integers(0, 256, (37, 53, 3), np.uint8)
@@ -345,7 +345,7 @@ def test_sustained_gpu_slowdown_switches_back_to_cpu(monkeypatch):
 
 @pytest.fixture(scope="module")
 def cuda_core(cuda_solver):
-    from luma_fatal.gpu_core import CudaCore
+    from luma_fattal.gpu_core import CudaCore
 
     return CudaCore()
 
@@ -382,8 +382,8 @@ def test_fixed_size_normalization_preserves_zero_exclusion(cuda_core, kind):
 def test_cuda_frame_pipeline_preserves_appearance_and_controls(
     cuda_core, variant, optimized, resize, treatment
 ):
-    from luma_fatal.cleanup import MultiscaleSourceCleanup
-    from luma_fatal.configuration import VideoConfig
+    from luma_fattal.cleanup import MultiscaleSourceCleanup
+    from luma_fattal.configuration import VideoConfig
 
     yy, xx = np.indices((137, 193))
     rgb = np.stack(((xx * 3) % 256, (yy * 4) % 256, (xx + yy) % 256), axis=-1).astype(
@@ -492,7 +492,7 @@ def test_cuda_frame_degenerate_fields_and_numerical_modes(
 def fake_frame_hardware(
     monkeypatch, *, cuda_time=0.01, difference=0, fail_after=None, setup_time=0
 ):
-    from luma_fatal import gpu_core
+    from luma_fattal import gpu_core
 
     clock = [0.0]
     instances = []
@@ -595,7 +595,7 @@ def test_frame_sustained_slowdown_switches_to_cpu(monkeypatch):
 @pytest.mark.parametrize("method", ["nearest", "bilinear", "bicubic", "fixed"])
 @pytest.mark.parametrize("size", [(13, 17), (97, 61), (32, 24)])
 def test_cuda_resampling_matches_reference_coordinates(cuda_core, method, size):
-    from luma_fatal.processing import resize_bilinear_fixed, resize_working
+    from luma_fattal.processing import resize_bilinear_fixed, resize_working
 
     rgb = np.random.default_rng(312).integers(0, 256, (24, 32, 3), np.uint8)
     expected = (
@@ -631,7 +631,7 @@ def test_cuda_staged_area_fitting_and_enlargement_keep_output_geometry(
 
 
 def test_cuda_cleanup_history_agrees_across_static_motion_and_scene_cut(cuda_core):
-    from luma_fatal.numerics import luminance_u8
+    from luma_fattal.numerics import luminance_u8
 
     yy, xx = np.indices((385, 769))
     rgb = np.repeat((50 + xx / 16 + yy / 25)[..., None], 3, axis=2).astype(np.uint8)
@@ -681,7 +681,7 @@ def test_cuda_denoising_matches_noise_estimation_and_band_shrinkage(
     from cupyx.scipy.ndimage import convolve1d, uniform_filter  # pyright: ignore[reportMissingImports]
     from scipy.ndimage import gaussian_filter
 
-    from luma_fatal.denoise import denoise_rgb
+    from luma_fattal.denoise import denoise_rgb
 
     yy, xx = np.indices((95, 131))
     clean = np.repeat((65 + 0.12 * xx + 0.07 * yy)[..., None], 3, axis=2)

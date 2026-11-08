@@ -10,10 +10,10 @@ import pytest
 from PIL import Image
 from test_video import tools as tools
 
-from luma_fatal import Config, FilterParams, ProcessingConfig, apply_filter
-from luma_fatal.cli import main
-from luma_fatal.core import _boost_vibrance, _recombine
-from luma_fatal.pipeline import process_frames
+from luma_fattal import Config, FilterParams, ProcessingConfig, apply_filter
+from luma_fattal.cli import main
+from luma_fattal.core import _boost_vibrance, _recombine
+from luma_fattal.pipeline import process_frames
 
 WEIGHTS = np.array([4899, 9617, 1868], np.float64) / 16384
 
@@ -244,8 +244,8 @@ def test_image_cli_overrides_vibrance_and_records_metadata(tmp_path, capsys):
 def test_video_cli_vibrance_works_with_tone_controls_and_fbm(tmp_path, tools, capsys):
     from test_video import make_clip, reference_rgb
 
-    from luma_fatal.denoise import SourceDenoise
-    from luma_fatal.prenoise import SourceNoise
+    from luma_fattal.denoise import SourceDenoise
+    from luma_fattal.prenoise import SourceNoise
 
     preset = (
         Path(__file__).resolve().parents[1] / "configs/fattal-2-compressed-fbm.yaml"

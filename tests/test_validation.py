@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fatal.validation import compare_images, load_rgb, write_difference_panel
+from luma_fattal.validation import compare_images, load_rgb, write_difference_panel
 
 
 def test_exact_match_is_json_safe_and_has_perfect_metrics():

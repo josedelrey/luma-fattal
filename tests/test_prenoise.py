@@ -10,13 +10,13 @@ import pytest
 from scipy.ndimage import gaussian_filter
 from test_video import tools as tools
 
-from luma_fatal.cleanup import MultiscaleSourceCleanup, SourceCleanup
-from luma_fatal.configuration import Config, VideoConfig
-from luma_fatal.core import apply_core
-from luma_fatal.denoise import SourceDenoise
-from luma_fatal.numerics import luminance_fractional
-from luma_fatal.pipeline import process_frames
-from luma_fatal.prenoise import SourceNoise, noise_field
+from luma_fattal.cleanup import MultiscaleSourceCleanup, SourceCleanup
+from luma_fattal.configuration import Config, VideoConfig
+from luma_fattal.core import apply_core
+from luma_fattal.denoise import SourceDenoise
+from luma_fattal.numerics import luminance_fractional
+from luma_fattal.pipeline import process_frames
+from luma_fattal.prenoise import SourceNoise, noise_field
 
 
 def source(shape=(97, 193)):
@@ -253,7 +253,7 @@ def test_video_cli_noise_presets_match_frame_pipeline_and_metadata(
 ):
     from test_video import make_clip, reference_rgb
 
-    from luma_fatal.cli import main
+    from luma_fattal.cli import main
 
     root = Path(__file__).resolve().parents[1]
     preset = root / "configs" / f"fattal-{variant}-compressed-{approach}.yaml"
@@ -306,7 +306,7 @@ def test_video_cli_noise_presets_match_frame_pipeline_and_metadata(
 def test_cli_noise_overrides_and_disabled_path(tmp_path, tools, capsys):
     from test_video import make_clip, reference_rgb
 
-    from luma_fatal.cli import main
+    from luma_fattal.cli import main
 
     preset = (
         Path(__file__).resolve().parents[1] / "configs/fattal-1-compressed-fbm.yaml"

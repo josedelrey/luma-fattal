@@ -12,13 +12,13 @@ if getattr(sys, "frozen", False):
 
     site.getsitepackages = frozen_site_packages
 
-from luma_fatal.ui.server import main
+from luma_fattal.ui.server import main
 
 
 def self_test() -> None:
     import numpy as np
 
-    from luma_fatal.core import _gaussian3_pass
+    from luma_fattal.core import _gaussian3_pass
 
     sample = np.ones((4, 4), dtype=np.float32)
     result = _gaussian3_pass(sample)

@@ -20,10 +20,10 @@ gpu = [
 ]
 
 [project.scripts]
-luma-fattal = "luma_fatal.cli:main"
+luma-fattal = "luma_fattal.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/luma_fatal"]
+packages = ["src/luma_fattal"]
 
 [dependency-groups]
 dev = [

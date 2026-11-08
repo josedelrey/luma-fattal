@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fatal import Config, FilterParams, ProcessingConfig, apply_filter
-from luma_fatal.cli import main
-from luma_fatal.image_io import decode_input
-from luma_fatal.processing import input_size
+from luma_fattal import Config, FilterParams, ProcessingConfig, apply_filter
+from luma_fattal.cli import main
+from luma_fattal.image_io import decode_input
+from luma_fattal.processing import input_size
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GEOMETRY_REFERENCE = json.loads((FIXTURES / "input-geometry.json").read_text())

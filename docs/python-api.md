@@ -6,7 +6,7 @@
 
 ```python
 from PIL import Image
-from luma_fatal import Config, apply_filter
+from luma_fattal import Config, apply_filter
 
 config = Config.load("configs/fattal-1.yaml")
 with Image.open("assets/lantern-garden-original.png") as image:
@@ -29,7 +29,7 @@ experimental extension, described in the [scope notes](method.md#scope).
 Use the file adapter to apply configured encoding and save a metadata sidecar:
 
 ```python
-from luma_fatal.images import process_image
+from luma_fattal.images import process_image
 
 record = process_image(
     "assets/lantern-garden-original.png",
@@ -49,7 +49,7 @@ dependency versions, and input/output hashes.
 ## Videos and decoded frames
 
 ```python
-from luma_fatal.video import process_video
+from luma_fattal.video import process_video
 
 record = process_video(
     "local_inputs/input.mp4",
@@ -65,7 +65,7 @@ accepted inputs.
 To use your own decoder and encoder, pass decoded frames to `process_frames`:
 
 ```python
-from luma_fatal import process_frames
+from luma_fattal import process_frames
 
 for filtered in process_frames(decoded_rgb_frames, config=config):
     write_frame(filtered)

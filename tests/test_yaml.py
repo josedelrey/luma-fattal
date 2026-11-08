@@ -8,15 +8,15 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
     ProcessingConfig,
     apply_filter,
 )
-from luma_fatal.cli import main
-from luma_fatal.images import process_image
+from luma_fattal.cli import main
+from luma_fattal.images import process_image
 
 
 @pytest.mark.parametrize("suffix", ["yaml", "yml"])
@@ -285,8 +285,8 @@ def test_all_processing_commands_resolve_numeric_cli_overrides(
         captured.append(config)
         return {}
 
-    monkeypatch.setattr("luma_fatal.cli.process_image", process)
-    monkeypatch.setattr("luma_fatal.cli.process_video", process)
+    monkeypatch.setattr("luma_fattal.cli.process_image", process)
+    monkeypatch.setattr("luma_fattal.cli.process_video", process)
     if command == "evaluate":
         arguments = [
             command,

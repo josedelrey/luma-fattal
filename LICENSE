@@ -31,7 +31,7 @@ Third-party licensing
 skcms (BSD-3-Clause)
 --------------------
 
-The portions of src/luma_fatal/color.py adapted from skcms retain the following
+The portions of src/luma_fattal/color.py adapted from skcms retain the following
 BSD-3-Clause license. The upstream notice and license are reproduced in full.
 
 The numerical routines in color.py are adapted from skcms in the Skia project.

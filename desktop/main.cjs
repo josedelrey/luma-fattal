@@ -61,10 +61,25 @@ async function openWindow() {
       exportPanel.hidden = true;
       workbench.scrollTop = 0;
       advanced.open = false;
+      const signalReadings = document.querySelector('.signal-readings');
+      const originalReadings = signalReadings.innerHTML;
+      signalReadings.textContent = [
+        'S16 @ 1234.56s | Y 255.00 σ 255.00',
+        'R 255.00 G 255.00 B 255.00',
+        'Δ 255.00 | EDGE 255.00',
+        'Y<5 100.00% / Y≥250 100.00%'
+      ].join(String.fromCharCode(10));
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const populatedSignalOverflow = Math.max(
+        signalReadings.scrollHeight - signalReadings.clientHeight,
+        document.querySelector('.signal-lab').scrollHeight - document.querySelector('.signal-lab').clientHeight
+      );
+      signalReadings.innerHTML = originalReadings;
       return ({
       title: document.title,
       presets: document.querySelector('#presets').options.length,
       logo: document.querySelector('#logo-image').naturalWidth,
+      titleLogo: document.querySelector('#title-logo').naturalWidth,
       video: document.querySelector('#player').canPlayType('video/mp4; codecs="avc1.42E01E"'),
       frame: !!window.desktopWindow && !document.querySelector('#app-frame-controls').hidden,
       styles: document.styleSheets.length,
@@ -75,6 +90,7 @@ async function openWindow() {
       workbench: [document.querySelector('.workbench').offsetWidth, document.querySelector('.workbench').offsetHeight],
       previewOverflow: document.querySelector('.previews').scrollHeight - document.querySelector('.previews').clientHeight,
       signalOverflow: document.querySelector('.signal-lab').scrollHeight - document.querySelector('.signal-lab').clientHeight,
+      populatedSignalOverflow,
       videoBottom: document.querySelector('.monitor').getBoundingClientRect().bottom,
       controlsBottom: document.querySelector('.controls').getBoundingClientRect().bottom,
       previewTop: document.querySelector('.previews').getBoundingClientRect().top,
@@ -82,16 +98,17 @@ async function openWindow() {
       previewPadding: document.querySelector('.previews').getBoundingClientRect().bottom - document.querySelector('.preview-note').getBoundingClientRect().bottom,
       previewBottom: document.querySelector('.previews').getBoundingClientRect().bottom,
       signalBottom: document.querySelector('.signal-lab').getBoundingClientRect().bottom,
-      signalKeyBottom: document.querySelector('.signal-key').getBoundingClientRect().bottom,
+      signalReadingsBottom: document.querySelector('.signal-readings').getBoundingClientRect().bottom,
       exportLayout,
       expandedLayout,
       expandedExportLayout
       });
     })()`)
     if (!state.title.includes('Luma Fattal') || state.presets < 2 ||
-        !state.logo || !state.video || !state.background || !state.frame ||
+        !state.logo || !state.titleLogo || !state.video || !state.background || !state.frame ||
         !state.styles || !state.texture || state.content[1] > state.viewport[1] ||
-        state.previewBottom > state.viewport[1] || state.signalKeyBottom > state.viewport[1] ||
+        state.previewBottom > state.viewport[1] || state.signalReadingsBottom > state.viewport[1] ||
+        state.populatedSignalOverflow > 0 ||
         Math.abs(state.videoBottom - state.controlsBottom) > 1 ||
         Math.abs(state.previewTop - state.signalTop) > 1 ||
         Math.abs(state.previewBottom - state.signalBottom) > 1 ||
@@ -134,7 +151,7 @@ async function openWindow() {
       const uploaded = await response.json()
       const videoURL = new URL(uploaded.url, url)
       videoURL.search = new URL(url).search
-      const played = await window.webContents.executeJavaScript(`(async () => {
+      const playback = await window.webContents.executeJavaScript(`(async () => {
         const player = document.querySelector('#player');
         player.src = ${JSON.stringify(videoURL.href)};
         await new Promise((resolve, reject) => {
@@ -145,9 +162,29 @@ async function openWindow() {
         await new Promise(resolve => setTimeout(resolve, 350));
         const seconds = player.currentTime;
         player.pause();
-        return seconds;
+        await new Promise(resolve => setTimeout(resolve, 50));
+        return {
+          seconds,
+          spectrum: document.querySelector('#analysis-state').textContent,
+          readings: document.querySelector('#signal-readings').textContent
+        };
       })()`)
-      if (played <= 0) throw new Error('Packaged video did not advance during playback')
+      if (playback.seconds <= 0 || !playback.spectrum.includes('SPECTRUM') ||
+          !playback.readings.includes('LOW')) {
+        throw new Error(`Packaged video spectrum failed: ${JSON.stringify(playback)}`)
+      }
+      if (process.env.LUMA_FATTAL_SMOKE_SPECTRUM_SCREENSHOT) {
+        await window.webContents.executeJavaScript(`(() => {
+          const chart = document.querySelector('#signal-chart');
+          const rect = chart.getBoundingClientRect();
+          chart.dispatchEvent(new PointerEvent('pointermove', {
+            clientX: rect.left + rect.width * .64,
+            clientY: rect.top + rect.height * .5
+          }));
+        })()`)
+        const image = await window.webContents.capturePage()
+        writeFileSync(process.env.LUMA_FATTAL_SMOKE_SPECTRUM_SCREENSHOT, image.toPNG())
+      }
     }
     console.log(`Packaged window smoke passed: ${JSON.stringify(state)}`)
     await window.webContents.executeJavaScript('window.desktopWindow.minimize()')

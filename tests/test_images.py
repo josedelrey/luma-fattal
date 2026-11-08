@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-import luma_fatal.images as image_adapter
-from luma_fatal import Config, FilterParams, OutputConfig
-from luma_fatal.cli import main
-from luma_fatal.images import process_image
+import luma_fattal.images as image_adapter
+from luma_fattal import Config, FilterParams, OutputConfig
+from luma_fattal.cli import main
+from luma_fattal.images import process_image
 
 
 def make_input(path):

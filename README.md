@@ -84,7 +84,7 @@ See the [video guide](docs/video.md) for processing options and encoding setting
 ## Local video interface
 
 ```bash
-uv run --locked python -m luma_fatal.ui
+uv run --locked python -m luma_fattal.ui
 ```
 
 The local workbench opens in your browser. Load a video, choose or import a

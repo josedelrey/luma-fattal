@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageCms, JpegImagePlugin
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     ImageConfig,
@@ -20,8 +20,8 @@ from luma_fatal import (
     apply_filter,
     fattal2,
 )
-from luma_fatal.cli import main
-from luma_fatal.processing import working_size
+from luma_fattal.cli import main
+from luma_fattal.processing import working_size
 
 
 @pytest.mark.parametrize(

@@ -8,9 +8,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fatal import FilterParams, apply_filter
-from luma_fatal.cli import main
-from luma_fatal.processing import (
+from luma_fattal import FilterParams, apply_filter
+from luma_fattal.cli import main
+from luma_fattal.processing import (
     enlargement_sizes,
     nearest_coordinates,
     resize_bilinear_fixed,
@@ -147,8 +147,8 @@ def test_profile_rejects_unvalidated_transparent_route():
 
 
 def test_default_large_route_reduces_before_filtering(monkeypatch):
-    from luma_fatal import core
-    from luma_fatal.processing import resize_nearest
+    from luma_fattal import core
+    from luma_fattal.processing import resize_nearest
 
     pixels = np.random.default_rng(55).integers(0, 256, (32, 2048, 3), np.uint8)
     calls = []

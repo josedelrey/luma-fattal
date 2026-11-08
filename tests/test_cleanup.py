@@ -5,15 +5,15 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
     ProcessingConfig,
     process_frames,
 )
-from luma_fatal.cleanup import SourceCleanup
-from luma_fatal.numerics import luminance_u8
+from luma_fattal.cleanup import SourceCleanup
+from luma_fattal.numerics import luminance_u8
 
 
 def reference(rgb):
@@ -21,7 +21,7 @@ def reference(rgb):
 
 
 def test_prepared_fields_preserve_history_and_composition():
-    from luma_fatal.cleanup import _compose
+    from luma_fattal.cleanup import _compose
 
     rgb = np.random.default_rng(12).integers(90, 94, (97, 131, 3), np.uint8)
     ordinary, staged = SourceCleanup(0.75), SourceCleanup(0.75)

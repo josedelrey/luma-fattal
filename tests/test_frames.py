@@ -5,7 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,

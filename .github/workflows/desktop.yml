@@ -8,11 +8,11 @@ on:
         type: boolean
         default: false
   pull_request:
-    paths: ['.github/workflows/desktop.yml', 'desktop/**', 'scripts/**', 'src/luma_fatal/**', 'configs/**', 'pyproject.toml', 'uv.lock']
+    paths: ['.github/workflows/desktop.yml', 'desktop/**', 'scripts/**', 'src/luma_fattal/**', 'configs/**', 'pyproject.toml', 'uv.lock']
   push:
     branches: [main]
     tags: ['v*']
-    paths: ['.github/workflows/desktop.yml', 'desktop/**', 'scripts/**', 'src/luma_fatal/**', 'configs/**', 'pyproject.toml', 'uv.lock']
+    paths: ['.github/workflows/desktop.yml', 'desktop/**', 'scripts/**', 'src/luma_fattal/**', 'configs/**', 'pyproject.toml', 'uv.lock']
 
 permissions:
   contents: read

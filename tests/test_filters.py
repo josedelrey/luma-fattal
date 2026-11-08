@@ -5,9 +5,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fatal import Config, FilterParams, apply_filter, fattal1, fattal2
-from luma_fatal.core import _normalize, _pyramid
-from luma_fatal.numerics import (
+from luma_fattal import Config, FilterParams, apply_filter, fattal1, fattal2
+from luma_fattal.core import _normalize, _pyramid
+from luma_fattal.numerics import (
     fast_pow,
     gradient_scale,
     luminance_fractional,

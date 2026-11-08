@@ -8,16 +8,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
     ProcessingConfig,
     apply_filter,
 )
-from luma_fatal.core import _divergence, _normalize, _phi, _pyramid, _recombine, _sor
-from luma_fatal.numerics import fast_pow64, luminance_u8, scalar_math_f32
-from luma_fatal.probes import _probe_arrays
+from luma_fattal.core import _divergence, _normalize, _phi, _pyramid, _recombine, _sor
+from luma_fattal.numerics import fast_pow64, luminance_u8, scalar_math_f32
+from luma_fattal.probes import _probe_arrays
 
 FIXTURES = Path(__file__).parent / "fixtures"
 MATH = json.loads((FIXTURES / "scalar-math.json").read_text())["trials"]

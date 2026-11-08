@@ -19,8 +19,8 @@ from pathlib import Path
 import yaml
 from PIL import Image, JpegImagePlugin
 
-from luma_fatal import Config, apply_filter
-from luma_fatal.image_io import save_image
+from luma_fattal import Config, apply_filter
+from luma_fattal.image_io import save_image
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "tests/fixtures/presets.json"

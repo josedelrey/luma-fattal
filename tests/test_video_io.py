@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from luma_fatal.video_io import PooledVideoIO
+from luma_fattal.video_io import PooledVideoIO
 
 
 class ShortPipe(io.BytesIO):

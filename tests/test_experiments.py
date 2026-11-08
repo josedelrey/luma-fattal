@@ -7,17 +7,17 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
     ProcessingConfig,
     apply_filter,
 )
-from luma_fatal.cli import main
-from luma_fatal.core import _phi, _recombine
-from luma_fatal.numerics import power64
-from luma_fatal.processing import resize_working
+from luma_fattal.cli import main
+from luma_fattal.core import _phi, _recombine
+from luma_fattal.numerics import power64
+from luma_fattal.processing import resize_working
 
 
 @pytest.mark.parametrize("suffix", ["yaml", "toml", "json"])

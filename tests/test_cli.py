@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fatal.cli import main
+from luma_fattal.cli import main
 
 
 def make_input(path):

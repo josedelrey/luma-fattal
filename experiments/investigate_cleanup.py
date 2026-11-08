@@ -30,12 +30,12 @@ from cleanup_multiscale import ScaleSeparatedCleanup
 from PIL import Image, ImageDraw, ImageFont
 from scipy.ndimage import gaussian_filter
 
-from luma_fatal.cleanup import SourceCleanup
-from luma_fatal.configuration import Config
-from luma_fatal.core import apply_core
-from luma_fatal.numerics import luminance_fractional, luminance_u8
-from luma_fatal.processing import limit_input_pixels, resize_working, working_size
-from luma_fatal.video import (
+from luma_fattal.cleanup import SourceCleanup
+from luma_fattal.configuration import Config
+from luma_fattal.core import apply_core
+from luma_fattal.numerics import luminance_fractional, luminance_u8
+from luma_fattal.processing import limit_input_pixels, resize_working, working_size
+from luma_fattal.video import (
     _check,
     _decode_command,
     _decoded_frames,
@@ -381,9 +381,9 @@ def main(argv=None, extra_record=None):
         "video": run_video,
         "benchmark": run_benchmark,
     }[args.mode](args, config)
-    import luma_fatal
+    import luma_fattal
 
-    runtime = Path(luma_fatal.__file__).parent
+    runtime = Path(luma_fattal.__file__).parent
     files = list(Path(__file__).parent.glob("*.py")) + list(runtime.glob("*.py"))
     result["source_sha256"] = {
         str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in files

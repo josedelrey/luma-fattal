@@ -214,7 +214,7 @@ See [source denoising](configuration.md#source-denoising),
 
 ## Local workbench
 
-Run `uv run --locked python -m luma_fatal.ui` from the repository root.
+Run `uv run --locked python -m luma_fattal.ui` from the repository root.
 Use `--no-browser` to open the printed URL yourself, or `--port 8765` for a
 fixed port. The UI uses a loopback-only Python server and requires no Node build
 or additional Python dependencies. To use the same interface in its own desktop

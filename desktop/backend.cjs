@@ -13,10 +13,10 @@ class Backend {
     for (const directory of [paths.sessions, paths.logs, paths.cache]) mkdirSync(directory, { recursive: true })
     const localPython = path.join(paths.sourceRoot, '.venv',
       process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')
-    const python = paths.packaged ? paths.backend : process.env.LUMA_FATAL_PYTHON ||
+    const python = paths.packaged ? paths.backend : process.env.LUMA_FATTAL_PYTHON ||
       (existsSync(localPython) ? localPython : process.platform === 'win32' ? 'python' : 'python3')
     if (paths.packaged && !existsSync(python)) throw new Error(`Packaged backend is missing: ${python}`)
-    const backendArgs = paths.packaged ? [] : ['-u', '-m', 'luma_fatal.ui']
+    const backendArgs = paths.packaged ? [] : ['-u', '-m', 'luma_fattal.ui']
     const toolPath = paths.packaged ? `${paths.tools}${path.delimiter}${process.env.PATH || ''}` : process.env.PATH
     this.stopping = false
     this.diagnostics = ''
@@ -47,7 +47,7 @@ class Backend {
       }
       this.child.once('error', error => {
         finish()
-        reject(new Error(`Could not start Python: ${error.message}\nRun uv sync --locked first, or set LUMA_FATAL_PYTHON to your Python executable.`))
+        reject(new Error(`Could not start Python: ${error.message}\nRun uv sync --locked first, or set LUMA_FATTAL_PYTHON to your Python executable.`))
       })
       this.child.once('exit', () => {
         finish()

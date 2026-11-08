@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fatal.probes import generate_probes
+from luma_fattal.probes import generate_probes
 
 
 def test_probe_manifest_is_complete_and_reproducible(tmp_path):

@@ -72,7 +72,7 @@ jobs:
 
       - name: Run test suite
         env:
-          LUMA_FATAL_REQUIRE_VIDEO_TESTS: "1"
+          LUMA_FATTAL_REQUIRE_VIDEO_TESTS: "1"
         run: uv run --locked python -m pytest -q
 
       - name: Check frozen image presets

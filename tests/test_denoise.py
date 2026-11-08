@@ -10,12 +10,12 @@ import pytest
 from scipy.ndimage import gaussian_filter
 from test_video import tools as tools
 
-from luma_fatal.configuration import Config, ProcessingConfig, VideoConfig
-from luma_fatal.core import apply_core
-from luma_fatal.denoise import SourceDenoise
-from luma_fatal.numerics import luminance_fractional, luminance_u8
-from luma_fatal.pipeline import process_frames
-from luma_fatal.prenoise import SourceNoise
+from luma_fattal.configuration import Config, ProcessingConfig, VideoConfig
+from luma_fattal.core import apply_core
+from luma_fattal.denoise import SourceDenoise
+from luma_fattal.numerics import luminance_fractional, luminance_u8
+from luma_fattal.pipeline import process_frames
+from luma_fattal.prenoise import SourceNoise
 
 
 def noisy_source(sigma=3, correlated=False):
@@ -221,7 +221,7 @@ def test_video_cli_denoise_override_matches_pixels_and_records_metadata(
 ):
     from test_video import run
 
-    from luma_fatal.cli import main
+    from luma_fattal.cli import main
 
     rgb, _ = noisy_source()
     # Lossless RGB storage keeps controlled noise without codec artifacts.

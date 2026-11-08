@@ -6,15 +6,15 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
     ProcessingConfig,
     apply_filter,
 )
-from luma_fatal.core import _recombine
-from luma_fatal.numerics import luminance_u8
+from luma_fattal.core import _recombine
+from luma_fattal.numerics import luminance_u8
 
 
 @pytest.mark.parametrize("value", [-1, 256, True, 1.5, "6", float("nan")])

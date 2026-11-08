@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
@@ -23,10 +23,10 @@ from luma_fatal import (
     apply_filter,
     process_frames,
 )
-from luma_fatal.cleanup import SourceCleanup
-from luma_fatal.cli import main
-from luma_fatal.denoise import SourceDenoise
-from luma_fatal.video import (
+from luma_fattal.cleanup import SourceCleanup
+from luma_fattal.cli import main
+from luma_fattal.denoise import SourceDenoise
+from luma_fattal.video import (
     VideoConfig,
     _decoded_frames,
     _prefetched_frames,
@@ -36,7 +36,7 @@ from luma_fatal.video import (
 
 @pytest.mark.parametrize("cq,preset", [(0, "p1"), (18, "p4"), (51, "p7")])
 def test_nvenc_uses_its_own_rate_control_and_preserves_output_contract(cq, preset):
-    from luma_fatal.video import _encode_command
+    from luma_fattal.video import _encode_command
 
     command = _encode_command(
         "ffmpeg",
@@ -66,7 +66,7 @@ def test_nvenc_uses_its_own_rate_control_and_preserves_output_contract(cq, prese
 
 
 def test_default_encoder_retains_x264_quality_controls():
-    from luma_fatal.video import _encode_command
+    from luma_fattal.video import _encode_command
 
     command = _encode_command(
         "ffmpeg",
@@ -110,7 +110,7 @@ def test_nvenc_configuration_round_trip(tmp_path, suffix):
 
 
 def test_cli_overrides_nvenc_configuration(tmp_path, monkeypatch, capsys):
-    import luma_fatal.cli as cli
+    import luma_fattal.cli as cli
 
     path = tmp_path / "nvenc.yaml"
     path.write_text(
@@ -173,7 +173,7 @@ def test_nvenc_preflight_failure_falls_back_to_cpu(
 ):
     from contextlib import contextmanager
 
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     source = make_clip(tmp_path / "source.mkv", tools)
     original = video._process
@@ -238,7 +238,7 @@ def test_nvenc_preflight_failure_falls_back_to_cpu(
 def test_cli_yaml_encoder_fallback_and_cpu_override(
     tmp_path, tools, monkeypatch, capsys, force_cpu
 ):
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     source = make_clip(tmp_path / "source.mkv", tools)
     preset = Path(__file__).resolve().parents[1] / "configs" / "fattal-1.yaml"
@@ -281,7 +281,7 @@ def test_cli_yaml_encoder_fallback_and_cpu_override(
 def test_cpu_encoding_failure_after_nvenc_fallback_publishes_no_output(
     tmp_path, tools, monkeypatch
 ):
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     source = make_clip(tmp_path / "source.mkv", tools)
     original = video._encode_command
@@ -311,13 +311,13 @@ def test_cpu_encoding_failure_after_nvenc_fallback_publishes_no_output(
 
 
 def test_nvenc_hardware_output_matches_cpu_filtering(tmp_path, tools):
-    from luma_fatal.video import _validate_nvenc
+    from luma_fattal.video import _validate_nvenc
 
     settings = VideoConfig(encoder="h264_nvenc", nvenc_cq=23, nvenc_preset="p2")
     try:
         _validate_nvenc(tools[0], 160, 128, Fraction(25), settings)
     except ValueError as error:
-        if os.environ.get("LUMA_FATAL_REQUIRE_NVENC_TESTS") == "1":
+        if os.environ.get("LUMA_FATTAL_REQUIRE_NVENC_TESTS") == "1":
             pytest.fail(str(error))
         pytest.skip(str(error))
     source = make_clip(
@@ -378,7 +378,7 @@ def test_gpu_filtering_fallback_preserves_source_treatments_and_records_selectio
 ):
     from dataclasses import replace
 
-    from luma_fatal import gpu
+    from luma_fattal import gpu
 
     attempts = []
 
@@ -425,7 +425,7 @@ def tools():
     paths = [shutil.which(name) for name in ("ffmpeg", "ffprobe")]
     if not all(paths):
         message = "Video integration tests require FFmpeg with zscale/deblock/deband/libx264 and ffprobe"
-        if os.environ.get("LUMA_FATAL_REQUIRE_VIDEO_TESTS") == "1":
+        if os.environ.get("LUMA_FATTAL_REQUIRE_VIDEO_TESTS") == "1":
             pytest.fail(message)
         pytest.skip(message)
     filters = run([paths[0], "-v", "error", "-filters"])
@@ -732,7 +732,7 @@ def test_stream_validation_and_pooled_io_preserve_reference_rgb(
     ],
 )
 def test_decode_audit_rejects_changing_or_ambiguous_frames(change, match):
-    from luma_fatal.video import _audit_decode_log
+    from luma_fattal.video import _audit_decode_log
 
     stream = dict(
         width=48,
@@ -1175,7 +1175,7 @@ def test_color_transfer_and_encoded_roundtrip_use_known_neutral_values(
     tools,
     monkeypatch,
 ):
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     source = make_clip(tmp_path / "gray.mkv", tools, width=48, height=36, neutral=True)
     observed = []
@@ -1248,7 +1248,7 @@ def test_missing_tool_is_actionable(tmp_path):
 
 
 def test_filter_failure_cleans_up_processes_and_outputs(tmp_path, tools, monkeypatch):
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     source = make_clip(tmp_path / "failure.mkv", tools)
 
@@ -1267,7 +1267,7 @@ def test_filter_failure_cleans_up_processes_and_outputs(tmp_path, tools, monkeyp
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows launcher and file-lock regression")
 def test_process_failure_stops_windows_launcher_children(tmp_path):
-    from luma_fatal.video import _process
+    from luma_fattal.video import _process
 
     locked = tmp_path / "child-output.mp4"
     child = (
@@ -1312,7 +1312,7 @@ def test_process_failure_stops_windows_launcher_children(tmp_path):
 def test_encoder_failure_reports_diagnostics_and_cleans_up(
     tmp_path, tools, monkeypatch
 ):
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     source = make_clip(tmp_path / "failure.mkv", tools)
     original = video._encode_command
@@ -1582,7 +1582,7 @@ def test_high_bit_depth_sdr_converts_before_filtering(
 def test_hdr_tone_mapping_produces_sdr_and_records_policy(
     tmp_path, tools, monkeypatch, transfer
 ):
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     source = make_clip(
         tmp_path / "hdr.mkv",
@@ -1654,7 +1654,7 @@ def test_untagged_rgb_assumes_srgb_and_preserves_values(
     deband,
     validation_mode,
 ):
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     values = np.array([[20, 80, 160], [200, 150, 60], [100, 100, 100]], np.uint8)
     frames = np.repeat(np.repeat(values[:, None, None, :], 36, axis=1), 48, axis=2)
@@ -1712,7 +1712,7 @@ def test_untagged_rgb_assumes_srgb_and_preserves_values(
     "height,profile", [(480, "smpte170m"), (576, "bt470bg"), (720, "bt709")]
 )
 def test_untagged_yuv_uses_documented_geometry_defaults(height, profile):
-    from luma_fatal.video import _resolve_color
+    from luma_fattal.video import _resolve_color
 
     # Resolve HD/SD assumptions without encoding large clips for each height.
     color, assumptions = _resolve_color(
@@ -1762,14 +1762,14 @@ def test_cli_color_overrides_replace_incorrect_tags(tmp_path, tools):
 def test_preparation_failure_reports_diagnostics_and_leaves_no_outputs(
     tmp_path, tools, monkeypatch
 ):
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     source = make_clip(tmp_path / "source.mkv", tools, vf="format=yuv444p10le")
     original = video._decode_command
 
     def fail(*args, **kwargs):
         command = original(*args, **kwargs)
-        command[command.index("-vf") + 1] += ",luma_fatal_missing_filter"
+        command[command.index("-vf") + 1] += ",luma_fattal_missing_filter"
         return command
 
     monkeypatch.setattr(video, "_decode_command", fail)
@@ -1894,7 +1894,7 @@ def test_preflight_still_rejects_ambiguous_or_changing_sources(
 ):
     from contextlib import contextmanager
 
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     stream = dict(
         index=0,

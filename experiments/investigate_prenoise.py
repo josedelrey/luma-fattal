@@ -9,7 +9,7 @@ import argparse
 import investigate_cleanup as study
 from prenoise import SourceNoise
 
-from luma_fatal.cleanup import SourceCleanup
+from luma_fattal.cleanup import SourceCleanup
 
 
 def main():

@@ -10,7 +10,7 @@ from numbers import Real
 import numpy as np
 from scipy.ndimage import gaussian_filter, map_coordinates
 
-from luma_fatal.cleanup import SourceCleanup
+from luma_fattal.cleanup import SourceCleanup
 
 
 def noise_field(shape, kind, seed):

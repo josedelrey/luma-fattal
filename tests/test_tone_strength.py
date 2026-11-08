@@ -9,16 +9,16 @@ import pytest
 from PIL import Image
 from test_video import tools as tools
 
-from luma_fatal import (
+from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
     ProcessingConfig,
     apply_filter,
 )
-from luma_fatal.cli import main
-from luma_fatal.core import _recombine
-from luma_fatal.pipeline import process_frames
+from luma_fattal.cli import main
+from luma_fattal.core import _recombine
+from luma_fattal.pipeline import process_frames
 
 
 @pytest.mark.parametrize(
@@ -208,8 +208,8 @@ def test_video_cli_tone_strength_works_with_noise_preset(tmp_path, tools, capsys
 
     from test_video import make_clip, reference_rgb
 
-    from luma_fatal.cleanup import SourceCleanup
-    from luma_fatal.prenoise import SourceNoise
+    from luma_fattal.cleanup import SourceCleanup
+    from luma_fattal.prenoise import SourceNoise
 
     preset = (
         Path(__file__).resolve().parents[1] / "configs/fattal-1-compressed-noise.yaml"

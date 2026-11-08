@@ -11,8 +11,8 @@ import pytest
 from test_video import inspect, run
 from test_video import tools as tools
 
-from luma_fatal import Config
-from luma_fatal.video import process_video
+from luma_fattal import Config
+from luma_fattal.video import process_video
 
 
 @pytest.mark.parametrize("runner_name", ["investigate_cleanup", "investigate_prenoise"])
@@ -25,7 +25,7 @@ def test_video_experiments_prepare_untagged_rgb_and_encode_without_gpu(
     runner_name,
     encoder,
 ):
-    import luma_fatal.video as video
+    import luma_fattal.video as video
 
     root = Path(__file__).resolve().parents[1]
     monkeypatch.syspath_prepend(str(root / "experiments"))

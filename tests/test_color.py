@@ -12,15 +12,15 @@ import numpy as np
 import pytest
 from PIL import Image, ImageCms
 
-from luma_fatal import Config, FilterParams, ImageConfig, apply_filter
-from luma_fatal.cli import main
-from luma_fatal.color import (
+from luma_fattal import Config, FilterParams, ImageConfig, apply_filter
+from luma_fattal.cli import main
+from luma_fattal.color import (
     MalformedProfileError,
     UnsupportedProfileError,
     cached_profile,
     parse_profile,
 )
-from luma_fatal.image_io import prepare_image
+from luma_fattal.image_io import prepare_image
 
 FIXTURES = Path(__file__).parent / "fixtures/color"
 GOLDENS = json.loads((FIXTURES / "goldens.json").read_text())
