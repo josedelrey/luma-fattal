@@ -27,7 +27,7 @@ See the [method notes](docs/method.md) for processing order and numerical choice
 
 For desktop downloads, see [GitHub Releases](https://github.com/josedelrey/luma-fattal/releases).
 The bundles include Python, Electron, FFmpeg and processing dependencies.
-Read the release notes for supported platforms and unsigned prerelease limitations.
+Read the release notes for supported platforms and unsigned build limitations.
 
 Running from source requires Git, Python 3.11 or later, and [uv](https://docs.astral.sh/uv/).
 CI covers Linux and Windows with Python 3.11 and 3.12.

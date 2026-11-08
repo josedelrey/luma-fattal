@@ -46,7 +46,7 @@ def main() -> None:
     shutil.copy2(ROOT / "LICENSE", resources / "LICENSE.txt")
     notice = (
         f"Luma Fattal {version} ({args.platform}, {args.arch})\n\n"
-        "This is an unsigned prerelease. macOS uses ad-hoc signatures only and is not notarized.\n"
+        "This build is unsigned. macOS uses ad-hoc signatures only and is not notarized.\n"
         "Python, Electron, FFmpeg, ffprobe and processing dependencies are included.\n"
         "NVIDIA acceleration requires a compatible GPU and installed driver. CPU fallback is available.\n"
         "Launch after installing the Linux .deb, extracting the archive or copying the macOS app from the DMG.\n"

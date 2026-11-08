@@ -210,7 +210,7 @@ sandboxing enabled, then uninstalls it. Publication waits for these checks.
 macOS requires version 14 or newer. The Linux baseline is Ubuntu 22.04
 with desktop GTK/NSS libraries. Intel Mac and Linux ARM builds are not included.
 
-The first desktop version is `0.1.0-beta.1`. These prerelease builds have no
+Desktop builds currently have no
 trusted publisher signature. macOS uses ad-hoc signatures and is not notarized.
 Production signing requires separately configured signing credentials.
 Release assets include exact FFmpeg and dependency source archives, their build
@@ -218,9 +218,10 @@ recipe and SHA-256 checksums. Only small source manifests and scripts are tracke
 in Git. Environments, downloaded sources and generated packages stay ignored.
 
 To publish, run the Desktop packages workflow with its `publish` input enabled.
-The publication job waits for CI and every platform to pass on the release commit, creates a draft prerelease,
+The publication job waits for CI and every platform to pass on the release commit, creates a draft release,
 uploads the packages, corresponding sources and checksums, then publishes it.
-A matching `v<desktop version>` tag also enables publication. The workflow never
+A matching `v<desktop version>` tag also enables publication. Versions with a
+prerelease suffix are marked as prereleases. Other versions are published as stable. The workflow never
 uploads failed builds to a public release. Release notes are maintained in
 `.github/desktop-release-notes.md`.
 The desktop window uses native Open dialogs for videos and YAML or JSON recipes.

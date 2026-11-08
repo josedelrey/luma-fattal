@@ -1,4 +1,4 @@
-Desktop prerelease of Luma Fattal. Python, Electron, FFmpeg, ffprobe,
+Desktop release of Luma Fattal. Python, Electron, FFmpeg, ffprobe,
 presets and processing dependencies are included. Python and Node.js do not
 need to be installed to run these downloads.
 
@@ -11,7 +11,7 @@ need to be installed to run these downloads.
 | `*-ffmpeg-sources.tar.gz` | Exact unmodified FFmpeg, x264, zimg, zlib and NVENC header sources with checksums and the build recipe. |
 | `SHA256SUMS.txt` | SHA-256 checksums for every release download. |
 
-These are unsigned test builds. The macOS app has only an ad-hoc signature and
+These builds are unsigned. The macOS app has only an ad-hoc signature and
 has not been notarized. Windows SmartScreen and macOS Gatekeeper may block or
 warn about these downloads. They are not represented as trusted signed builds.
 

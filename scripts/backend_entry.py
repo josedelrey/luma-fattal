@@ -28,8 +28,8 @@ def self_test() -> None:
 
 
 def gpu_test(use_device: bool) -> None:
-    import cupy as cp
-    from cupyx.scipy.ndimage import gaussian_filter
+    import cupy as cp  # pyright: ignore[reportMissingImports]
+    from cupyx.scipy.ndimage import gaussian_filter  # pyright: ignore[reportMissingImports]
 
     if use_device:
         sample = cp.arange(16, dtype=cp.float32).reshape(4, 4)

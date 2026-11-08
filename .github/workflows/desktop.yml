@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish an unsigned prerelease after all platform checks pass
+        description: Publish a release after all platform checks pass
         type: boolean
         default: false
   pull_request:
@@ -200,7 +200,7 @@ jobs:
         run: sudo apt-get remove --yes luma-fattal-desktop
 
   release:
-    name: Publish prerelease
+    name: Publish release
     needs: [build, linux-install, verification]
     if: (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
@@ -215,7 +215,7 @@ jobs:
           merge-multiple: true
       - name: Generate checksums
         run: python3 scripts/prepare_desktop_release.py --checksums outputs/desktop-release
-      - name: Publish verified prerelease
+      - name: Publish verified release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -225,6 +225,14 @@ jobs:
             echo 'The tag and desktop version must agree.' >&2
             exit 1
           fi
-          gh release create "v$version" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --prerelease --title "Luma Fattal $version" --notes-file .github/desktop-release-notes.md
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo 'The desktop version must be a valid release version.' >&2
+            exit 1
+          fi
+          release_flags=()
+          if [[ "${version%%+*}" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "v$version" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft "${release_flags[@]}" --title "Luma Fattal $version" --notes-file .github/desktop-release-notes.md
           gh release upload "v$version" outputs/desktop-release/* --repo "$GITHUB_REPOSITORY"
-          gh release edit "v$version" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          gh release edit "v$version" --repo "$GITHUB_REPOSITORY" --draft=false
