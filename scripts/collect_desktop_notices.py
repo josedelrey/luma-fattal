@@ -35,6 +35,9 @@ def collect(destination: Path) -> None:
         url = f"https://raw.githubusercontent.com/python/cpython/v{platform.python_version()}/LICENSE"
         with urllib.request.urlopen(url, timeout=30) as response:
             (destination / "PYTHON-LICENSE.txt").write_bytes(response.read())
+    url = f"https://docs.python.org/release/{platform.python_version()}/license.html"
+    with urllib.request.urlopen(url, timeout=30) as response:
+        (destination / "PYTHON-INCORPORATED-SOFTWARE-LICENSES.html").write_bytes(response.read())
     (destination / "python-environment.json").write_text(json.dumps(inventory, indent=2) + "\n")
 
 

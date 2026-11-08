@@ -153,6 +153,8 @@ jobs:
         shell: bash
         run: LUMA_FATTAL_SMOKE=1 "${{ matrix.executable }}"
       - name: Create downloadable archive
+        env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '5'
         run: npm --prefix desktop run package:release -- --${{ matrix.platform }} --${{ matrix.arch }} --prepackaged "../${{ matrix.unpacked }}"
       - name: Collect release downloads
         shell: bash
