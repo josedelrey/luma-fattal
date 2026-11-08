@@ -130,29 +130,37 @@ visible while expanded settings scroll beneath it. It opens at up to 1200 by
 900 pixels, constrained by the display work area. Resizing, maximizing, and
 fullscreen are disabled. Electron requests square outer corners.
 At its default size, the textured workbench fills the window and the preview,
-signal, and export panels fit without a page scrollbar. Opening More settings
-adds a classic gray scrollbar so the extra controls remain reachable.
+signal, and export panels fit without a page scrollbar. Video and Configuration
+share one row, with Filter preview and Clip / Signal aligned below them.
+Opening More settings adds a classic gray scrollbar so the extra controls
+remain reachable. The completed render panel appears beneath Filter preview
+when More settings is open.
 Closing the window exits Electron and stops its Python backend and child
 processes. Active processing is interrupted when the application exits.
 
 Build the Python backend with PyInstaller 6.22.3 installed in the project
-environment:
+environment. On Linux and Windows, install the CUDA extra to include GPU
+filtering in the desktop package:
 
 ```bash
-.venv/bin/python scripts/build_desktop_backend.py --ffmpeg-license /path/to/ffmpeg-license
+uv sync --locked --extra gpu
+.venv/bin/python scripts/build_desktop_backend.py --ffmpeg-license /path/to/ffmpeg-license --gpu
 ```
 
 The builder checks for FFmpeg with libx264 and zscale, then includes ffmpeg,
-ffprobe, UI assets, Python package metadata, and the supplied FFmpeg license.
+ffprobe, UI assets, Python package metadata, CUDA dependencies when requested,
+and the supplied FFmpeg license. On macOS, use `uv sync --locked` and omit
+`--gpu` from the build command.
 Output is in ignored `outputs/desktop-backend/`. Run the frozen executable with
 `--self-test` and `NUMBA_CACHE_DIR` set to a writable directory to check Numba
-compilation. Assemble the app after rebuilding the backend whenever the UI
+compilation. On a machine with an NVIDIA GPU, `--gpu-self-test` checks the
+frozen CUDA path. Assemble the app after rebuilding the backend whenever the UI
 changes:
 
 ```bash
 npm --prefix desktop ci
 npm --prefix desktop run package:dir -- --linux
-uv run --locked python scripts/smoke_desktop_backend.py outputs/desktop-app/linux-unpacked/resources
+uv run --locked --extra gpu python scripts/smoke_desktop_backend.py outputs/desktop-app/linux-unpacked/resources
 ```
 
 The assembled Linux prototype is in ignored `outputs/desktop-app/linux-unpacked/`.

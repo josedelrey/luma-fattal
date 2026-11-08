@@ -22,6 +22,7 @@ def main() -> None:
     parser.add_argument("--ffprobe", type=Path, default=shutil.which("ffprobe"))
     parser.add_argument("--ffmpeg-license", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=ROOT / "outputs/desktop-backend")
+    parser.add_argument("--gpu", action="store_true", help="Bundle optional CUDA filtering dependencies")
     args = parser.parse_args()
     if importlib.util.find_spec("PyInstaller") is None:
         parser.error("Install PyInstaller 6.22.3 into the project environment first")
@@ -50,9 +51,20 @@ def main() -> None:
         "--additional-hooks-dir", str(ROOT / "scripts/pyinstaller_hooks"),
         "--collect-all", "numba", "--collect-all", "llvmlite",
     ]
+    if args.gpu:
+        for module in ("cupy", "cupyx", "cupy_backends", "cuda.pathfinder",
+                       "nvidia.cuda_runtime", "nvidia.cuda_nvrtc"):
+            if importlib.util.find_spec(module) is None:
+                parser.error(f"The CUDA extra is missing {module}. Run uv sync --locked --extra gpu")
+            command += ["--collect-all", module]
+        for module in ("cupyx.scipy.ndimage", "graphlib"):
+            command += ["--hidden-import", module]
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
     for package in (project["project"]["name"], "numpy", "scipy", "Pillow", "numba", "llvmlite", "PyYAML", "tqdm"):
         command += ["--copy-metadata", package]
+    if args.gpu:
+        for package in ("cupy-cuda12x", "nvidia-cuda-runtime-cu12", "nvidia-cuda-nvrtc-cu12", "cuda-pathfinder"):
+            command += ["--copy-metadata", package]
     for file in ("index.html", "style.css", "app.js"):
         command += ["--add-data", f"{UI / file}{separator}luma_fatal/ui"]
     for file in (UI / "assets").glob("*.png"):
@@ -70,6 +82,8 @@ def main() -> None:
         env = {**os.environ, "NUMBA_CACHE_DIR": cache,
                "PATH": f"{bundled_tools}{os.pathsep}{os.environ.get('PATH', '')}"}
         subprocess.run([str(binary), "--self-test"], env=env, check=True, timeout=120)
+        if args.gpu:
+            subprocess.run([str(binary), "--gpu-import-test"], env=env, check=True, timeout=30)
         if not list(Path(cache).rglob("*.nbc")):
             raise RuntimeError("The frozen Numba function did not create a cache file")
     for tool in ("ffmpeg", "ffprobe"):

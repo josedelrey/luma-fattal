@@ -12,6 +12,7 @@ const player = $('player');
 const fileDialogs = window.desktopFiles;
 if (window.desktopWindow) {
   document.documentElement.classList.add('desktop');
+  document.querySelector('.video-column').append($('export-panel'));
   $('app-frame-controls').hidden = false;
   $('window-minimize').onclick = () => window.desktopWindow.minimize();
   $('window-close').onclick = () => window.desktopWindow.close();

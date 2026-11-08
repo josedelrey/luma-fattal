@@ -40,9 +40,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: linux, os: ubuntu-24.04, platform: linux, resources: 'outputs/desktop-app/linux-unpacked/resources', executable: 'outputs/desktop-app/linux-unpacked/luma-fattal-desktop', artifact: 'outputs/desktop-app/linux-unpacked' }
-          - { label: windows, os: windows-2025, platform: win, resources: 'outputs/desktop-app/win-unpacked/resources', executable: 'outputs/desktop-app/win-unpacked/Luma Fattal.exe', artifact: 'outputs/desktop-app/win-unpacked' }
-          - { label: macos, os: macos-15, platform: mac, resources: 'outputs/desktop-app/mac/Luma Fattal.app/Contents/Resources', executable: 'outputs/desktop-app/mac/Luma Fattal.app/Contents/MacOS/Luma Fattal', artifact: 'outputs/desktop-app/mac/Luma Fattal.app' }
+          - { label: linux, os: ubuntu-24.04, platform: linux, gpu: '--extra gpu', gpu_build: '--gpu', resources: 'outputs/desktop-app/linux-unpacked/resources', executable: 'outputs/desktop-app/linux-unpacked/luma-fattal-desktop', artifact: 'outputs/desktop-app/linux-unpacked' }
+          - { label: windows, os: windows-2025, platform: win, gpu: '--extra gpu', gpu_build: '--gpu', resources: 'outputs/desktop-app/win-unpacked/resources', executable: 'outputs/desktop-app/win-unpacked/Luma Fattal.exe', artifact: 'outputs/desktop-app/win-unpacked' }
+          - { label: macos, os: macos-15, platform: mac, gpu: '', gpu_build: '', resources: 'outputs/desktop-app/mac/Luma Fattal.app/Contents/Resources', executable: 'outputs/desktop-app/mac/Luma Fattal.app/Contents/MacOS/Luma Fattal', artifact: 'outputs/desktop-app/mac/Luma Fattal.app' }
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       LUMA_FATTAL_SMOKE_VIDEO: outputs/desktop-app/smoke.mp4
@@ -87,10 +87,10 @@ jobs:
           ffprobe -version
 
       - name: Install locked Python dependencies
-        run: uv sync --locked
+        run: uv sync --locked ${{ matrix.gpu }}
 
       - name: Build and verify frozen backend
-        run: uv run --locked python scripts/build_desktop_backend.py --ffmpeg-license outputs/ffmpeg-license.txt
+        run: uv run --locked ${{ matrix.gpu }} python scripts/build_desktop_backend.py --ffmpeg-license outputs/ffmpeg-license.txt ${{ matrix.gpu_build }}
 
       - name: Install Electron dependencies
         run: npm --prefix desktop ci
@@ -102,7 +102,7 @@ jobs:
         run: npm --prefix desktop run package:dir -- --${{ matrix.platform }}
 
       - name: Check packaged video pipeline
-        run: uv run --locked python scripts/smoke_desktop_backend.py "${{ matrix.resources }}" --save-video outputs/desktop-app/smoke.mp4
+        run: uv run --locked ${{ matrix.gpu }} python scripts/smoke_desktop_backend.py "${{ matrix.resources }}" --save-video outputs/desktop-app/smoke.mp4
 
       - name: Check packaged window on Linux
         if: runner.os == 'Linux'

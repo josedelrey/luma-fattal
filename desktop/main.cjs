@@ -49,6 +49,16 @@ async function openWindow() {
         titleTop: document.querySelector('.application-title').getBoundingClientRect().top,
         titleWidth: document.querySelector('.application-title').getBoundingClientRect().width
       };
+      exportPanel.hidden = false;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const expandedExportLayout = {
+        exportTop: exportPanel.getBoundingClientRect().top,
+        previewBottom: document.querySelector('.previews').getBoundingClientRect().bottom,
+        signalBottom: document.querySelector('.signal-lab').getBoundingClientRect().bottom,
+        exportBottom: exportPanel.getBoundingClientRect().bottom,
+        content: workbench.scrollHeight
+      };
+      exportPanel.hidden = true;
       workbench.scrollTop = 0;
       advanced.open = false;
       return ({
@@ -65,23 +75,36 @@ async function openWindow() {
       workbench: [document.querySelector('.workbench').offsetWidth, document.querySelector('.workbench').offsetHeight],
       previewOverflow: document.querySelector('.previews').scrollHeight - document.querySelector('.previews').clientHeight,
       signalOverflow: document.querySelector('.signal-lab').scrollHeight - document.querySelector('.signal-lab').clientHeight,
+      videoBottom: document.querySelector('.monitor').getBoundingClientRect().bottom,
+      controlsBottom: document.querySelector('.controls').getBoundingClientRect().bottom,
+      previewTop: document.querySelector('.previews').getBoundingClientRect().top,
+      signalTop: document.querySelector('.signal-lab').getBoundingClientRect().top,
+      previewPadding: document.querySelector('.previews').getBoundingClientRect().bottom - document.querySelector('.preview-note').getBoundingClientRect().bottom,
       previewBottom: document.querySelector('.previews').getBoundingClientRect().bottom,
       signalBottom: document.querySelector('.signal-lab').getBoundingClientRect().bottom,
       signalKeyBottom: document.querySelector('.signal-key').getBoundingClientRect().bottom,
       exportLayout,
-      expandedLayout
+      expandedLayout,
+      expandedExportLayout
       });
     })()`)
     if (!state.title.includes('Luma Fattal') || state.presets < 2 ||
         !state.logo || !state.video || !state.background || !state.frame ||
         !state.styles || !state.texture || state.content[1] > state.viewport[1] ||
         state.previewBottom > state.viewport[1] || state.signalKeyBottom > state.viewport[1] ||
+        Math.abs(state.videoBottom - state.controlsBottom) > 1 ||
+        Math.abs(state.previewTop - state.signalTop) > 1 ||
+        Math.abs(state.previewBottom - state.signalBottom) > 1 ||
+        state.previewPadding > 10 ||
         state.exportLayout.bottom > state.viewport[1] ||
         state.exportLayout.previewBottom > state.viewport[1] ||
         state.exportLayout.signalBottom > state.viewport[1] ||
+        Math.abs(state.exportLayout.previewBottom - state.exportLayout.signalBottom) > 1 ||
         state.expandedLayout.content <= state.expandedLayout.viewport ||
         state.expandedLayout.scrollbar !== 'auto' || !state.expandedLayout.scrolled ||
         state.expandedLayout.titleTop !== 0 ||
+        state.expandedExportLayout.exportTop < state.expandedExportLayout.previewBottom ||
+        state.expandedExportLayout.exportTop - state.expandedExportLayout.previewBottom > 20 ||
         Math.abs(state.expandedLayout.titleWidth - state.viewport[0]) > 1) {
       throw new Error(`Packaged window smoke failed: ${JSON.stringify(state)}`)
     }
@@ -94,6 +117,12 @@ async function openWindow() {
       const image = await window.webContents.capturePage()
       writeFileSync(process.env.LUMA_FATTAL_SMOKE_EXPANDED_SCREENSHOT, image.toPNG())
       await window.webContents.executeJavaScript("document.querySelector('.workbench').scrollTop = 0; document.querySelector('.controls details').open = false")
+    }
+    if (process.env.LUMA_FATTAL_SMOKE_EXPANDED_EXPORT_SCREENSHOT) {
+      await window.webContents.executeJavaScript("document.querySelector('.controls details').open = true; document.querySelector('#export-panel').hidden = false; document.querySelector('.workbench').scrollTop = document.querySelector('.workbench').scrollHeight")
+      const image = await window.webContents.capturePage()
+      writeFileSync(process.env.LUMA_FATTAL_SMOKE_EXPANDED_EXPORT_SCREENSHOT, image.toPNG())
+      await window.webContents.executeJavaScript("document.querySelector('#export-panel').hidden = true; document.querySelector('.workbench').scrollTop = 0; document.querySelector('.controls details').open = false")
     }
     if (process.env.LUMA_FATTAL_SMOKE_VIDEO) {
       const endpoint = new URL('/api/upload', url)

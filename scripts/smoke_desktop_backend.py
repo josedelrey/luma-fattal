@@ -20,6 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bundle", type=Path, help="Electron resources directory")
     parser.add_argument("--save-video", type=Path, help="Keep the processed smoke video for window playback checks")
+    parser.add_argument("--check-gpu", action="store_true", help="Require CUDA filtering on an NVIDIA GPU")
     args = parser.parse_args()
     resources = args.bundle.resolve()
     backend = resources / "backend/luma-fattal-backend"
@@ -37,7 +38,8 @@ def main() -> None:
         source = root / "source.mp4"
         subprocess.run([
             str(ffmpeg), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-            "-i", "testsrc2=size=64x48:rate=5:duration=1", "-an", "-c:v",
+            "-i", "testsrc2=size=960x540:rate=8:duration=4" if args.check_gpu else
+            "testsrc2=size=64x48:rate=5:duration=1", "-an", "-c:v",
             "libx264", "-pix_fmt", "yuv420p", "-y", str(source),
         ], env=env, check=True, timeout=30)
         process = subprocess.Popen([
@@ -68,10 +70,11 @@ def main() -> None:
             assert b".application-title" in request("/style.css")
             assert b"fileDialogs" in request("/app.js")
             uploaded = request("/api/upload", source.read_bytes())
-            assert uploaded["width"] == 64 and uploaded["height"] == 48
+            expected_size = (960, 540) if args.check_gpu else (64, 48)
+            assert (uploaded["width"], uploaded["height"]) == expected_size
             config = presets["fattal-1-fast"]
             config["video"]["encoder"] = "libx264"
-            for kind in ("preview", "process"):
+            for kind in (("process",) if args.check_gpu else ("preview", "process")):
                 job = request(f"/api/{kind}", json.dumps({"upload": uploaded["upload"], "config": config}).encode())["job"]
                 deadline = time.monotonic() + 180
                 while True:
@@ -91,6 +94,10 @@ def main() -> None:
                     video.write_bytes(request(state["url"]))
                     metadata = request(state["metadata"])
                     assert json.loads(metadata)["encoding"]["encoder"] == "libx264"
+                    if args.check_gpu:
+                        filtering = json.loads(metadata)["filtering"]
+                        print(f"Frozen filtering: {filtering}")
+                        assert filtering["backend"] == "cuda" and filtering["cuda_frames"] > 0
                     result = subprocess.run([str(ffprobe), "-v", "error", "-show_entries",
                         "stream=width,height", "-of", "json", str(video)],
                         capture_output=True, text=True, env=env, check=True, timeout=30)
