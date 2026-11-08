@@ -60,7 +60,7 @@ def test_workbench_preview_render_and_progress(tmp_path, tools):
             job = app.jobs[identifier]
             assert job["state"] == "done", job
             if kind == "preview":
-                assert job["completed"] == 5
+                assert job["completed"] == job["total"] == 10
                 for frame in job["frames"]:
                     with Image.open(
                         app.directory / frame["url"].removeprefix("/media/")
@@ -237,3 +237,92 @@ def test_processing_rate_and_eta_use_elapsed_job_time(tmp_path, monkeypatch):
         assert app.jobs["render"]["eta"] == 0.0
     finally:
         app.executor.shutdown()
+
+
+def test_preview_reduces_frame_before_processing(tmp_path, monkeypatch):
+    from luma_fattal.ui import server
+
+    calls = []
+    small = np.zeros((144, 256, 3), np.uint8)
+
+    def decode(source, config, timestamp, max_edge=None):
+        calls.append(max_edge)
+        return small
+
+    def process(frames, **kwargs):
+        frame = next(iter(frames))
+        assert frame.shape == (144, 256, 3)
+        yield frame
+
+    monkeypatch.setattr(server, "decoded_sample", decode)
+    monkeypatch.setattr(server, "process_frames", process)
+    assert preview_frame(tmp_path / "source.mp4", Config(), 1, max_edge=256).size == (
+        256,
+        144,
+    )
+    assert calls == [256]
+
+
+def test_preview_publishes_all_thumbnails_before_full_frames(tmp_path, monkeypatch):
+    import threading
+
+    from luma_fattal.ui import server
+
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["test"] = dict(path=tmp_path / "source.mp4", duration=10)
+    entered_full = threading.Event()
+    resume = threading.Event()
+    calls = []
+    monkeypatch.setattr(server, "_probe", lambda *_: {})
+    monkeypatch.setattr(server, "_geometry", lambda *_: ((1920, 1080), 0, 1))
+
+    def frame(source, config, timestamp, max_edge=None):
+        calls.append((timestamp, max_edge))
+        if max_edge is None:
+            entered_full.set()
+            assert resume.wait(10)
+        return Image.new("RGB", (256, 144) if max_edge else (1920, 1080))
+
+    monkeypatch.setattr(server, "preview_frame", frame)
+    try:
+        identifier = app.submit(
+            "preview", dict(upload="test", config=Config().to_dict())
+        )
+        assert entered_full.wait(10)
+        snapshot = app.jobs[identifier].copy()
+        assert snapshot["state"] == "running"
+        assert snapshot["completed"] == 5
+        assert [timestamp for timestamp, _ in calls[:5]] == sample_times(10)
+        assert all(edge == 256 for _, edge in calls[:5])
+        for item in snapshot["frames"]:
+            assert "full" not in item
+            assert item["width"] == 1920 and item["height"] == 1080
+            with Image.open(
+                app.directory / item["thumbnail"].removeprefix("/media/")
+            ) as image:
+                assert image.size == (256, 144)
+        resume.set()
+        app.executor.shutdown()
+        job = app.jobs[identifier]
+        assert job["state"] == "done"
+        assert job["completed"] == job["total"] == 10
+        assert all("full" not in item for item in snapshot["frames"])
+        for item in job["frames"]:
+            with Image.open(
+                app.directory / item["full"].removeprefix("/media/")
+            ) as image:
+                assert image.size == (1920, 1080)
+    finally:
+        resume.set()
+        app.executor.shutdown()
+
+
+@pytest.mark.parametrize("width,height", [(512, 288), (288, 512)])
+def test_fast_preview_bounds_decoded_resolution(tmp_path, tools, width, height):
+    from test_video import make_clip
+
+    source = make_clip(tmp_path / "source.mp4", tools, width=width, height=height)
+    image = preview_frame(
+        source, Config(parameters=FilterParams(fade=100)), 0, max_edge=256
+    )
+    assert image.size == (width // 2, height // 2)

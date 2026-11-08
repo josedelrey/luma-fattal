@@ -116,23 +116,74 @@ function buildControls() {
   $('filter').value = config.filter; $('encoder').value = config.video.encoder;
 }
 function loadConfig(value) { config = structuredClone(value); baseline = structuredClone(value); buildControls(); changed(); }
+let previewFrames = [], selectedFrame = null, previewError = false;
+function updateLightbox() {
+  if (selectedFrame === null) return;
+  const frame = previewFrames[selectedFrame];
+  if (!frame) return;
+  const image = $('large-frame'), loading = $('preview-loading');
+  const url = frame.full || frame.thumbnail;
+  image.width = frame.width || upload.width;
+  image.height = frame.height || upload.height;
+  image.style.setProperty('--sample-width', `${image.width}px`);
+  image.style.setProperty('--sample-ratio', image.width / image.height);
+  loading.textContent = previewError ? 'PREVIEW FAILED' : 'LOADING...';
+  loading.hidden = false;
+  image.style.visibility = url ? '' : 'hidden';
+  if (!url) { image.removeAttribute('src'); return; }
+  const source = secured(url);
+  const loaded = () => { loading.hidden = Boolean(frame.full) && !previewError; };
+  image.onload = loaded;
+  image.onerror = () => { loading.hidden = false; loading.textContent = 'PREVIEW FAILED'; };
+  if (image.getAttribute('src') !== source) image.src = source;
+  else if (image.complete && image.naturalWidth) loaded();
+}
+function updatePreviewFrames(job) {
+  if (!job.frames) return;
+  previewFrames = job.frames;
+  previewFrames.forEach((frame, index) => {
+    const button = $('frames').children[index];
+    const source = frame.full || frame.thumbnail;
+    let image = button.querySelector('img');
+    if (source) {
+      if (!image) { image = document.createElement('img'); image.alt = `Filtered frame at ${formatTime(frame.time)}`; button.prepend(image); }
+      if (image.getAttribute('src') !== secured(source)) image.src = secured(source);
+    }
+    button.querySelector('.frame-num').textContent = `${index + 1} / ${formatTime(frame.time)}`;
+    button.setAttribute('aria-label', `Enlarge filtered sample ${index + 1} at ${formatTime(frame.time)}`);
+  });
+  $('preview-state').textContent = job.phase === 'full' ? 'Refining full-resolution previews…' : 'Generating fast previews…';
+  if ($('lightbox').open) updateLightbox();
+}
 function placeholders() {
+  selectedFrame = null;
+  previewError = false;
+  previewFrames = Array.from({length: 5}, (_, index) => ({time: upload ? upload.duration * (index + .5) / 5 : 0}));
   $('frames').replaceChildren();
   for (let index = 0; index < 5; index++) {
-    const button = document.createElement('button'); button.className = 'frame'; button.disabled = true;
-    button.textContent = String(index + 1).padStart(2, '0'); button.setAttribute('aria-label', `Preview sample ${index + 1}, not generated yet`);
+    const button = document.createElement('button'); button.className = 'frame'; button.disabled = !upload;
+    const label = document.createElement('span'); label.className = 'frame-num'; label.textContent = String(index + 1).padStart(2, '0');
+    button.append(label); button.setAttribute('aria-label', `Enlarge preview sample ${index + 1}, loading`);
+    button.onclick = () => {
+      selectedFrame = index;
+      $('frame-title').textContent = `SAMPLE ${index + 1} / ${formatTime(previewFrames[index].time)}`;
+      updateLightbox();
+      if (!$('lightbox').open) $('lightbox').showModal();
+    };
     $('frames').append(button);
   }
 }
+
 function showVideo(processed) {
   if (processed && !resultUrl) return;
   player.pause(); player.src = secured(processed ? resultUrl : originalUrl);
   $('original-tab').classList.toggle('active', !processed); $('result-tab').classList.toggle('active', processed);
   $('original-tab').setAttribute('aria-pressed', !processed); $('result-tab').setAttribute('aria-pressed', processed);
 }
-async function poll(identifier) {
+async function poll(identifier, onUpdate) {
   while (true) {
     const job = await api(`/api/jobs/${identifier}`);
+    onUpdate?.(job);
     updateProcessing(job);
     const progress = $('progress');
     if (job.total) { progress.value = 100 * job.completed / job.total; }
@@ -140,13 +191,13 @@ async function poll(identifier) {
     status(`${job.kind === 'analyze' ? 'ANALYZING' : job.kind === 'preview' ? 'PREVIEW' : 'PROCESSING'} / ${job.completed}${job.total ? ` OF ${job.total}` : ''} FRAMES`);
     if (job.state === 'error') throw new Error(job.error);
     if (job.state === 'done') { progress.value = 100; return job; }
-    await new Promise(resolve => setTimeout(resolve, 600));
+    await new Promise(resolve => setTimeout(resolve, onUpdate ? 150 : 600));
   }
 }
-async function start(kind) {
+async function start(kind, onUpdate) {
   $('progress').style.visibility = '';
   const response = await api(`/api/${kind}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({upload: upload.upload, config})});
-  return poll(response.job);
+  return poll(response.job, onUpdate);
 }
 async function preview() {
   if (busy || !upload || previewRevision === revision) return;
@@ -154,20 +205,12 @@ async function preview() {
   status('PREPARING PREVIEW / first use may compile numerical kernels');
   try {
     const atRevision = revision;
-    const job = await start('preview');
-    $('frames').replaceChildren();
-    job.frames.forEach((frame, index) => {
-      const button = document.createElement('button'); button.className = 'frame'; button.setAttribute('aria-label', `Enlarge filtered sample ${index + 1} at ${formatTime(frame.time)}`);
-      const img = document.createElement('img'); img.src = secured(frame.url); img.alt = `Filtered frame at ${formatTime(frame.time)}`;
-      const label = document.createElement('span'); label.className = 'frame-num'; label.textContent = `${index + 1} / ${formatTime(frame.time)}`;
-      button.append(img, label);
-      button.onclick = () => { $('large-frame').src = img.src; $('frame-title').textContent = `SAMPLE ${index + 1} / ${formatTime(frame.time)}`; $('lightbox').showModal(); };
-      $('frames').append(button);
-    });
+    placeholders();
+    await start('preview', updatePreviewFrames);
     previewRevision = atRevision;
     $('preview-state').textContent = 'Current settings / five independent frames';
     status('Preview ready. Click a frame to enlarge.');
-  } catch (error) { status(error.message, true); $('preview-state').textContent = 'PREVIEW FAILED / adjust settings and retry'; }
+  } catch (error) { previewError = true; if ($('lightbox').open) updateLightbox(); status(error.message, true); $('preview-state').textContent = 'PREVIEW FAILED / adjust settings and retry'; }
   finally { setBusy(false); }
 }
 async function loadVideo(file, nextUpload) {
@@ -259,6 +302,7 @@ player.ontimeupdate = updateTime;
 function updateTime() { $('timecode').textContent = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`; $('seek').value = Number.isFinite(player.duration) ? player.currentTime / player.duration * 1000 : 0; }
 player.onplay = () => $('play').textContent = '❚❚'; player.onpause = () => $('play').textContent = '▶';
 player.onerror = () => status('This source codec cannot play in this browser. Preview and processing can still work through FFmpeg.', true);
+$('lightbox').addEventListener('close', () => { selectedFrame = null; });
 $('close-preview').onclick = () => $('lightbox').close();
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) $('lightbox').close(); };
 const previewDialog = $('lightbox'), previewImage = $('large-frame');

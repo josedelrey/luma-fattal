@@ -16,8 +16,11 @@ function createWorkbenchWindow(value, iconPath) {
   isolatedSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   isolatedSession.setPermissionCheckHandler(() => false)
 
+  const initialSize = windowSize(screen.getPrimaryDisplay())
+  const canvas = { width: referenceSize.width,
+    height: 34 + referenceSize.width * (initialSize.height - 34) / initialSize.width }
   const window = new BrowserWindow({
-    ...windowSize(screen.getPrimaryDisplay()),
+    ...initialSize,
     useContentSize: true,
     title: 'Luma Fattal',
     icon,
@@ -37,12 +40,11 @@ function createWorkbenchWindow(value, iconPath) {
       webSecurity: true,
       navigateOnDragDrop: false,
       preload: path.join(__dirname, 'preload.cjs'),
-      additionalArguments: [`--luma-fattal-layout=${JSON.stringify(referenceSize)}`],
+      additionalArguments: [`--luma-fattal-layout=${JSON.stringify(canvas)}`],
     },
   })
-  window.setAspectRatio(referenceSize.width / referenceSize.height)
   window.setMenu(null)
-  installDisplayScaling(window, screen)
+  installDisplayScaling(window, screen, initialSize)
   const handleControl = (event, action) => {
     if (event.sender !== window.webContents ||
         event.senderFrame !== window.webContents.mainFrame ||

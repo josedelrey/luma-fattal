@@ -88,9 +88,11 @@ def decoded_sample(
     return np.frombuffer(decoded.stdout, np.uint8).reshape(height, width, 3).copy()
 
 
-def preview_frame(source: Path, config: Config, timestamp: float) -> Image.Image:
+def preview_frame(
+    source: Path, config: Config, timestamp: float, max_edge: int | None = None
+) -> Image.Image:
     """Use the video color/geometry path and independently initialized treatment."""
-    frame = decoded_sample(source, config, timestamp)
+    frame = decoded_sample(source, config, timestamp, max_edge=max_edge)
     settings = config.video
     treatment = None
     if settings.flat_cleanup:
@@ -174,7 +176,7 @@ class Workbench:
             self.jobs[identifier] = dict(
                 state="running",
                 completed=0,
-                total=16 if kind == "analyze" else 5 if kind == "preview" else None,
+                total=16 if kind == "analyze" else 10 if kind == "preview" else None,
                 kind=kind,
             )
         self.executor.submit(self.run, identifier, kind, upload, config)
@@ -229,21 +231,38 @@ class Workbench:
                     )
                 self.update(identifier, state="done")
             elif kind == "preview":
-                frames = []
-                for index, timestamp in enumerate(sample_times(upload["duration"])):
-                    filename = f"frame-{index}.png"
-                    preview_frame(upload["path"], config, timestamp).save(
-                        folder / filename
-                    )
-                    frames.append(
-                        dict(url=f"/media/{identifier}/{filename}", time=timestamp)
-                    )
-                    self.update(identifier, completed=index + 1)
-                self.update(
-                    identifier,
-                    state="done",
-                    frames=frames,
-                )
+                dimensions, _, _ = _geometry(_probe(upload["path"], "ffprobe"))
+                frames = [
+                    dict(time=timestamp, width=dimensions[0], height=dimensions[1])
+                    for timestamp in sample_times(upload["duration"])
+                ]
+                self.update(identifier, total=10, frames=frames, phase="thumbnail")
+                for phase, max_edge in (("thumbnail", 256), ("full", None)):
+                    self.update(identifier, phase=phase)
+                    for index, frame in enumerate(frames):
+                        filename = f"{phase}-{index}.png"
+                        preview_frame(
+                            upload["path"], config, frame["time"], max_edge=max_edge
+                        ).save(folder / filename)
+                        url = f"/media/{identifier}/{filename}"
+                        # Publish snapshots only after the image is fully written.
+                        frames = [
+                            {
+                                **entry,
+                                phase: url,
+                                **({"url": url} if phase == "full" else {}),
+                            }
+                            if position == index
+                            else entry
+                            for position, entry in enumerate(frames)
+                        ]
+                        self.update(
+                            identifier,
+                            completed=index + 1 + (5 if phase == "full" else 0),
+                            phase=phase,
+                            frames=frames,
+                        )
+                self.update(identifier, state="done")
             else:
                 record = process_video(
                     upload["path"],

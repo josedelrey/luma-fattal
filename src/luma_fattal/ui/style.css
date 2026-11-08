@@ -613,11 +613,29 @@ dialog .titlebar button {
   padding: 0 7px;
 }
 dialog img {
+  width: min(var(--sample-width), calc(100vw - 2 * var(--preview-gap) - 2 * var(--preview-border)), calc(78vh * var(--sample-ratio)));
+  height: auto;
+  aspect-ratio: var(--sample-ratio);
   max-width: calc(100vw - 2 * var(--preview-gap) - 2 * var(--preview-border));
   max-height: 78vh;
   object-fit: contain;
   display: block;
 }
+.preview-image {
+  position: relative;
+  background: #000;
+}
+#preview-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  text-shadow: 1px 1px 3px #000;
+  font: bold 18px/24px 'Luma Sans',sans-serif;
+  pointer-events: none;
+}
+#preview-loading[hidden] { display: none; }
 dialog p {
   font-size: 10px;
   margin: 5px;
@@ -1017,6 +1035,7 @@ h1, h2, h3, strong, b { font-weight: normal; }
   transform: translate(-50%, -50%) scale(var(--desktop-scale, 1));
 }
 .desktop dialog img {
+  width: min(var(--sample-width), calc(var(--desktop-width) - 2 * var(--preview-gap) - 2 * var(--preview-border)), calc(var(--desktop-height) * .78 * var(--sample-ratio)));
   max-width: calc(var(--desktop-width) - 2 * var(--preview-gap) - 2 * var(--preview-border));
   max-height: calc(var(--desktop-height) * .78);
 }

@@ -142,17 +142,17 @@ test('preserves user size on display changes and fits smaller work areas', () =>
   display = { id: 2, bounds: { width: 1024, height: 768 },
     workArea: { x: -1024, y: -768, width: 1024, height: 768 }, scaleFactor: 2 }
   window.emit('move')
-  assert.deepEqual(window.getContentSize(), [1024, 768])
+  assert.deepEqual(window.getContentSize(), [1017, 768])
   assert.equal(zoom, 1)
-  assert.deepEqual(bounds, { x: -1024, y: -768, width: 1024, height: 768 })
+  assert.deepEqual(bounds, { x: -1017, y: -768, width: 1017, height: 768 })
 
   display.bounds.width = 1280
   screen.emit('display-metrics-changed', {}, display, ['bounds'])
-  assert.deepEqual(window.getContentSize(), [1024, 768])
+  assert.deepEqual(window.getContentSize(), [1017, 768])
 
   display.workArea.height = 300
   screen.emit('display-metrics-changed', {}, display, ['workArea', 'scaleFactor'])
-  assert.deepEqual(window.getContentSize(), [400, 300])
+  assert.deepEqual(window.getContentSize(), [368, 300])
   assert.equal(zoom, 1)
   zoom = 1.5
   window.webContents.emit('zoom-changed', {}, 'in')
@@ -161,12 +161,12 @@ test('preserves user size on display changes and fits smaller work areas', () =>
   window.webContents.emit('did-finish-load')
   assert.equal(zoom, 1)
 
-  window.setContentSize(720, 600)
+  window.setContentSize(720, 554)
   assert.equal(zoom, 1)
   display = { id: 1, bounds: { width: 2560, height: 1600 },
     workArea: { x: 0, y: 0, width: 2560, height: 1530 }, scaleFactor: 1 }
   screen.emit('display-removed')
-  assert.deepEqual(window.getContentSize(), [720, 600])
+  assert.deepEqual(window.getContentSize(), [720, 554])
   assert.equal(zoom, 1)
 
   window.emit('closed')
@@ -174,6 +174,32 @@ test('preserves user size on display changes and fits smaller work areas', () =>
   assert.equal(screen.listenerCount('display-removed'), 0)
   assert.equal(screen.listenerCount('display-added'), 0)
   assert.equal(window.listenerCount('move'), 0)
+})
+
+test('corrects wide and tall resizes to fill the window below the title', () => {
+  const screen = new EventEmitter()
+  screen.getDisplayMatching = () => ({ id: 1, bounds: { width: 3000, height: 2000 },
+    workArea: { x: 0, y: 0, width: 3000, height: 2000 }, scaleFactor: 1 })
+  const window = new EventEmitter()
+  let bounds = { x: 0, y: 0, width: 1200, height: 900 }
+  window.webContents = new EventEmitter()
+  window.webContents.setZoomFactor = () => {}
+  window.webContents.setZoomMode = () => {}
+  window.getBounds = () => ({ ...bounds })
+  window.getContentSize = () => [bounds.width, bounds.height]
+  window.setContentSize = (width, height) => {
+    bounds = { ...bounds, width, height }
+    window.emit('resize')
+  }
+  window.setPosition = () => {}
+  installDisplayScaling(window, screen)
+  window.setContentSize(1600, 900)
+  assert.deepEqual(window.getContentSize(), [1600, 1189])
+  window.setContentSize(1600, 600)
+  assert.deepEqual(window.getContentSize(), [784, 600])
+  window.setContentSize(900, 650)
+  assert.deepEqual(window.getContentSize(), [900, 684])
+  window.emit('closed')
 })
 
 test('resolves desktop resources separately from writable application data', () => {
