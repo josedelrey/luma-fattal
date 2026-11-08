@@ -38,6 +38,7 @@ def main() -> None:
     version = json.loads((ROOT / "desktop/package.json").read_text())["version"]
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     resources = args.resources.resolve()
+    resources.mkdir(parents=True, exist_ok=True)
     metadata = {"version": version, "revision": revision, "platform": args.platform,
                 "architecture": args.arch, "developer_signed": False, "notarized": False,
                 "cuda_included": args.platform != "macos"}
@@ -63,7 +64,6 @@ def main() -> None:
     )
     (resources / "README-DESKTOP.txt").write_text(notice)
     if args.platform == "linux":
-        shutil.copy2(resources / "README-DESKTOP.txt", resources.parent / "README-DESKTOP.txt")
         output = ROOT / "outputs/desktop-release"
         output.mkdir(exist_ok=True)
         with tarfile.open(output / f"Luma-Fattal-{version}-ffmpeg-sources.tar.gz", "w:gz") as bundle:

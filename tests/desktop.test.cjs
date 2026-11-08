@@ -56,15 +56,18 @@ test('fits the fixed desktop window on small displays', () => {
 })
 
 test('resolves desktop resources separately from writable application data', () => {
-  const source = runtimePaths('/checkout/desktop', '/bundle/resources', '/home/user/app-data', false)
-  const bundle = runtimePaths('/bundle/app.asar', '/bundle/resources', '/home/user/app-data', true)
-  assert.equal(source.presets, path.join('/checkout', 'configs'))
-  assert.equal(source.icon, path.join('/checkout/desktop', 'icons', 'app-icon.png'))
-  assert.equal(bundle.presets, path.join('/bundle/resources', 'configs'))
-  assert.equal(bundle.icon, path.join('/bundle/resources', 'assets', 'app-icon.png'))
+  const checkout = path.resolve('checkout')
+  const resources = path.resolve('bundle', 'resources')
+  const userData = path.resolve('user-data')
+  const source = runtimePaths(path.join(checkout, 'desktop'), resources, userData, false)
+  const bundle = runtimePaths(path.resolve('bundle', 'app.asar'), resources, userData, true)
+  assert.equal(source.presets, path.join(checkout, 'configs'))
+  assert.equal(source.icon, path.join(checkout, 'desktop', 'icons', 'app-icon.png'))
+  assert.equal(bundle.presets, path.join(resources, 'configs'))
+  assert.equal(bundle.icon, path.join(resources, 'assets', 'app-icon.png'))
   for (const paths of [source, bundle]) {
     for (const name of ['sessions', 'logs', 'cache']) {
-      assert.equal(paths[name], path.join('/home/user/app-data', name))
+      assert.equal(paths[name], path.join(userData, name))
     }
   }
 })

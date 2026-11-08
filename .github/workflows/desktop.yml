@@ -77,7 +77,7 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - name: Restore verified FFmpeg build
         id: ffmpeg
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             outputs/ffmpeg/prefix
@@ -108,6 +108,23 @@ jobs:
         if: runner.os == 'Windows' && steps.ffmpeg.outputs.cache-hit != 'true'
         shell: msys2 {0}
         run: bash scripts/build_desktop_ffmpeg.sh
+      - name: Collect Windows runtime notices
+        if: runner.os == 'Windows' && steps.ffmpeg.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          mkdir -p outputs/ffmpeg/provenance/toolchain
+          for notice_dir in /mingw64/share/licenses/gcc* /mingw64/share/licenses/mingw-w64* /mingw64/share/licenses/crt*; do
+            if [[ -d "$notice_dir" ]]; then cp -R "$notice_dir" outputs/ffmpeg/provenance/toolchain/; fi
+          done
+      - name: Cache verified FFmpeg build
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            outputs/ffmpeg/prefix
+            outputs/ffmpeg/downloads
+            outputs/ffmpeg/provenance
+          key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
       - name: Build and verify frozen backend
         run: >-
           uv run --locked ${{ matrix.gpu }} python scripts/build_desktop_backend.py
@@ -119,8 +136,13 @@ jobs:
         run: npm --prefix desktop ci
       - name: Check desktop logic
         run: npm --prefix desktop test
+      - name: Add version information and corresponding sources
+        run: uv run --locked ${{ matrix.gpu }} python scripts/prepare_desktop_release.py --resources outputs/desktop-release-metadata --platform ${{ matrix.label }} --arch ${{ matrix.arch }}
       - name: Assemble desktop app
         run: npm --prefix desktop run package:dir -- --${{ matrix.platform }} --${{ matrix.arch }}
+      - name: Verify macOS ad-hoc signatures
+        if: runner.os == 'macOS'
+        run: codesign --verify --deep --strict "${{ matrix.unpacked }}"
       - name: Check packaged video pipeline
         run: uv run --locked ${{ matrix.gpu }} python scripts/smoke_desktop_backend.py "${{ matrix.resources }}" --save-video outputs/desktop-app/smoke.mp4
       - name: Check packaged window on Linux
@@ -130,8 +152,6 @@ jobs:
         if: runner.os != 'Linux'
         shell: bash
         run: LUMA_FATTAL_SMOKE=1 "${{ matrix.executable }}"
-      - name: Add version information and corresponding sources
-        run: uv run --locked ${{ matrix.gpu }} python scripts/prepare_desktop_release.py --resources "${{ matrix.resources }}" --platform ${{ matrix.label }} --arch ${{ matrix.arch }}
       - name: Create downloadable archive
         run: npm --prefix desktop run package:release -- --${{ matrix.platform }} --${{ matrix.arch }} --prepackaged "../${{ matrix.unpacked }}"
       - name: Collect release downloads
@@ -152,7 +172,7 @@ jobs:
     name: Publish prerelease
     needs: build
     if: (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:

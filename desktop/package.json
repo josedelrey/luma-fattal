@@ -33,6 +33,10 @@
     ],
     "extraResources": [
       {
+        "from": "../outputs/desktop-release-metadata",
+        "to": "."
+      },
+      {
         "from": "../configs",
         "to": "configs"
       },
