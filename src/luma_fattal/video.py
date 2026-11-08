@@ -236,7 +236,9 @@ def _geometry(stream):
     for data in stream.get("side_data_list", []):
         if data.get("side_data_type") == "Display Matrix":
             rotation = data.get("rotation", 0)
-            # Perspective, skew and reflection need more than a rotation angle.
+            # Translation only positions the rotated frame on a display canvas.
+            # Normalize that origin when exporting the full frame. Perspective,
+            # scaling, skew and reflection still need more than a rotation angle.
             rows = data.get("displaymatrix", "").strip().splitlines()
             if rows:
                 matrix = [int(v) for row in rows for v in row.split(":", 1)[1].split()]
@@ -251,8 +253,6 @@ def _geometry(stream):
                     or (matrix[0], matrix[1], matrix[3], matrix[4]) not in rotations
                     or matrix[2]
                     or matrix[5]
-                    or matrix[6]
-                    or matrix[7]
                     or matrix[8] != 1073741824
                 ):
                     raise ValueError(

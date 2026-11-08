@@ -25,12 +25,18 @@ if (window.desktopWindow) {
   const {width, height} = window.desktopWindow.referenceSize;
   document.documentElement.style.setProperty('--desktop-width', `${width}px`);
   document.documentElement.style.setProperty('--desktop-height', `${height}px`);
-  const fitCanvas = () => document.documentElement.style.setProperty('--desktop-scale',
-    Math.min(innerWidth / width, innerHeight / height));
+  const fitCanvas = () => {
+    const scale = Math.min(innerWidth / width, Math.max(0, innerHeight - 34) / (height - 34));
+    const left = (innerWidth - width * scale) / 2;
+    document.documentElement.style.setProperty('--desktop-scale', scale);
+    document.documentElement.style.setProperty('--desktop-left', `${left}px`);
+    document.documentElement.style.setProperty('--desktop-export-top', `${34 + 19 * scale}px`);
+    document.documentElement.style.setProperty('--desktop-export-right', `${innerWidth - left - (width - 19) * scale}px`);
+  };
   window.addEventListener('resize', fitCanvas);
   fitCanvas();
   document.documentElement.classList.add('desktop');
-  document.querySelector('.video-column').append($('export-panel'));
+  document.body.append($('export-panel'));
   $('app-frame-controls').hidden = false;
   $('window-minimize').onclick = () => window.desktopWindow.minimize();
   $('window-close').onclick = () => window.desktopWindow.close();
@@ -70,6 +76,17 @@ function setBusy(value) {
   for (const id of ['process', 'refresh']) $(id).disabled = value || !upload;
   for (const id of ['open-video', 'screen-load', 'presets', 'import-preset', 'filter', 'reset', 'encoder']) $(id).disabled = value;
   document.querySelectorAll('.slider input').forEach(element => element.disabled = value);
+}
+function setProcessing(value) {
+  document.querySelector('.process-slot').classList.toggle('is-processing', value);
+  $('process-metrics').hidden = !value;
+  if (value) { $('process-speed').textContent = 'Preparing…'; $('process-eta').textContent = 'ETA —'; }
+}
+function updateProcessing(job) {
+  if (job.kind !== 'process' || job.state !== 'running') return;
+  $('process-speed').textContent = Number.isFinite(job.fps) && job.fps > 0 ? `${job.fps.toFixed(2)} frames/s` : 'Preparing…';
+  $('process-eta').textContent = job.total && job.completed >= job.total ? 'Finalizing…' :
+    Number.isFinite(job.eta) ? `ETA ${formatTime(Math.ceil(job.eta))}` : 'ETA —';
 }
 function changed() {
   revision++;
@@ -116,6 +133,7 @@ function showVideo(processed) {
 async function poll(identifier) {
   while (true) {
     const job = await api(`/api/jobs/${identifier}`);
+    updateProcessing(job);
     const progress = $('progress');
     if (job.total) { progress.value = 100 * job.completed / job.total; }
     else progress.removeAttribute('value');
@@ -126,6 +144,7 @@ async function poll(identifier) {
   }
 }
 async function start(kind) {
+  $('progress').style.visibility = '';
   const response = await api(`/api/${kind}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({upload: upload.upload, config})});
   return poll(response.job);
 }
@@ -152,7 +171,7 @@ async function preview() {
   finally { setBusy(false); }
 }
 async function loadVideo(file, nextUpload) {
-  clearTimeout(timer); setBusy(true); status('COPYING SOURCE TO LOCAL SESSION…'); $('progress').removeAttribute('value');
+  clearTimeout(timer); setBusy(true); status('COPYING SOURCE TO LOCAL SESSION…'); $('progress').style.visibility = ''; $('progress').removeAttribute('value');
   try {
     nextUpload ??= await api('/api/upload', {method: 'POST', body: file});
     upload = nextUpload; originalUrl = upload.url; resultUrl = undefined;
@@ -199,17 +218,18 @@ $('preset-file').onchange = async event => {
 $('refresh').onclick = () => { previewRevision = -1; preview(); };
 $('process').onclick = async () => {
   if (busy || !upload) return;
-  clearTimeout(timer); setBusy(true); status('VALIDATING SOURCE / preparing encoder and filter');
+  clearTimeout(timer); setBusy(true); setProcessing(true); $('export-panel').hidden = true; status('VALIDATING SOURCE / preparing encoder and filter');
   const snapshot = structuredClone(config);
   try {
     const job = await start('process'); resultUrl = job.url; resultConfig = snapshot;
     $('result-tab').disabled = false; $('export-panel').hidden = false;
     $('save-video').href = secured(job.url); $('save-meta').href = secured(job.metadata);
     $('export-info').textContent = `RENDER COMPLETE / ${job.encoder} / SILENT MP4`;
-    showVideo(true); status('Processing complete. Play or save the video.');
+    showVideo(true); $('progress').style.visibility = 'hidden'; status('Processing complete. Play or save the video.');
   } catch (error) { status(error.message, true); }
-  finally { setBusy(false); }
+  finally { setProcessing(false); setBusy(false); }
 };
+$('close-export').onclick = () => { $('export-panel').hidden = true; };
 $('save-config').onclick = async () => {
   if (fileDialogs) {
     try { await fileDialogs.save('config', null, JSON.stringify(resultConfig, null, 2)); }

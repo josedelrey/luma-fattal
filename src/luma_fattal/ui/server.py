@@ -10,6 +10,7 @@ import secrets
 import shutil
 import subprocess
 import threading
+import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
@@ -153,6 +154,7 @@ class Workbench:
         if not self.presets:
             self.presets = {"default": Config().to_dict()}
         self.jobs: dict[str, dict] = {}
+        self.job_started: dict[str, float] = {}
         self.uploads: dict[str, dict] = {}
         self.lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=1)
@@ -168,6 +170,7 @@ class Workbench:
                 raise ValueError("Another operation is still running")
             self.busy = True
             identifier = uuid4().hex
+            self.job_started[identifier] = time.monotonic()
             self.jobs[identifier] = dict(
                 state="running",
                 completed=0,
@@ -179,7 +182,25 @@ class Workbench:
 
     def update(self, identifier: str, **values):
         with self.lock:
-            self.jobs[identifier].update(values)
+            job = self.jobs[identifier]
+            job.update(values)
+            if job["kind"] == "process":
+                elapsed = max(0.0, time.monotonic() - self.job_started[identifier])
+                fps = (
+                    job["completed"] / elapsed
+                    if elapsed > 0 and job["completed"]
+                    else None
+                )
+                remaining = (
+                    max(0, job["total"] - job["completed"])
+                    if job["total"] is not None
+                    else None
+                )
+                job.update(
+                    elapsed=elapsed,
+                    fps=fps,
+                    eta=remaining / fps if fps and remaining is not None else None,
+                )
 
     def run(self, identifier: str, kind: str, upload: dict, config: Config):
         folder = self.directory / identifier

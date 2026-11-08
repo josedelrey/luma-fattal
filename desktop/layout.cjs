@@ -1,7 +1,5 @@
 'use strict'
 
-const { windowSize } = require('./config.cjs')
-
 function installDisplayScaling(window, screen) {
   const contents = window.webContents
   let displayKey
@@ -19,8 +17,9 @@ function installDisplayScaling(window, screen) {
     displayKey = key
     fitting = true
     try {
-      const size = windowSize(display)
-      window.setContentSize(size.width, size.height)
+      const [width, height] = window.getContentSize()
+      const fit = Math.min(1, area.width / width, area.height / height)
+      if (fit < 1) window.setContentSize(Math.floor(width * fit), Math.floor(height * fit))
       const bounds = window.getBounds()
       const x = Math.max(area.x, Math.min(bounds.x, area.x + area.width - bounds.width))
       const y = Math.max(area.y, Math.min(bounds.y, area.y + area.height - bounds.height))

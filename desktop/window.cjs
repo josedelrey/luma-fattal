@@ -24,7 +24,7 @@ function createWorkbenchWindow(value, iconPath) {
     backgroundColor: '#030000',
     frame: false,
     roundedCorners: false,
-    resizable: false,
+    resizable: true,
     maximizable: false,
     fullscreenable: false,
     center: true,
@@ -40,6 +40,7 @@ function createWorkbenchWindow(value, iconPath) {
       additionalArguments: [`--luma-fattal-layout=${JSON.stringify(referenceSize)}`],
     },
   })
+  window.setAspectRatio(referenceSize.width / referenceSize.height)
   window.setMenu(null)
   installDisplayScaling(window, screen)
   const handleControl = (event, action) => {

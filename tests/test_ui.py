@@ -217,3 +217,23 @@ def test_clip_analysis_is_bounded_and_uses_real_source_samples(tmp_path, tools):
         json.dumps(analysis, allow_nan=False)
     finally:
         app.executor.shutdown()
+
+
+def test_processing_rate_and_eta_use_elapsed_job_time(tmp_path, monkeypatch):
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    try:
+        app.jobs["render"] = dict(kind="process", completed=0, total=None)
+        app.job_started["render"] = 100.0
+        monkeypatch.setattr("luma_fattal.ui.server.time.monotonic", lambda: 100.0)
+        app.update("render", completed=0)
+        assert app.jobs["render"]["fps"] is None
+        assert app.jobs["render"]["eta"] is None
+        monkeypatch.setattr("luma_fattal.ui.server.time.monotonic", lambda: 110.0)
+        app.update("render", completed=250, total=1000)
+        assert app.jobs["render"]["fps"] == 25.0
+        assert app.jobs["render"]["eta"] == 30.0
+        monkeypatch.setattr("luma_fattal.ui.server.time.monotonic", lambda: 140.0)
+        app.update("render", completed=1000)
+        assert app.jobs["render"]["eta"] == 0.0
+    finally:
+        app.executor.shutdown()

@@ -19,10 +19,14 @@
   </script>
 </head>
 <body>
-  <div class="workbench">
     <div class="application-title"><span class="title-brand"><img id="title-logo" alt=""><span>Luma Fattal</span></span><div id="app-frame-controls" hidden><button id="window-minimize" type="button" aria-label="Minimize window">−</button><button id="window-close" type="button" aria-label="Close window">×</button></div></div>
+  <div class="workbench">
     <header class="masthead">
       <div class="logo"><h1><img id="logo-image" alt="Luma Fattal"></h1></div>
+      <section id="export-panel" class="export panel" hidden>
+        <div class="titlebar"><h2><svg class="export-warning" viewBox="0 0 20 18" aria-hidden="true"><path d="M10 1 19 17H1Z" fill="#ffdf00" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/><path d="M10 6v5" stroke="#000" stroke-width="2"/><circle cx="10" cy="14" r="1"/></svg>Processed video</h2><button id="close-export" type="button" aria-label="Dismiss processed video actions">×</button></div>
+        <div class="export-body"><span id="export-info">Video ready.</span><a id="save-video" class="button" download="luma-fattal.mp4">Save video</a><a id="save-meta" download="luma-fattal.meta.json">Run record</a><button id="save-config">Save config</button></div>
+      </section>
     </header>
     <main>
       <div class="video-column">
@@ -51,9 +55,11 @@
           <div class="preset-row"><select id="presets" aria-label="Bundled preset"></select><button id="import-preset" title="Open a standalone YAML or JSON config">Open…</button><input id="preset-file" type="file" accept=".yaml,.yml,.json" hidden></div>
           <div class="filter-row"><label for="filter">Filter:</label><select id="filter"><option value="fattal1">FATTAL 1</option><option value="fattal2">FATTAL 2</option></select><button id="reset" title="Restore the selected recipe">Reset</button></div>
           <div id="parameters"></div>
-          <details><summary><span>More settings</span></summary><div id="advanced"></div><label class="select-row"><span>Encoder</span><select id="encoder"><option value="libx264">CPU / H.264</option><option value="h264_nvenc">NVIDIA / auto fallback</option></select></label><p class="fineprint"><span>Recipe resolution and advanced settings are preserved. Export is silent H.264 MP4.</span></p></details>
-          <button id="process" class="process" disabled>Process video <span>▶▶</span></button>
+          <details><summary><span>More settings</span></summary><div id="advanced"></div><label class="select-row"><span>Encoder</span><select id="encoder"><option value="libx264">CPU / H.264</option><option value="h264_nvenc">NVIDIA / auto fallback</option></select></label></details>
+          <div class="process-footer">
+          <div class="process-slot"><button id="process" class="process" disabled>Process video <span>▶▶</span></button><div id="process-metrics" class="process-metrics" role="status" aria-live="polite" hidden><span id="process-speed">Preparing…</span><span id="process-eta">ETA —</span></div></div>
           <div class="job-status"><span id="status" role="status" aria-live="polite">READY. LOAD YOUR SOURCE.</span><progress id="progress" max="100" value="0"></progress></div>
+          </div>
         </div>
       </aside>
       <section class="signal-lab" aria-labelledby="signal-title">
@@ -63,10 +69,7 @@
         <div id="signal-readings" class="signal-readings" aria-live="polite">64×64 SPATIAL FREQUENCY<br>LOAD VIDEO TO ACQUIRE FRAME</div>
       </section>
       </div>
-      <section id="export-panel" class="export panel" hidden>
-        <div class="titlebar"><h2>Processed video</h2><span>render complete</span></div>
-        <div class="export-body"><span id="export-info">Video ready.</span><a id="save-video" class="button" download="luma-fattal.mp4">Save video</a><a id="save-meta" download="luma-fattal.meta.json">Run record</a><button id="save-config">Save config</button></div>
-      </section>
+
     </main>
   </div>
   <dialog id="lightbox"><div class="titlebar"><h2 id="frame-title">FILTER PREVIEW</h2><button id="close-preview" aria-label="Close enlarged preview">×</button></div><img id="large-frame" alt="Enlarged filtered video frame"><p>FULL SIZE SAMPLE / ESC TO CLOSE</p></dialog>

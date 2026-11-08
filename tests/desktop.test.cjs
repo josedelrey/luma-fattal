@@ -61,22 +61,22 @@ test('matches the display long side without changing the window aspect ratio', (
     assert.ok(size.width > 0 && size.height > 0)
     assert.ok(Math.abs(size.width - size.height * 4 / 3) < 2)
     const longSide = Math.max(area.width, area.height)
-    const expectedWidth = longSide * 0.46875
+    const expectedWidth = longSide * 0.5390625
     if (area.width >= expectedWidth && area.height >= expectedWidth * 3 / 4) {
-      assert.ok(Math.abs(size.width / longSide - 0.46875) <= 1 / longSide)
+      assert.ok(Math.abs(size.width / longSide - 0.5390625) <= 1 / longSide)
     } else {
       assert.ok(area.width - size.width < 2 || area.height - size.height < 2)
     }
   }
 })
 
-test('keeps the laptop reference size and scales up on larger displays', () => {
+test('enlarges the laptop window by fifteen percent and scales with larger displays', () => {
   assert.deepEqual(windowSize({
     bounds: { width: 2560, height: 1600 }, workArea: { width: 2560, height: 1530 },
-  }), { width: 1200, height: 900 })
+  }), { width: 1380, height: 1035 })
   assert.deepEqual(windowSize({
     bounds: { width: 3840, height: 2160 }, workArea: { width: 3840, height: 2080 },
-  }), { width: 1800, height: 1350 })
+  }), { width: 2070, height: 1552 })
 })
 
 test('preserves physical long-side coverage across OS scale factors', () => {
@@ -87,8 +87,8 @@ test('preserves physical long-side coverage across OS scale factors', () => {
       scaleFactor,
     }
     const size = windowSize(display)
-    assert.ok(Math.abs(size.width * scaleFactor / 3840 - 0.46875) <= scaleFactor / 3840)
-    assert.ok(Math.abs(size.height * scaleFactor - 1350) < scaleFactor)
+    assert.ok(Math.abs(size.width * scaleFactor - 2070) <= scaleFactor + 1e-9)
+    assert.ok(Math.abs(size.height * scaleFactor - 1552.5) < scaleFactor)
   }
 })
 
@@ -106,14 +106,14 @@ test('keeps the window size when rotating a display or changing its taskbar', ()
   const ultrawide = windowSize({
     bounds: { width: 3440, height: 1440 }, workArea: { width: 3440, height: 1400 },
   })
-  assert.deepEqual(ultrawide, { width: 1612, height: 1209 })
+  assert.deepEqual(ultrawide, { width: 1854, height: 1390 })
   const narrow = windowSize({
     bounds: { width: 1080, height: 3840 }, workArea: { width: 1080, height: 3800 },
   })
   assert.deepEqual(narrow, { width: 1080, height: 810 })
 })
 
-test('fits display changes and keeps page zoom neutral for canvas scaling', () => {
+test('preserves user size on display changes and fits smaller work areas', () => {
   const screen = new EventEmitter()
   let display = { id: 1, bounds: { width: 1920, height: 1080 },
     workArea: { x: 0, y: 0, width: 1920, height: 1040 }, scaleFactor: 1 }
@@ -137,18 +137,18 @@ test('fits display changes and keeps page zoom neutral for canvas scaling', () =
   installDisplayScaling(window, screen)
   assert.equal(zoom, 1)
   assert.equal(zoomMode, 'isolated')
-  assert.deepEqual(window.getContentSize(), [900, 675])
+  assert.deepEqual(window.getContentSize(), [1200, 900])
 
   display = { id: 2, bounds: { width: 1024, height: 768 },
     workArea: { x: -1024, y: -768, width: 1024, height: 768 }, scaleFactor: 2 }
   window.emit('move')
-  assert.deepEqual(window.getContentSize(), [480, 360])
+  assert.deepEqual(window.getContentSize(), [1024, 768])
   assert.equal(zoom, 1)
-  assert.deepEqual(bounds, { x: -480, y: -360, width: 480, height: 360 })
+  assert.deepEqual(bounds, { x: -1024, y: -768, width: 1024, height: 768 })
 
   display.bounds.width = 1280
   screen.emit('display-metrics-changed', {}, display, ['bounds'])
-  assert.deepEqual(window.getContentSize(), [600, 450])
+  assert.deepEqual(window.getContentSize(), [1024, 768])
 
   display.workArea.height = 300
   screen.emit('display-metrics-changed', {}, display, ['workArea', 'scaleFactor'])
@@ -166,7 +166,7 @@ test('fits display changes and keeps page zoom neutral for canvas scaling', () =
   display = { id: 1, bounds: { width: 2560, height: 1600 },
     workArea: { x: 0, y: 0, width: 2560, height: 1530 }, scaleFactor: 1 }
   screen.emit('display-removed')
-  assert.deepEqual(window.getContentSize(), [1200, 900])
+  assert.deepEqual(window.getContentSize(), [720, 600])
   assert.equal(zoom, 1)
 
   window.emit('closed')

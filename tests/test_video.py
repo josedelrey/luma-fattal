@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 from dataclasses import replace
@@ -29,6 +30,7 @@ from luma_fattal.denoise import SourceDenoise
 from luma_fattal.video import (
     VideoConfig,
     _decoded_frames,
+    _geometry,
     _prefetched_frames,
     process_video,
 )
@@ -1448,8 +1450,9 @@ def test_cli_frame_rate_overrides_config(tmp_path, tools, frame_rate, count):
     ] == [i / Fraction(frame_rate) for i in range(count)]
 
 
-@pytest.mark.parametrize("rotation", [90, 180, 270])
-def test_rotation_matches_array_rotation(tmp_path, tools, rotation):
+@pytest.mark.parametrize("translated", [False, True])
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_rotation_matches_array_rotation(tmp_path, tools, rotation, translated):
     original = make_clip(tmp_path / "source.mkv", tools)
     source = tmp_path / "rotated.mp4"
     run(
@@ -1457,8 +1460,6 @@ def test_rotation_matches_array_rotation(tmp_path, tools, rotation):
             tools[0],
             "-v",
             "error",
-            "-display_rotation:v:0",
-            str(rotation),
             "-i",
             str(original),
             "-c",
@@ -1466,6 +1467,33 @@ def test_rotation_matches_array_rotation(tmp_path, tools, rotation):
             str(source),
         ]
     )
+    # Write the MOV/MP4 track matrix directly to retain camera-style translation.
+    # FFmpeg's rotation override creates a matrix with a zero translation.
+    matrices = {
+        0: (65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824),
+        90: (0, -65536, 0, 65536, 0, 0, 0, 35 << 16, 1073741824),
+        180: (-65536, 0, 0, 0, -65536, 0, 47 << 16, 35 << 16, 1073741824),
+        270: (0, 65536, 0, -65536, 0, 0, 47 << 16, 0, 1073741824),
+    }
+    matrix = list(matrices[rotation])
+    if translated and rotation == 0:
+        matrix[6:8] = [12 << 16, -7 << 16]
+    elif not translated:
+        matrix[6:8] = [0, 0]
+    content = bytearray(source.read_bytes())
+    assert content.count(b"tkhd") == 1
+    track = content.index(b"tkhd")
+    assert content[track + 4] == 0  # Version 0 track header.
+    struct.pack_into(">9i", content, track + 44, *matrix)
+    source.write_bytes(content)
+    (stream,) = inspect(source, tools)["streams"]
+    if rotation or translated:
+        reported = stream["side_data_list"][0]["displaymatrix"]
+        assert [
+            int(v)
+            for row in reported.strip().splitlines()
+            for v in row.split(":", 1)[1].split()
+        ] == matrix
     expected = hashlib.sha256()
     for frame in reference_rgb(original, tools, 47, 35):
         rotated = np.rot90(frame, rotation // 90)
@@ -1481,9 +1509,40 @@ def test_rotation_matches_array_rotation(tmp_path, tools, rotation):
     )
     assert record["processed_rgb_sha256"] == expected.hexdigest()
     assert record["normalized_dimensions"] == (
-        [35, 47] if rotation != 180 else [47, 35]
+        [35, 47] if rotation in (90, 270) else [47, 35]
     )
     assert record["input_preparation"]["rotation_degrees"] == rotation
+
+
+@pytest.mark.parametrize(
+    "matrix",
+    [
+        [65536, 0, 0, 0, -65536, 0, 0, 0, 1073741824],  # Reflection.
+        [131072, 0, 0, 0, 65536, 0, 0, 0, 1073741824],  # Scaling.
+        [65536, 1, 0, 0, 65536, 0, 0, 0, 1073741824],  # Skew.
+        [65536, 0, 1, 0, 65536, 0, 0, 0, 1073741824],  # Perspective.
+        [65536, 0, 0, 0, 65536, 1, 0, 0, 1073741824],
+        [65536, 0, 0, 0, 65536, 0, 0, 0, 536870912],
+    ],
+)
+def test_unsupported_display_transforms_are_still_rejected(matrix):
+    displaymatrix = "\n".join(
+        f"{i:08d}: " + " ".join(str(v) for v in matrix[i * 3 : i * 3 + 3])
+        for i in range(3)
+    )
+    stream = {
+        "width": 47,
+        "height": 35,
+        "side_data_list": [
+            {
+                "side_data_type": "Display Matrix",
+                "rotation": 0,
+                "displaymatrix": displaymatrix,
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="Unsupported video display matrix"):
+        _geometry(stream)
 
 
 def test_anamorphic_video_becomes_square_pixel_without_changing_display_aspect(

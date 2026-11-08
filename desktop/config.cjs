@@ -1,8 +1,8 @@
 'use strict'
 
 const referenceSize = Object.freeze({ width: 1200, height: 900 })
-// Match the original 1200px-wide window on the 2560px-long reference display.
-const windowLongSideRatio = 1200 / 2560
+// Display the complete reference canvas 15 percent larger on every display.
+const windowLongSideRatio = 1380 / 2560
 
 function workbenchURL(value) {
   const message = 'The local UI server returned an invalid workbench URL.'

@@ -23,6 +23,7 @@ async function openWindow() {
   const { window, loaded } = createWorkbenchWindow(url, paths.icon)
   await loaded
   if (process.env.LUMA_FATTAL_SMOKE === '1') {
+    if (!window.isResizable()) throw new Error('Desktop window is not resizable')
     const state = await window.webContents.executeJavaScript(`(async () => {
       await document.fonts.ready;
       const canvasScale = Number(getComputedStyle(document.documentElement).getPropertyValue('--desktop-scale'));
@@ -39,14 +40,22 @@ async function openWindow() {
         return [rect.left, rect.top, rect.right, rect.bottom];
       };
       const exportPanel = document.querySelector('#export-panel');
+      const beforeExport = ['.monitor', '.controls', '.previews', '.signal-lab'].map(panelRect);
       exportPanel.hidden = false;
       await new Promise(resolve => requestAnimationFrame(resolve));
       const exportLayout = {
+        top: bounds(exportPanel).top,
+        right: bounds(exportPanel).right,
+        headerRight: bounds(document.querySelector('.masthead')).right,
+        headerBottom: bounds(document.querySelector('.masthead')).bottom,
+        panelsStable: ['.monitor', '.controls', '.previews', '.signal-lab'].every((selector, index) =>
+          panelRect(selector).every((value, coordinate) => Math.abs(value - beforeExport[index][coordinate]) < 1)),
         bottom: bounds(exportPanel).bottom,
         previewBottom: bounds(document.querySelector('.previews')).bottom,
         signalBottom: bounds(document.querySelector('.signal-lab')).bottom
       };
-      exportPanel.hidden = true;
+      document.querySelector('#close-export').click();
+      if (!exportPanel.hidden) throw new Error('Export popup did not close');
       const advanced = document.querySelector('.controls details');
       advanced.open = true;
       await new Promise(resolve => requestAnimationFrame(resolve));
@@ -110,6 +119,7 @@ async function openWindow() {
       viewport: [innerWidth / canvasScale, innerHeight / canvasScale],
       content: [document.documentElement.scrollWidth / canvasScale, document.documentElement.scrollHeight / canvasScale],
       workbench: [document.querySelector('.workbench').offsetWidth, document.querySelector('.workbench').offsetHeight],
+      workbenchBottom: bounds(document.querySelector('.workbench')).bottom,
       panels: {
         monitor: panelRect('.monitor'), controls: panelRect('.controls'),
         previews: panelRect('.previews'), spectrum: panelRect('.signal-lab')
@@ -153,21 +163,24 @@ async function openWindow() {
         state.populatedSignalOverflow > 0 || !alignedPanels || !stableExpandedPanels ||
         Math.abs(state.videoBottom - state.controlsBottom) > 1 ||
         state.progressBottom > state.controlsBottom - 4 ||
+        state.controlsBottom - state.progressBottom > 11 ||
         Math.abs(state.previewTop - state.signalTop) > 1 ||
         Math.abs(state.previewBottom - state.signalBottom) > 1 ||
         state.previewPadding > 10 ||
         state.exportLayout.bottom > state.viewport[1] ||
+        !state.exportLayout.panelsStable ||
+        state.exportLayout.bottom > state.exportLayout.headerBottom + 1 ||
+        Math.abs(state.exportLayout.right - state.exportLayout.headerRight) > 1 ||
         state.exportLayout.previewBottom > state.viewport[1] ||
         state.exportLayout.signalBottom > state.viewport[1] ||
         Math.abs(state.exportLayout.previewBottom - state.exportLayout.signalBottom) > 1 ||
         state.expandedLayout.content <= state.expandedLayout.viewport ||
         state.expandedLayout.scrollbar !== 'auto' || !state.expandedLayout.scrolled ||
         Math.abs(state.expandedLayout.bottomGap -
-          (state.viewport[1] - state.panels.spectrum[3])) > 3 ||
+          (state.workbenchBottom - state.panels.spectrum[3])) > 3 ||
         state.expandedLayout.titleTop !== 0 ||
-        state.expandedExportLayout.exportTop < state.expandedExportLayout.previewBottom ||
-        state.expandedExportLayout.exportTop - state.expandedExportLayout.previewBottom > 20 ||
-        Math.abs(state.expandedLayout.titleWidth - state.workbench[0]) > 1) {
+        Math.abs(state.expandedExportLayout.exportTop - state.exportLayout.top) > 1 ||
+        Math.abs(state.expandedLayout.titleWidth - state.viewport[0]) > 1) {
       throw new Error(`Packaged window smoke failed: ${JSON.stringify(state)}`)
     }
     if (process.env.LUMA_FATTAL_SMOKE_SCREENSHOT) {
@@ -251,12 +264,18 @@ async function openWindow() {
           workbench.scrollTop = 0;
           await frame(); await frame();
           const scale = Number(getComputedStyle(document.documentElement).getPropertyValue('--desktop-scale'));
-          const selectors = ['.application-title', '.monitor', '.controls', '.previews', '.signal-lab',
-            '.logo h1', '.logo img', '#parameters', '.slider input', '#window-close'];
+          const title = document.querySelector('.application-title').getBoundingClientRect();
+          const close = document.querySelector('#window-close').getBoundingClientRect();
+          if (Math.abs(title.height - 34) > 1 || Math.abs(close.height - 22) > 1)
+            throw new Error('Title bar changed size while resizing');
+          const origin = workbench.getBoundingClientRect();
+          const selectors = ['.monitor', '.controls', '.previews', '.signal-lab',
+            '.logo h1', '.logo img', '#parameters', '.slider input'];
           if (exporting) selectors.push('#export-panel');
           layouts.push(selectors.flatMap(selector => {
             const rect = document.querySelector(selector).getBoundingClientRect();
-            return [rect.left, rect.top, rect.width, rect.height].map(value => value / scale);
+            return [(rect.left - origin.left) / scale, (rect.top - origin.top) / scale,
+              rect.width / scale, rect.height / scale];
           }));
           if (expanded) {
             workbench.scrollTop = workbench.scrollHeight;
