@@ -23,6 +23,7 @@ make install
 
 cd "$ffmpeg_build/source/zimg"
 ./autogen.sh
+if [[ "$(uname -s)" == Darwin ]]; then export STL_LIBS="-lc++"; fi
 ./configure --prefix="$ffmpeg_prefix" --enable-static --disable-shared --with-pic
 make -j"$ffmpeg_jobs"
 make install
@@ -32,7 +33,7 @@ ffmpeg_options=(
   --disable-doc --disable-debug --disable-ffplay --disable-network
   --enable-gpl --enable-libx264 --enable-libzimg --enable-zlib
   --pkg-config-flags=--static --extra-cflags="-I$ffmpeg_prefix/include"
-  --extra-ldflags="-L$ffmpeg_prefix/lib"
+  --extra-ldflags="-L$ffmpeg_prefix/lib" --extra-libs=-lm
 )
 case "$(uname -s)" in
   MINGW*|MSYS*)
@@ -45,7 +46,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
   ffmpeg_options+=(--enable-ffnvcodec --enable-nvenc --disable-cuvid --disable-nvdec)
 fi
 cd "$ffmpeg_build/source/ffmpeg"
-./configure "${ffmpeg_options[@]}"
+./configure "${ffmpeg_options[@]}" || { tail -n 120 ffbuild/config.log; exit 1; }
 make -j"$ffmpeg_jobs"
 make install
 cp ffbuild/config.log "$ffmpeg_build/provenance/config.log"
