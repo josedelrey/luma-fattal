@@ -18,6 +18,11 @@ permissions:
   contents: read
 
 jobs:
+  verification:
+    name: Release verification
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: ${{ matrix.label }} desktop
     runs-on: ${{ matrix.os }}
@@ -196,7 +201,7 @@ jobs:
 
   release:
     name: Publish prerelease
-    needs: [build, linux-install]
+    needs: [build, linux-install, verification]
     if: (github.event_name == 'workflow_dispatch' && inputs.publish) || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:

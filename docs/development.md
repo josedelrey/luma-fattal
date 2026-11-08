@@ -16,7 +16,7 @@ python -m pytest -q
 python scripts/check_presets.py
 ```
 
-[CI](../.github/workflows/ci.yml) runs the test suite and preset checks on Ubuntu
+[CI](../.github/workflows/ci.yml) runs Ruff and Pyright, plus the test suite and preset checks on Ubuntu
 and Windows with Python 3.11 and 3.12. FFmpeg and ffprobe are installed
 there, and video integration tests must pass. In local runs, those tests are
 skipped if the tools are unavailable.
@@ -218,7 +218,7 @@ recipe and SHA-256 checksums. Only small source manifests and scripts are tracke
 in Git. Environments, downloaded sources and generated packages stay ignored.
 
 To publish, run the Desktop packages workflow with its `publish` input enabled.
-The publication job waits for every platform to pass, creates a draft prerelease,
+The publication job waits for CI and every platform to pass on the release commit, creates a draft prerelease,
 uploads the packages, corresponding sources and checksums, then publishes it.
 A matching `v<desktop version>` tag also enables publication. The workflow never
 uploads failed builds to a public release. Release notes are maintained in

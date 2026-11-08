@@ -48,6 +48,7 @@ def main() -> None:
         ], cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, start_new_session=os.name != "nt")
         try:
+            assert process.stdout is not None and process.stderr is not None
             first = process.stdout.readline().strip()
             if not first.startswith("Luma Fattal: "):
                 raise RuntimeError(f"Backend did not start: {first} {process.stderr.read()}")
@@ -56,29 +57,31 @@ def main() -> None:
             origin = f"{parsed.scheme}://{parsed.netloc}"
             token = parsed.query
 
-            def request(route: str, body: bytes | None = None) -> dict | bytes:
+            def request(route: str, body: bytes | None = None) -> bytes:
                 url = f"{origin}{route}{'&' if '?' in route else '?'}{token}"
                 call = urllib.request.Request(url, data=body, method="POST" if body is not None else "GET")
                 with urllib.request.urlopen(call, timeout=120) as response:
-                    data = response.read()
-                    return json.loads(data) if route.startswith("/api/") else data
+                    return response.read()
 
-            presets = request("/api/presets")
+            def request_json(route: str, body: bytes | None = None) -> dict:
+                return json.loads(request(route, body))
+
+            presets = request_json("/api/presets")
             assert "fattal-1-fast" in presets
             assert request("/assets/logo-purple.png").startswith(b"\x89PNG")
             assert request("/assets/viscera.png").startswith(b"\x89PNG")
             assert b".application-title" in request("/style.css")
             assert b"fileDialogs" in request("/app.js")
-            uploaded = request("/api/upload", source.read_bytes())
+            uploaded = request_json("/api/upload", source.read_bytes())
             expected_size = (960, 540) if args.check_gpu else (64, 48)
             assert (uploaded["width"], uploaded["height"]) == expected_size
             config = presets["fattal-1-fast"]
             config["video"]["encoder"] = "libx264"
             for kind in (("process",) if args.check_gpu else ("preview", "process")):
-                job = request(f"/api/{kind}", json.dumps({"upload": uploaded["upload"], "config": config}).encode())["job"]
+                job = request_json(f"/api/{kind}", json.dumps({"upload": uploaded["upload"], "config": config}).encode())["job"]
                 deadline = time.monotonic() + 180
                 while True:
-                    state = request(f"/api/jobs/{job}")
+                    state = request_json(f"/api/jobs/{job}")
                     if state["state"] == "error":
                         raise RuntimeError(state["error"])
                     if state["state"] == "done":
