@@ -138,19 +138,28 @@ when More settings is open.
 Closing the window exits Electron and stops its Python backend and child
 processes. Active processing is interrupted when the application exits.
 
-Build the Python backend with PyInstaller 6.22.3 installed in the project
-environment. On Linux and Windows, install the CUDA extra to include GPU
-filtering in the desktop package:
+Desktop releases use pinned FFmpeg sources with libx264, zscale and zlib.
+Linux and Windows also include NVENC headers and the Python CUDA extra.
+The source URLs and SHA-256 hashes are in `configs/desktop-sources.json`.
+With a C/C++ toolchain, Make, Autotools, NASM and pkg-config installed, prepare
+the tools and build the backend:
 
 ```bash
 uv sync --locked --extra gpu
-.venv/bin/python scripts/build_desktop_backend.py --ffmpeg-license /path/to/ffmpeg-license --gpu
+uv run --locked --extra gpu python scripts/prepare_desktop_ffmpeg.py
+bash scripts/build_desktop_ffmpeg.sh
+uv run --locked --extra gpu python scripts/build_desktop_backend.py \
+  --ffmpeg outputs/ffmpeg/prefix/bin/ffmpeg \
+  --ffprobe outputs/ffmpeg/prefix/bin/ffprobe \
+  --ffmpeg-license outputs/ffmpeg/provenance/LICENSE.txt \
+  --ffmpeg-provenance outputs/ffmpeg/provenance --gpu
 ```
 
 The builder checks for FFmpeg with libx264 and zscale, then includes ffmpeg,
 ffprobe, UI assets, Python package metadata, CUDA dependencies when requested,
-and the supplied FFmpeg license. On macOS, use `uv sync --locked` and omit
-`--gpu` from the build command.
+and the exact FFmpeg build notices. Python dependency licenses are collected
+from the installed environment. On macOS, omit `--extra gpu` and `--gpu`.
+On Windows, the FFmpeg build uses MSYS2 and the tool filenames end in `.exe`.
 Output is in ignored `outputs/desktop-backend/`. Run the frozen executable with
 `--self-test` and `NUMBA_CACHE_DIR` set to a writable directory to check Numba
 compilation. On a machine with an NVIDIA GPU, `--gpu-self-test` checks the
@@ -178,9 +187,25 @@ Reapply those permissions after rebuilding the app. For a temporary local test,
 starts the prototype, with Chromium's process sandbox disabled.
 The smoke script generates a short video and checks bundled presets, textures,
 preview frames, processing, export, FFprobe output, and Numba caching from a
-temporary working directory. The desktop workflow builds corresponding Windows
-and macOS directories on their own GitHub Actions runners and runs the same
-backend check plus a packaged window check. These are prototype artifacts.
+temporary working directory. The desktop workflow builds Windows x64, Linux x64
+and macOS arm64 on native GitHub runners and checks both the backend and window.
+It then creates Windows ZIP, Linux tar.gz and macOS DMG downloads with version
+metadata. macOS requires version 14 or newer. The Linux baseline is Ubuntu 22.04
+with desktop GTK/NSS libraries. Intel Mac and Linux ARM builds are not included.
+
+The first desktop version is `0.1.0-beta.1`. These prerelease builds have no
+trusted publisher signature. macOS uses ad-hoc signatures and is not notarized.
+Production signing requires separately configured signing credentials.
+Release assets include exact FFmpeg and dependency source archives, their build
+recipe and SHA-256 checksums. Only small source manifests and scripts are tracked
+in Git. Environments, downloaded sources and generated packages stay ignored.
+
+To publish, run the Desktop packages workflow with its `publish` input enabled.
+The publication job waits for every platform to pass, creates a draft prerelease,
+uploads the packages, corresponding sources and checksums, then publishes it.
+A matching `v<desktop version>` tag also enables publication. The workflow never
+uploads failed builds to a public release. Release notes are maintained in
+`.github/desktop-release-notes.md`.
 The desktop window uses native Open dialogs for videos and YAML or JSON recipes.
 Save video, Run record, and Save config use native Save dialogs. The browser UI
 continues to use its file inputs and downloads. Run `npm --prefix desktop test`

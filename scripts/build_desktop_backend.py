@@ -12,6 +12,8 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+from collect_desktop_notices import collect
+
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "src/luma_fatal/ui"
 
@@ -21,6 +23,7 @@ def main() -> None:
     parser.add_argument("--ffmpeg", type=Path, default=shutil.which("ffmpeg"))
     parser.add_argument("--ffprobe", type=Path, default=shutil.which("ffprobe"))
     parser.add_argument("--ffmpeg-license", type=Path, required=True)
+    parser.add_argument("--ffmpeg-provenance", type=Path)
     parser.add_argument("--output", type=Path, default=ROOT / "outputs/desktop-backend")
     parser.add_argument("--gpu", action="store_true", help="Bundle optional CUDA filtering dependencies")
     args = parser.parse_args()
@@ -42,6 +45,8 @@ def main() -> None:
             parser.error(f"FFmpeg must support {feature}")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    notices = output / "notices"
+    collect(notices)
     separator = os.pathsep
     command = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--onedir",
@@ -71,6 +76,9 @@ def main() -> None:
         command += ["--add-data", f"{file}{separator}luma_fatal/ui/assets"]
     command += ["--add-data", f"{ROOT / 'LICENSE'}{separator}licenses"]
     command += ["--add-data", f"{license_file}{separator}licenses/ffmpeg"]
+    command += ["--add-data", f"{notices}{separator}licenses/python"]
+    if args.ffmpeg_provenance:
+        command += ["--add-data", f"{args.ffmpeg_provenance.resolve()}{separator}licenses/ffmpeg-build"]
     for executable in (ffmpeg, ffprobe):
         command += ["--add-binary", f"{executable}{separator}tools"]
     command.append(str(ROOT / "scripts/backend_entry.py"))

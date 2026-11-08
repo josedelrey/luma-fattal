@@ -1,0 +1,27 @@
+{
+  "ffmpeg": {
+    "version": "9.0.2",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
+  },
+  "x264": {
+    "version": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+    "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz",
+    "sha256": "cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9"
+  },
+  "zimg": {
+    "version": "3.0.6",
+    "url": "https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.6.tar.gz",
+    "sha256": "be89390f13a5c9b2388ce0f44a5e89364a20c1c57ce46d382b1fcc3967057577"
+  },
+  "nv-codec-headers": {
+    "version": "13.0.19.0",
+    "url": "https://github.com/FFmpeg/nv-codec-headers/releases/download/n13.0.19.0/nv-codec-headers-13.0.19.0.tar.gz",
+    "sha256": "13da39edb3a40ed9713ae390ca89faa2f1202c9dda869ef306a8d4383e242bee"
+  },
+  "zlib": {
+    "version": "1.4",
+    "url": "https://zlib.net/zlib-1.4.tar.gz",
+    "sha256": "02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584"
+  }
+}

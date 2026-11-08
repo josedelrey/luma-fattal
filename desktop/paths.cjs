@@ -9,8 +9,8 @@ function runtimePaths(desktopDirectory, resourcesDirectory, userData, packaged) 
     sourceRoot,
     presets: path.join(resources, 'configs'),
     icon: packaged
-      ? path.join(resources, 'assets', 'logo-purple.png')
-      : path.join(sourceRoot, 'src', 'luma_fatal', 'ui', 'assets', 'logo-purple.png'),
+      ? path.join(resources, 'assets', 'app-icon.png')
+      : path.join(desktopDirectory, 'icons', 'app-icon.png'),
     backend: path.join(resources, 'backend', 'luma-fattal-backend',
       process.platform === 'win32' ? 'luma-fattal-backend.exe' : 'luma-fattal-backend'),
     tools: path.join(resources, 'backend', 'luma-fattal-backend', '_internal', 'tools'),

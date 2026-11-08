@@ -1,6 +1,6 @@
 {
   "name": "luma-fattal-desktop",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "private": true,
   "description": "Desktop window for the Luma Fattal workbench",
   "license": "MIT AND BSD-3-Clause",
@@ -8,7 +8,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test ../tests/desktop.test.cjs",
-    "package:dir": "electron-builder --dir --publish never"
+    "package:dir": "electron-builder --dir --publish never",
+    "package:release": "electron-builder --publish never"
   },
   "engines": {
     "node": ">=22.12.0"
@@ -20,17 +21,46 @@
   "build": {
     "appId": "org.lumafattal.desktop",
     "productName": "Luma Fattal",
+    "artifactName": "Luma-Fattal-${version}-${os}-${arch}.${ext}",
     "asar": true,
     "npmRebuild": false,
-    "directories": { "output": "../outputs/desktop-app" },
-    "files": ["*.cjs", "package.json"],
-    "extraResources": [
-      { "from": "../configs", "to": "configs" },
-      { "from": "../src/luma_fatal/ui/assets/logo-purple.png", "to": "assets/logo-purple.png" },
-      { "from": "../outputs/desktop-backend/luma-fattal-backend", "to": "backend/luma-fattal-backend" }
+    "directories": {
+      "output": "../outputs/desktop-app"
+    },
+    "files": [
+      "*.cjs",
+      "package.json"
     ],
-    "linux": { "target": "dir", "category": "Graphics" },
-    "win": { "target": "dir" },
-    "mac": { "target": "dir" }
+    "extraResources": [
+      {
+        "from": "../configs",
+        "to": "configs"
+      },
+      {
+        "from": "icons/app-icon.png",
+        "to": "assets/app-icon.png"
+      },
+      {
+        "from": "../outputs/desktop-backend/luma-fattal-backend",
+        "to": "backend/luma-fattal-backend"
+      }
+    ],
+    "linux": {
+      "target": "tar.gz",
+      "category": "Graphics",
+      "icon": "icons/app-icon.png"
+    },
+    "win": {
+      "target": "zip",
+      "icon": "icons/app-icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "icons/app-icon.icns",
+      "identity": "-",
+      "notarize": false,
+      "hardenedRuntime": false,
+      "minimumSystemVersion": "14.0"
+    }
   }
 }
