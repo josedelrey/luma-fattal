@@ -89,7 +89,7 @@ def test_workbench_rejects_invalid_config_and_retains_source(tmp_path):
         app.executor.shutdown()
 
 
-def test_http_auth_import_ranges_and_path_boundaries(tmp_path):
+def test_http_auth_import_ranges_and_path_boundaries(tmp_path, monkeypatch):
     import io
     from socket import socket
     from types import SimpleNamespace
@@ -132,7 +132,9 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path):
         assert b"404" in request("/media/../../pyproject.toml")[0]
         assert b"404" in request("/server.py")[0]
         assert b"200" in request("/")[0]
-        head, body = request("/assets/Arimo-Regular.ttf")
+        with monkeypatch.context() as patch:
+            patch.setattr("mimetypes.guess_type", lambda *_: (None, None))
+            head, body = request("/assets/Arimo-Regular.ttf")
         assert b"200" in head and b"font/ttf" in head
         assert body.startswith(b"\x00\x01\x00\x00")
         assert b"403" in request("/assets/Arimo-Regular.ttf", token=False)[0]

@@ -331,7 +331,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header(
             "Content-Type",
-            mimetypes.guess_type(target)[0] or "application/octet-stream",
+            "font/ttf"
+            if target.suffix.lower() == ".ttf"
+            else mimetypes.guess_type(target)[0] or "application/octet-stream",
         )
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(end - start + 1))
