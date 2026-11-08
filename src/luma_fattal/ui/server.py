@@ -293,7 +293,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 target = STATIC / ("index.html" if path == "/" else path.lstrip("/"))
                 root = STATIC
-                if target.suffix not in (".html", ".css", ".js", ".png"):
+                if target.suffix not in (".html", ".css", ".js", ".png", ".ttf"):
                     self.send_error(404)
                     return
             if (

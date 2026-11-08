@@ -24,38 +24,59 @@ async function openWindow() {
   await loaded
   if (process.env.LUMA_FATTAL_SMOKE === '1') {
     const state = await window.webContents.executeJavaScript(`(async () => {
+      await document.fonts.ready;
+      const canvasScale = Number(getComputedStyle(document.documentElement).getPropertyValue('--desktop-scale'));
+      const bounds = element => {
+        const rect = element.getBoundingClientRect();
+        return Object.fromEntries(['left', 'top', 'right', 'bottom', 'width', 'height']
+          .map(key => [key, rect[key] / canvasScale]));
+      };
       const deadline = Date.now() + 10000;
       while (document.querySelector('#presets').options.length < 2 && Date.now() < deadline)
         await new Promise(resolve => setTimeout(resolve, 100));
+      const panelRect = selector => {
+        const rect = bounds(document.querySelector(selector));
+        return [rect.left, rect.top, rect.right, rect.bottom];
+      };
       const exportPanel = document.querySelector('#export-panel');
       exportPanel.hidden = false;
       await new Promise(resolve => requestAnimationFrame(resolve));
       const exportLayout = {
-        bottom: exportPanel.getBoundingClientRect().bottom,
-        previewBottom: document.querySelector('.previews').getBoundingClientRect().bottom,
-        signalBottom: document.querySelector('.signal-lab').getBoundingClientRect().bottom
+        bottom: bounds(exportPanel).bottom,
+        previewBottom: bounds(document.querySelector('.previews')).bottom,
+        signalBottom: bounds(document.querySelector('.signal-lab')).bottom
       };
       exportPanel.hidden = true;
       const advanced = document.querySelector('.controls details');
       advanced.open = true;
       await new Promise(resolve => requestAnimationFrame(resolve));
       const workbench = document.querySelector('.workbench');
+      const expandedPanels = {
+        monitor: panelRect('.monitor'), controls: panelRect('.controls'),
+        previews: panelRect('.previews'), spectrum: panelRect('.signal-lab')
+      };
       workbench.scrollTop = 200;
       const expandedLayout = {
+        panels: expandedPanels,
         viewport: workbench.clientHeight,
         content: workbench.scrollHeight,
         scrollbar: getComputedStyle(workbench).overflowY,
         scrolled: workbench.scrollTop,
-        titleTop: document.querySelector('.application-title').getBoundingClientRect().top,
-        titleWidth: document.querySelector('.application-title').getBoundingClientRect().width
+        titleTop: bounds(document.querySelector('.application-title')).top,
+        titleWidth: bounds(document.querySelector('.application-title')).width
       };
+      workbench.scrollTop = workbench.scrollHeight;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      expandedLayout.bottomGap = bounds(workbench).bottom -
+        bounds(document.querySelector('.signal-lab')).bottom;
+      workbench.scrollTop = 200;
       exportPanel.hidden = false;
       await new Promise(resolve => requestAnimationFrame(resolve));
       const expandedExportLayout = {
-        exportTop: exportPanel.getBoundingClientRect().top,
-        previewBottom: document.querySelector('.previews').getBoundingClientRect().bottom,
-        signalBottom: document.querySelector('.signal-lab').getBoundingClientRect().bottom,
-        exportBottom: exportPanel.getBoundingClientRect().bottom,
+        exportTop: bounds(exportPanel).top,
+        previewBottom: bounds(document.querySelector('.previews')).bottom,
+        signalBottom: bounds(document.querySelector('.signal-lab')).bottom,
+        exportBottom: bounds(exportPanel).bottom,
         content: workbench.scrollHeight
       };
       exportPanel.hidden = true;
@@ -84,32 +105,54 @@ async function openWindow() {
       frame: !!window.desktopWindow && !document.querySelector('#app-frame-controls').hidden,
       styles: document.styleSheets.length,
       texture: getComputedStyle(document.documentElement).getPropertyValue('--body-texture').includes('/assets/viscera.png'),
+      fonts: [...document.fonts].every(font => font.status === 'loaded') && document.fonts.size === 4,
       background: getComputedStyle(document.body).backgroundColor,
-      viewport: [innerWidth, innerHeight],
-      content: [document.documentElement.scrollWidth, document.documentElement.scrollHeight],
+      viewport: [innerWidth / canvasScale, innerHeight / canvasScale],
+      content: [document.documentElement.scrollWidth / canvasScale, document.documentElement.scrollHeight / canvasScale],
       workbench: [document.querySelector('.workbench').offsetWidth, document.querySelector('.workbench').offsetHeight],
+      panels: {
+        monitor: panelRect('.monitor'), controls: panelRect('.controls'),
+        previews: panelRect('.previews'), spectrum: panelRect('.signal-lab')
+      },
       previewOverflow: document.querySelector('.previews').scrollHeight - document.querySelector('.previews').clientHeight,
       signalOverflow: document.querySelector('.signal-lab').scrollHeight - document.querySelector('.signal-lab').clientHeight,
       populatedSignalOverflow,
-      videoBottom: document.querySelector('.monitor').getBoundingClientRect().bottom,
-      controlsBottom: document.querySelector('.controls').getBoundingClientRect().bottom,
-      previewTop: document.querySelector('.previews').getBoundingClientRect().top,
-      signalTop: document.querySelector('.signal-lab').getBoundingClientRect().top,
-      previewPadding: document.querySelector('.previews').getBoundingClientRect().bottom - document.querySelector('.preview-note').getBoundingClientRect().bottom,
-      previewBottom: document.querySelector('.previews').getBoundingClientRect().bottom,
-      signalBottom: document.querySelector('.signal-lab').getBoundingClientRect().bottom,
-      signalReadingsBottom: document.querySelector('.signal-readings').getBoundingClientRect().bottom,
+      videoBottom: bounds(document.querySelector('.monitor')).bottom,
+      controlsBottom: bounds(document.querySelector('.controls')).bottom,
+      progressBottom: bounds(document.querySelector('.job-status progress')).bottom,
+      previewTop: bounds(document.querySelector('.previews')).top,
+      signalTop: bounds(document.querySelector('.signal-lab')).top,
+      previewPadding: bounds(document.querySelector('.previews')).bottom - bounds(document.querySelector('.preview-note')).bottom,
+      previewBottom: bounds(document.querySelector('.previews')).bottom,
+      signalBottom: bounds(document.querySelector('.signal-lab')).bottom,
+      signalReadingsBottom: bounds(document.querySelector('.signal-readings')).bottom,
       exportLayout,
       expandedLayout,
       expandedExportLayout
       });
     })()`)
+    const { monitor, controls, previews, spectrum } = state.panels
+    const alignedPanels = [0, 2].every(index =>
+      Math.abs(monitor[index] - previews[index]) < 1 &&
+      Math.abs(controls[index] - spectrum[index]) < 1) &&
+      [1, 3].every(index =>
+        Math.abs(monitor[index] - controls[index]) < 1 &&
+        Math.abs(previews[index] - spectrum[index]) < 1)
+    const expanded = state.expandedLayout.panels
+    const panelHeight = rect => rect[3] - rect[1]
+    const panelWidth = rect => rect[2] - rect[0]
+    const stableExpandedPanels = ['monitor', 'previews', 'spectrum'].every(name =>
+      Math.abs(panelHeight(expanded[name]) - panelHeight(state.panels[name])) < 1) &&
+      Math.abs(panelWidth(expanded.monitor) - panelWidth(expanded.previews)) < 1 &&
+      Math.abs(panelWidth(expanded.controls) - panelWidth(expanded.spectrum)) < 1 &&
+      Math.abs(expanded.spectrum[1] - expanded.controls[3] - 16) < 1
     if (!state.title.includes('Luma Fattal') || state.presets < 2 ||
         !state.logo || !state.titleLogo || !state.video || !state.background || !state.frame ||
-        !state.styles || !state.texture || state.content[1] > state.viewport[1] ||
+        !state.styles || !state.texture || !state.fonts || state.content[1] > state.viewport[1] ||
         state.previewBottom > state.viewport[1] || state.signalReadingsBottom > state.viewport[1] ||
-        state.populatedSignalOverflow > 0 ||
+        state.populatedSignalOverflow > 0 || !alignedPanels || !stableExpandedPanels ||
         Math.abs(state.videoBottom - state.controlsBottom) > 1 ||
+        state.progressBottom > state.controlsBottom - 4 ||
         Math.abs(state.previewTop - state.signalTop) > 1 ||
         Math.abs(state.previewBottom - state.signalBottom) > 1 ||
         state.previewPadding > 10 ||
@@ -119,10 +162,12 @@ async function openWindow() {
         Math.abs(state.exportLayout.previewBottom - state.exportLayout.signalBottom) > 1 ||
         state.expandedLayout.content <= state.expandedLayout.viewport ||
         state.expandedLayout.scrollbar !== 'auto' || !state.expandedLayout.scrolled ||
+        Math.abs(state.expandedLayout.bottomGap -
+          (state.viewport[1] - state.panels.spectrum[3])) > 3 ||
         state.expandedLayout.titleTop !== 0 ||
         state.expandedExportLayout.exportTop < state.expandedExportLayout.previewBottom ||
         state.expandedExportLayout.exportTop - state.expandedExportLayout.previewBottom > 20 ||
-        Math.abs(state.expandedLayout.titleWidth - state.viewport[0]) > 1) {
+        Math.abs(state.expandedLayout.titleWidth - state.workbench[0]) > 1) {
       throw new Error(`Packaged window smoke failed: ${JSON.stringify(state)}`)
     }
     if (process.env.LUMA_FATTAL_SMOKE_SCREENSHOT) {
@@ -186,7 +231,81 @@ async function openWindow() {
         writeFileSync(process.env.LUMA_FATTAL_SMOKE_SPECTRUM_SCREENSHOT, image.toPNG())
       }
     }
+    const originalSize = window.getContentSize()
+    let referenceLayout
+    let checkedSizes = 0
+    for (const factor of [1, 0.75, 0.5, 0.3]) {
+      const width = Math.floor(originalSize[0] * factor)
+      const height = Math.floor(originalSize[1] * factor)
+      if (width < 300 || height < 225) continue
+      window.setContentSize(width, height)
+      const layout = await window.webContents.executeJavaScript(`(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+        const workbench = document.querySelector('.workbench');
+        const advanced = document.querySelector('.controls details');
+        const exported = document.querySelector('#export-panel');
+        const layouts = [];
+        for (const [expanded, exporting] of [[false, false], [false, true], [true, false], [true, true]]) {
+          advanced.open = expanded;
+          exported.hidden = !exporting;
+          workbench.scrollTop = 0;
+          await frame(); await frame();
+          const scale = Number(getComputedStyle(document.documentElement).getPropertyValue('--desktop-scale'));
+          const selectors = ['.application-title', '.monitor', '.controls', '.previews', '.signal-lab',
+            '.logo h1', '.logo img', '#parameters', '.slider input', '#window-close'];
+          if (exporting) selectors.push('#export-panel');
+          layouts.push(selectors.flatMap(selector => {
+            const rect = document.querySelector(selector).getBoundingClientRect();
+            return [rect.left, rect.top, rect.width, rect.height].map(value => value / scale);
+          }));
+          if (expanded) {
+            workbench.scrollTop = workbench.scrollHeight;
+            if (!workbench.scrollTop) throw new Error('Expanded settings did not scroll');
+          }
+        }
+        advanced.open = false; exported.hidden = true; workbench.scrollTop = 0;
+        const picture = document.querySelector('#large-frame');
+        const previousSource = picture.getAttribute('src');
+        picture.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"/>';
+        await picture.decode();
+        const dialog = document.querySelector('#lightbox');
+        dialog.showModal();
+        await frame(); await frame();
+        const rect = dialog.getBoundingClientRect();
+        const scale = Number(getComputedStyle(document.documentElement).getPropertyValue('--desktop-scale'));
+        layouts.push([rect.width / scale, rect.height / scale]);
+        if (rect.left < 0 || rect.top < 0 || rect.right > innerWidth || rect.bottom > innerHeight ||
+            Math.abs((rect.left + rect.right) / 2 - innerWidth / 2) > 1 ||
+            Math.abs((rect.top + rect.bottom) / 2 - innerHeight / 2) > 1) {
+          throw new Error('Scaled preview dialog did not fit centrally');
+        }
+        const close = document.querySelector('#close-preview');
+        const button = close.getBoundingClientRect();
+        if (document.elementFromPoint(button.left + button.width / 2,
+            button.top + button.height / 2) !== close) throw new Error('Scaled preview button missed its hit area');
+        close.click();
+        if (dialog.open) throw new Error('Scaled preview did not close');
+        if (previousSource === null) picture.removeAttribute('src');
+        else picture.src = previousSource;
+        return layouts;
+      })()`)
+      referenceLayout ||= layout
+      const differences = layout.flatMap((values, index) => values.flatMap((value, coordinate) =>
+        Math.abs(value - referenceLayout[index][coordinate]) > 1
+          ? [{ state: index, coordinate, expected: referenceLayout[index][coordinate], actual: value }] : []))
+      if (differences.length) {
+        throw new Error(`Desktop proportions changed at ${width}x${height}: ${JSON.stringify(differences)}`)
+      }
+      const actual = window.getContentSize()
+      // Fractional display scaling can round native dimensions by one DIP.
+      if (Math.abs(actual[0] - width) > 1 || Math.abs(actual[1] - height) > 1) {
+        throw new Error(`Desktop scaling smoke could not resize to ${width}x${height}`)
+      }
+      checkedSizes++
+    }
+    window.setContentSize(...originalSize)
     console.log(`Packaged window smoke passed: ${JSON.stringify(state)}`)
+    console.log(`Desktop scaling smoke passed at ${checkedSizes} window sizes`)
     await window.webContents.executeJavaScript('window.desktopWindow.minimize()')
     window.restore()
     await window.webContents.executeJavaScript("setTimeout(() => document.querySelector('#window-close').click(), 0)")
@@ -198,7 +317,8 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { role: 'appMenu' },
       { role: 'editMenu' },
-      { role: 'viewMenu' },
+      { label: 'View', submenu: [{ role: 'reload' }, { role: 'forceReload' },
+        { type: 'separator' }, { role: 'toggleDevTools' }] },
       { role: 'windowMenu' },
     ]))
   } else {

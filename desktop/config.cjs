@@ -1,5 +1,9 @@
 'use strict'
 
+const referenceSize = Object.freeze({ width: 1200, height: 900 })
+// Match the original 1200px-wide window on the 2560px-long reference display.
+const windowLongSideRatio = 1200 / 2560
+
 function workbenchURL(value) {
   const message = 'The local UI server returned an invalid workbench URL.'
   let url
@@ -16,12 +20,16 @@ function workbenchURL(value) {
   return url.href
 }
 
-function windowSize(workArea) {
-  const width = Math.min(1200, workArea.width)
-  const height = Math.min(900, workArea.height)
+function windowSize(display) {
+  const { workArea, bounds } = display
+  // All dimensions are DIPs. Applying scaleFactor again would double OS scaling.
+  const scale = Math.min(Math.max(bounds.width, bounds.height) * windowLongSideRatio /
+    Math.max(referenceSize.width, referenceSize.height),
+    workArea.width / referenceSize.width,
+    workArea.height / referenceSize.height)
   return {
-    width,
-    height,
+    width: Math.max(1, Math.floor(referenceSize.width * scale)),
+    height: Math.max(1, Math.floor(referenceSize.height * scale)),
   }
 }
 
@@ -35,4 +43,4 @@ function isWorkbenchNavigation(target, entry) {
   }
 }
 
-module.exports = { workbenchURL, windowSize, isWorkbenchNavigation }
+module.exports = { referenceSize, workbenchURL, windowSize, isWorkbenchNavigation }

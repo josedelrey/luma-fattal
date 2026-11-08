@@ -72,8 +72,9 @@ def main() -> None:
             command += ["--copy-metadata", package]
     for file in ("index.html", "style.css", "app.js"):
         command += ["--add-data", f"{UI / file}{separator}luma_fattal/ui"]
-    for file in (UI / "assets").glob("*.png"):
-        command += ["--add-data", f"{file}{separator}luma_fattal/ui/assets"]
+    for pattern in ("*.png", "*.ttf"):
+        for file in (UI / "assets").glob(pattern):
+            command += ["--add-data", f"{file}{separator}luma_fattal/ui/assets"]
     command += ["--add-data", f"{ROOT / 'LICENSE'}{separator}licenses"]
     command += ["--add-data", f"{license_file}{separator}licenses/ffmpeg"]
     command += ["--add-data", f"{notices}{separator}licenses/python"]

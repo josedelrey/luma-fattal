@@ -3,7 +3,7 @@
   "version": "0.1.0-beta.1",
   "private": true,
   "description": "Desktop window for the Luma Fattal workbench",
-  "license": "MIT AND BSD-3-Clause",
+  "license": "MIT AND BSD-3-Clause AND OFL-1.1",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",

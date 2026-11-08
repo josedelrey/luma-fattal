@@ -2,6 +2,16 @@
 const $ = id => document.getElementById(id);
 const token = new URLSearchParams(location.search).get('token');
 const secured = path => `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+for (const [family, file, weight] of [
+  ['Luma Sans', 'Arimo-Regular.ttf', '400'],
+  ['Luma Sans', 'Arimo-Bold.ttf', '700'],
+  ['Luma Mono', 'Cousine-Regular.ttf', '400'],
+  ['Luma Serif', 'Tinos-Regular.ttf', '400'],
+]) {
+  const font = new FontFace(family, `url('${secured(`/assets/${file}`)}')`, {weight, display: 'block'});
+  document.fonts.add(font);
+  font.load().catch(error => status(`Could not load UI font: ${error.message}`, true));
+}
 $('logo-image').src = secured('/assets/logo-purple.png');
 $('title-logo').src = secured('/assets/app-icon.png');
 for (const [surface, filename] of Object.entries({body: 'viscera', controls: 'panel-078-red', previews: 'panel-078-red'})) {
@@ -12,6 +22,13 @@ let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, rev
 const player = $('player');
 const fileDialogs = window.desktopFiles;
 if (window.desktopWindow) {
+  const {width, height} = window.desktopWindow.referenceSize;
+  document.documentElement.style.setProperty('--desktop-width', `${width}px`);
+  document.documentElement.style.setProperty('--desktop-height', `${height}px`);
+  const fitCanvas = () => document.documentElement.style.setProperty('--desktop-scale',
+    Math.min(innerWidth / width, innerHeight / height));
+  window.addEventListener('resize', fitCanvas);
+  fitCanvas();
   document.documentElement.classList.add('desktop');
   document.querySelector('.video-column').append($('export-panel'));
   $('app-frame-controls').hidden = false;
@@ -224,6 +241,16 @@ player.onplay = () => $('play').textContent = '❚❚'; player.onpause = () => $
 player.onerror = () => status('This source codec cannot play in this browser. Preview and processing can still work through FFmpeg.', true);
 $('close-preview').onclick = () => $('lightbox').close();
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) $('lightbox').close(); };
+const previewDialog = $('lightbox'), previewImage = $('large-frame');
+new ResizeObserver(() => {
+  if (!previewDialog.open) return;
+  // Include the title, footer, and border when matching the outer spacing.
+  const chrome = previewDialog.offsetHeight - previewImage.offsetHeight;
+  const value = `${chrome}px`;
+  if (previewDialog.style.getPropertyValue('--preview-chrome') !== value) {
+    previewDialog.style.setProperty('--preview-chrome', value);
+  }
+}).observe(previewDialog);
 placeholders();
 api('/api/presets').then(value => {
   presets = value;
@@ -231,7 +258,9 @@ api('/api/presets').then(value => {
   $('presets').value = value['fattal-1'] ? 'fattal-1' : Object.keys(value)[0]; loadConfig(value[$('presets').value]);
 }).catch(error => status(error.message, true));
 
-const spectrumSize = 32;
+const spectrumSize = 64;
+const spectrumSampleInterval = 125, spectrumDrawInterval = 1000 / 30;
+const spectrumCount = spectrumSize * spectrumSize;
 const spectrumCanvas = $('signal-chart'), spectrumContext = spectrumCanvas.getContext('2d');
 const spectrumImage = document.createElement('canvas');
 spectrumImage.width = spectrumCanvas.width; spectrumImage.height = spectrumCanvas.height;
@@ -240,15 +269,47 @@ let spectrumCursorX = null;
 const frameCanvas = document.createElement('canvas');
 frameCanvas.width = frameCanvas.height = spectrumSize;
 const frameContext = frameCanvas.getContext('2d', {willReadFrequently: true});
-const cosine = new Float32Array(spectrumSize * spectrumSize);
-const sine = new Float32Array(spectrumSize * spectrumSize);
+const spectrumTexture = document.createElement('canvas');
+spectrumTexture.width = spectrumTexture.height = spectrumSize;
+const spectrumTextureContext = spectrumTexture.getContext('2d');
+const spectrumPixels = spectrumTextureContext.createImageData(spectrumSize, spectrumSize);
+for (let offset = 3; offset < spectrumPixels.data.length; offset += 4) spectrumPixels.data[offset] = 255;
+const cosine = new Float32Array(spectrumSize / 2);
+const sine = new Float32Array(spectrumSize / 2);
+const reversed = new Uint8Array(spectrumSize);
 const windowWeights = new Float32Array(spectrumSize);
-for (let frequency = 0; frequency < spectrumSize; frequency++) {
-  windowWeights[frequency] = .5 - .5 * Math.cos(2 * Math.PI * frequency / (spectrumSize - 1));
-  for (let position = 0; position < spectrumSize; position++) {
-    const angle = 2 * Math.PI * frequency * position / spectrumSize;
-    cosine[frequency * spectrumSize + position] = Math.cos(angle);
-    sine[frequency * spectrumSize + position] = Math.sin(angle);
+for (let index = 0; index < spectrumSize; index++) {
+  windowWeights[index] = .5 - .5 * Math.cos(2 * Math.PI * index / (spectrumSize - 1));
+  let bits = index, reverse = 0;
+  for (let span = spectrumSize; span > 1; span >>= 1) {
+    reverse = (reverse << 1) | (bits & 1); bits >>= 1;
+  }
+  reversed[index] = reverse;
+  if (index >= spectrumSize / 2) continue;
+  cosine[index] = Math.cos(2 * Math.PI * index / spectrumSize);
+  sine[index] = Math.sin(2 * Math.PI * index / spectrumSize);
+}
+const spectrumReal = new Float32Array(spectrumCount), spectrumImaginary = new Float32Array(spectrumCount);
+const spectrumTarget = new Float32Array(spectrumCount), spectrumDisplay = new Float32Array(spectrumCount);
+// Apply the same in-place FFT to rows and columns by changing the stride.
+function transformSpectrum(offset, stride) {
+  for (let index = 0; index < spectrumSize; index++) {
+    if (reversed[index] <= index) continue;
+    const a = offset + index * stride, b = offset + reversed[index] * stride;
+    const real = spectrumReal[a], imaginary = spectrumImaginary[a];
+    spectrumReal[a] = spectrumReal[b]; spectrumImaginary[a] = spectrumImaginary[b];
+    spectrumReal[b] = real; spectrumImaginary[b] = imaginary;
+  }
+  for (let span = 2; span <= spectrumSize; span *= 2) {
+    const half = span / 2, step = spectrumSize / span;
+    for (let start = 0; start < spectrumSize; start += span) for (let index = 0; index < half; index++) {
+      const a = offset + (start + index) * stride, b = a + half * stride;
+      const phase = index * step;
+      const real = spectrumReal[b] * cosine[phase] + spectrumImaginary[b] * sine[phase];
+      const imaginary = spectrumImaginary[b] * cosine[phase] - spectrumReal[b] * sine[phase];
+      spectrumReal[b] = spectrumReal[a] - real; spectrumImaginary[b] = spectrumImaginary[a] - imaginary;
+      spectrumReal[a] += real; spectrumImaginary[a] += imaginary;
+    }
   }
 }
 const spectrumStops = [[0,0,0],[9,2,3],[30,4,7],[62,8,12],[102,17,20],
@@ -258,11 +319,12 @@ const spectrumPalette = Array.from({length: 256}, (_, index) => {
   const start = Math.min(spectrumStops.length - 2, Math.floor(position));
   const rgb = spectrumStops[start].map((value, channel) => Math.round(value +
     (spectrumStops[start + 1][channel] - value) * (position - start)));
-  return `rgb(${rgb.join(',')})`;
+  return rgb;
 });
-let spectrumTimer = null;
+let spectrumAnimation = null, spectrumAvailable = false;
+let spectrumSampleTime = 0, spectrumDrawTime = 0, spectrumVideoTime = null;
 const spectrumPlot = {left: 12, top: 20, width: 266, height: 176};
-function stopSpectrum() { clearInterval(spectrumTimer); spectrumTimer = null; }
+function stopSpectrum() { cancelAnimationFrame(spectrumAnimation); spectrumAnimation = null; }
 function renderSpectrumCursor() {
   const context = spectrumContext;
   context.setTransform(1, 0, 0, 1, 0, 0);
@@ -281,15 +343,20 @@ function drawSpectrum(levels = null) {
   context.setTransform(2, 0, 0, 2, 0, 0);
   context.fillStyle = '#000000'; context.fillRect(0, 0, 290, 220);
   if (levels) {
-    const cellWidth = width / spectrumSize, cellHeight = height / spectrumSize;
     for (let y = 0; y < spectrumSize; y++) for (let x = 0; x < spectrumSize; x++) {
       const fx = (x + spectrumSize / 2) % spectrumSize, fy = (y + spectrumSize / 2) % spectrumSize;
-      context.fillStyle = spectrumPalette[Math.min(255, Math.round(levels[fy * spectrumSize + fx] * 255))];
-      context.fillRect(left + x * cellWidth, top + y * cellHeight, cellWidth + .2, cellHeight + .2);
+      const rgb = spectrumPalette[Math.min(255, Math.round(levels[fy * spectrumSize + fx] * 255))];
+      const offset = (y * spectrumSize + x) * 4;
+      spectrumPixels.data[offset] = rgb[0]; spectrumPixels.data[offset + 1] = rgb[1];
+      spectrumPixels.data[offset + 2] = rgb[2];
     }
+    spectrumTextureContext.putImageData(spectrumPixels, 0, 0);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(spectrumTexture, left, top, width, height);
   } else {
     context.fillStyle = '#180607'; context.fillRect(left, top, width, height);
-    context.fillStyle = '#f5ad76'; context.font = '9px monospace';
+    context.fillStyle = '#f5ad76'; context.font = '9px "Luma Mono"';
     context.fillText('AWAITING VIDEO FRAME', 88, 106);
   }
   context.strokeStyle = '#ffffff55'; context.lineWidth = .5;
@@ -301,7 +368,7 @@ function drawSpectrum(levels = null) {
   context.strokeStyle = '#fff8';
   context.beginPath(); context.moveTo(left + width / 2, top); context.lineTo(left + width / 2, top + height); context.stroke();
   context.beginPath(); context.moveTo(left, top + height / 2); context.lineTo(left + width, top + height / 2); context.stroke();
-  context.fillStyle = '#f7d989'; context.font = '8px monospace';
+  context.fillStyle = '#f7d989'; context.font = '8px "Luma Mono"';
   context.fillText('SPATIAL FREQUENCY / LOG POWER', left, 11);
   context.fillText('-π', left, 208); context.fillText('0', left + width / 2 - 2, 208);
   context.fillText('+π', left + width - 13, 208);
@@ -310,8 +377,9 @@ function drawSpectrum(levels = null) {
 }
 function resetSpectrum() {
   stopSpectrum();
+  spectrumAvailable = false; spectrumVideoTime = null;
   $('analysis-state').textContent = 'NO SOURCE / WAITING';
-  $('signal-readings').textContent = '32×32 SPATIAL FREQUENCY\nLOAD VIDEO TO ACQUIRE FRAME';
+  $('signal-readings').textContent = `${spectrumSize}×${spectrumSize} SPATIAL FREQUENCY\nLOAD VIDEO TO ACQUIRE FRAME`;
   drawSpectrum();
 }
 function sampleSpectrum() {
@@ -321,52 +389,66 @@ function sampleSpectrum() {
     frameContext.drawImage(player, 0, 0, spectrumSize, spectrumSize);
     rgba = frameContext.getImageData(0, 0, spectrumSize, spectrumSize).data;
   } catch (error) { $('analysis-state').textContent = 'FRAME UNAVAILABLE'; return; }
-  const count = spectrumSize * spectrumSize, luminance = new Float32Array(count);
   let mean = 0;
-  for (let pixel = 0; pixel < count; pixel++) {
+  for (let pixel = 0; pixel < spectrumCount; pixel++) {
     const offset = pixel * 4;
     const value = rgba[offset] * .2126 + rgba[offset + 1] * .7152 + rgba[offset + 2] * .0722;
-    luminance[pixel] = value; mean += value;
+    spectrumReal[pixel] = value; mean += value;
   }
-  mean /= count;
+  mean /= spectrumCount;
   for (let y = 0; y < spectrumSize; y++) for (let x = 0; x < spectrumSize; x++) {
     const pixel = y * spectrumSize + x;
-    luminance[pixel] = (luminance[pixel] - mean) * windowWeights[x] * windowWeights[y];
+    spectrumReal[pixel] = (spectrumReal[pixel] - mean) * windowWeights[x] * windowWeights[y];
   }
-  const rowReal = new Float32Array(count), rowImaginary = new Float32Array(count);
-  for (let y = 0; y < spectrumSize; y++) for (let fx = 0; fx < spectrumSize; fx++) {
-    let real = 0, imaginary = 0;
-    for (let x = 0; x < spectrumSize; x++) {
-      const value = luminance[y * spectrumSize + x], phase = fx * spectrumSize + x;
-      real += value * cosine[phase]; imaginary -= value * sine[phase];
-    }
-    rowReal[y * spectrumSize + fx] = real; rowImaginary[y * spectrumSize + fx] = imaginary;
-  }
-  const power = new Float32Array(count);
+  spectrumImaginary.fill(0);
+  for (let y = 0; y < spectrumSize; y++) transformSpectrum(y * spectrumSize, 1);
+  for (let x = 0; x < spectrumSize; x++) transformSpectrum(x, spectrumSize);
   let peak = 0, low = 0, middle = 0, high = 0, lowCount = 0, middleCount = 0, highCount = 0;
   for (let fy = 0; fy < spectrumSize; fy++) for (let fx = 0; fx < spectrumSize; fx++) {
-    let real = 0, imaginary = 0;
-    for (let y = 0; y < spectrumSize; y++) {
-      const index = y * spectrumSize + fx, phase = fy * spectrumSize + y;
-      real += rowReal[index] * cosine[phase] + rowImaginary[index] * sine[phase];
-      imaginary += rowImaginary[index] * cosine[phase] - rowReal[index] * sine[phase];
-    }
-    const magnitude = Math.log1p(Math.hypot(real, imaginary)), index = fy * spectrumSize + fx;
-    power[index] = magnitude; peak = Math.max(peak, magnitude);
+    const index = fy * spectrumSize + fx;
+    const magnitude = Math.log1p(Math.hypot(spectrumReal[index], spectrumImaginary[index]));
+    spectrumTarget[index] = magnitude; peak = Math.max(peak, magnitude);
     const radius = Math.hypot(Math.min(fx, spectrumSize - fx), Math.min(fy, spectrumSize - fy));
-    if (radius < 4) { low += magnitude; lowCount++; }
-    else if (radius < 10) { middle += magnitude; middleCount++; }
+    if (radius < spectrumSize / 8) { low += magnitude; lowCount++; }
+    else if (radius < spectrumSize * 5 / 16) { middle += magnitude; middleCount++; }
     else { high += magnitude; highCount++; }
   }
   const scale = Math.max(1, peak);
-  for (let index = 0; index < count; index++) power[index] = Math.pow(power[index] / scale, 2.2);
-  drawSpectrum(power);
-  $('analysis-state').textContent = player.paused ? 'FRAME SPECTRUM / HOLD' : 'LIVE SPECTRUM / 3 HZ';
-  $('signal-readings').textContent = `FRAME ${player.currentTime.toFixed(2)}s / 32×32 LUMA\nLOW ${(low / lowCount).toFixed(1)}  MID ${(middle / middleCount).toFixed(1)}  HIGH ${(high / highCount).toFixed(1)}`;
+  for (let index = 0; index < spectrumCount; index++) spectrumTarget[index] = Math.pow(spectrumTarget[index] / scale, 2.2);
+  if (!spectrumAvailable || player.paused) {
+    spectrumDisplay.set(spectrumTarget);
+    drawSpectrum(spectrumDisplay);
+  }
+  spectrumAvailable = true; spectrumVideoTime = player.currentTime;
+  $('analysis-state').textContent = player.paused ? 'FRAME SPECTRUM / HOLD' : 'LIVE SPECTRUM / 8 HZ';
+  $('signal-readings').textContent = `FRAME ${player.currentTime.toFixed(2)}s / ${spectrumSize}×${spectrumSize} LUMA\nLOW ${(low / lowCount).toFixed(1)}  MID ${(middle / middleCount).toFixed(1)}  HIGH ${(high / highCount).toFixed(1)}`;
+}
+function animateSpectrum(now) {
+  if (document.hidden || player.paused || player.ended) { stopSpectrum(); return; }
+  if (now - spectrumSampleTime >= spectrumSampleInterval) {
+    if (player.currentTime !== spectrumVideoTime) sampleSpectrum();
+    spectrumSampleTime = now - (now - spectrumSampleTime) % spectrumSampleInterval;
+  }
+  const elapsed = now - spectrumDrawTime;
+  if (elapsed >= spectrumDrawInterval) {
+    if (spectrumAvailable) {
+      // Ease between real samples for fluid motion without more frame readbacks.
+      const blend = 1 - Math.exp(-elapsed / 70);
+      for (let index = 0; index < spectrumCount; index++) {
+        spectrumDisplay[index] += (spectrumTarget[index] - spectrumDisplay[index]) * blend;
+      }
+      drawSpectrum(spectrumDisplay);
+    }
+    spectrumDrawTime = now - elapsed % spectrumDrawInterval;
+  }
+  spectrumAnimation = requestAnimationFrame(animateSpectrum);
 }
 function startSpectrum() {
-  stopSpectrum(); sampleSpectrum();
-  spectrumTimer = setInterval(sampleSpectrum, 320);
+  stopSpectrum();
+  if (document.hidden) return;
+  sampleSpectrum();
+  spectrumSampleTime = spectrumDrawTime = performance.now();
+  spectrumAnimation = requestAnimationFrame(animateSpectrum);
 }
 $('rescan').onclick = sampleSpectrum;
 spectrumCanvas.addEventListener('pointermove', event => {
@@ -389,5 +471,11 @@ player.addEventListener('play', startSpectrum);
 player.addEventListener('pause', () => { stopSpectrum(); sampleSpectrum(); });
 player.addEventListener('ended', () => { stopSpectrum(); sampleSpectrum(); });
 player.addEventListener('emptied', resetSpectrum);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) sampleSpectrum(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopSpectrum();
+  else if (!player.paused && !player.ended) startSpectrum();
+  else sampleSpectrum();
+});
 resetSpectrum();
+
+document.fonts.ready.then(() => drawSpectrum(spectrumAvailable ? spectrumDisplay : null));

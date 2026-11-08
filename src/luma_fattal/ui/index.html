@@ -50,7 +50,6 @@
           <label class="section-label" for="presets">Preset:</label>
           <div class="preset-row"><select id="presets" aria-label="Bundled preset"></select><button id="import-preset" title="Open a standalone YAML or JSON config">Open…</button><input id="preset-file" type="file" accept=".yaml,.yml,.json" hidden></div>
           <div class="filter-row"><label for="filter">Filter:</label><select id="filter"><option value="fattal1">FATTAL 1</option><option value="fattal2">FATTAL 2</option></select><button id="reset" title="Restore the selected recipe">Reset</button></div>
-          <div class="divider"><span>Filter parameters</span></div>
           <div id="parameters"></div>
           <details><summary><span>More settings</span></summary><div id="advanced"></div><label class="select-row"><span>Encoder</span><select id="encoder"><option value="libx264">CPU / H.264</option><option value="h264_nvenc">NVIDIA / auto fallback</option></select></label><p class="fineprint"><span>Recipe resolution and advanced settings are preserved. Export is silent H.264 MP4.</span></p></details>
           <button id="process" class="process" disabled>Process video <span>▶▶</span></button>
@@ -58,10 +57,10 @@
         </div>
       </aside>
       <section class="signal-lab" aria-labelledby="signal-title">
-        <div class="signal-heading"><h2 id="signal-title">FRAME / SPECTRUM</h2><span>LF:32</span></div>
+        <div class="signal-heading"><h2 id="signal-title">FRAME / SPECTRUM</h2><span>LF:64</span></div>
         <div class="signal-sub"><span id="analysis-state" role="status">NO SOURCE / WAITING</span><button id="rescan" disabled>SAMPLE ↻</button></div>
         <canvas id="signal-chart" width="580" height="440" role="img" aria-label="Live frame luminance spatial frequency spectrum"></canvas>
-        <div id="signal-readings" class="signal-readings" aria-live="polite">32×32 SPATIAL FREQUENCY<br>LOAD VIDEO TO ACQUIRE FRAME</div>
+        <div id="signal-readings" class="signal-readings" aria-live="polite">64×64 SPATIAL FREQUENCY<br>LOAD VIDEO TO ACQUIRE FRAME</div>
       </section>
       </div>
       <section id="export-panel" class="export panel" hidden>

@@ -3,7 +3,8 @@
 const path = require('node:path')
 const { existsSync } = require('node:fs')
 const { app, BrowserWindow, ipcMain, nativeImage, screen, session } = require('electron')
-const { workbenchURL, windowSize, isWorkbenchNavigation } = require('./config.cjs')
+const { referenceSize, workbenchURL, windowSize, isWorkbenchNavigation } = require('./config.cjs')
+const { installDisplayScaling } = require('./layout.cjs')
 const { installFileDialogs } = require('./files.cjs')
 
 function createWorkbenchWindow(value, iconPath) {
@@ -16,7 +17,8 @@ function createWorkbenchWindow(value, iconPath) {
   isolatedSession.setPermissionCheckHandler(() => false)
 
   const window = new BrowserWindow({
-    ...windowSize(screen.getPrimaryDisplay().workAreaSize),
+    ...windowSize(screen.getPrimaryDisplay()),
+    useContentSize: true,
     title: 'Luma Fattal',
     icon,
     backgroundColor: '#030000',
@@ -35,9 +37,11 @@ function createWorkbenchWindow(value, iconPath) {
       webSecurity: true,
       navigateOnDragDrop: false,
       preload: path.join(__dirname, 'preload.cjs'),
+      additionalArguments: [`--luma-fattal-layout=${JSON.stringify(referenceSize)}`],
     },
   })
   window.setMenu(null)
+  installDisplayScaling(window, screen)
   const handleControl = (event, action) => {
     if (event.sender !== window.webContents ||
         event.senderFrame !== window.webContents.mainFrame ||
@@ -50,6 +54,7 @@ function createWorkbenchWindow(value, iconPath) {
   window.on('closed', () => ipcMain.removeHandler('desktop:window'))
   window.webContents.on('before-input-event', (event, input) => {
     if (input.key === 'F11' || (input.alt && input.key === 'Enter')) event.preventDefault()
+    if ((input.control || input.meta) && ['+', '=', '-', '0'].includes(input.key)) event.preventDefault()
   })
   installFileDialogs(window, url)
   window.once('ready-to-show', () => window.show())

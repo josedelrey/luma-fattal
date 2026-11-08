@@ -132,6 +132,10 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path):
         assert b"404" in request("/media/../../pyproject.toml")[0]
         assert b"404" in request("/server.py")[0]
         assert b"200" in request("/")[0]
+        head, body = request("/assets/Arimo-Regular.ttf")
+        assert b"200" in head and b"font/ttf" in head
+        assert body.startswith(b"\x00\x01\x00\x00")
+        assert b"403" in request("/assets/Arimo-Regular.ttf", token=False)[0]
         head, body = request(
             "/api/import",
             method="POST",
