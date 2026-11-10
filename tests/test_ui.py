@@ -321,7 +321,10 @@ def test_clip_analysis_is_bounded_and_uses_real_source_samples(tmp_path, tools):
 def test_processing_rate_and_eta_use_elapsed_job_time(tmp_path, monkeypatch):
     app = Workbench(tmp_path / "session", tmp_path / "no-presets")
     try:
-        app.jobs["render"] = dict(kind="process", completed=0, total=None)
+        app.active_job = "render"
+        app.jobs["render"] = dict(
+            kind="process", state="running", completed=0, total=None
+        )
         app.job_started["render"] = 100.0
         monkeypatch.setattr("luma_fattal.ui.server.time.monotonic", lambda: 100.0)
         app.update("render", completed=0)
@@ -503,6 +506,53 @@ def test_preview_publishes_all_thumbnails_before_full_frames(tmp_path, monkeypat
     finally:
         resume.set()
         app.executor.shutdown()
+
+
+def test_preview_replacement_skips_stale_frames_and_queued_jobs(tmp_path, monkeypatch):
+    import threading
+
+    from luma_fattal.ui import server
+
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["test"] = dict(path=tmp_path / "source.mp4", duration=10)
+    entered = threading.Event()
+    resume = threading.Event()
+    calls = []
+    monkeypatch.setattr(server, "_probe", lambda *_: {})
+    monkeypatch.setattr(server, "_geometry", lambda *_: ((32, 24), 0, 1))
+
+    def frame(source, config, timestamp, max_edge=None):
+        beta = config.parameters.beta
+        calls.append(beta)
+        if beta == 80:
+            entered.set()
+            assert resume.wait(10)
+        return Image.new("RGB", (32, 24))
+
+    def submit(beta):
+        config = Config(parameters=FilterParams(beta=beta))
+        return app.submit("preview", dict(upload="test", config=config.to_dict()))
+
+    monkeypatch.setattr(server, "preview_frame", frame)
+    try:
+        first = submit(80)
+        assert entered.wait(10)
+        intermediate = submit(70)
+        latest = submit(60)
+        assert (
+            app.jobs[first]["state"] == app.jobs[intermediate]["state"] == "superseded"
+        )
+        assert app.jobs[latest]["state"] == "running"
+    finally:
+        resume.set()
+        app.executor.shutdown()
+
+    assert calls == [80, *([60] * 10)]
+    assert app.jobs[first]["completed"] == 0
+    assert not (app.directory / intermediate).exists()
+    assert app.jobs[latest]["state"] == "done"
+    assert app.jobs[latest]["completed"] == 10
+    assert not app.busy
 
 
 @pytest.mark.parametrize("width,height", [(512, 288), (288, 512)])

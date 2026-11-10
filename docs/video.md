@@ -229,8 +229,10 @@ The desktop shell starts and stops its own local server automatically.
    automatically.
 3. Adjust sliders, numeric fields, and selectors. **More settings** always shows
    the same controls, including settings inactive for the selected mode or backend.
-   Automatic previews update after you stop changing a value. Turn off auto
-   preview to make several changes, then Refresh. **Save…** beside the filter
+   Automatic previews update after you release a slider or finish typing a value.
+   You can keep editing while previews render. A newer preview replaces the
+   previous one after its current frame. Turn off auto preview to make several
+   changes, then Refresh. **Save…** beside the filter
    saves your current configuration before rendering, and **Reset** restores the
    loaded preset values.
 4. Inspect the samples at 10%, 30%, 50%, 70%, and 90% of the clip. Click a sample
@@ -245,8 +247,8 @@ Full-resolution samples use the video adapter's geometry, color conversion, sour
 treatments, and recipe resolution. They process isolated frames on the CPU. Temporal
 cleanup history, cadence conversion, and adaptive GPU approximation can differ in a full
 render. Samples are an effect preview, not a guarantee of identical output pixels.
-Short clips may repeat their last available frame. Full-resolution presets can
-make previews slow. Settings are locked during each operation.
+Short clips may repeat their last available frame. Full previews can take longer
+for large inputs. A video render uses the settings in effect when it starts.
 
 Uploads, previews, and outputs stay under `outputs/ui/<session>/` by default.
 Use `--output-dir` to choose another location. Files remain after shutdown, even

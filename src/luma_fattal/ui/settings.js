@@ -139,11 +139,11 @@ class ConfigurationPanel {
           row.append(range);
           range.addEventListener('input', () => {
             input.value = range.value;
-            input.dispatchEvent(new Event('input'));
           });
         }
         const control = {section, key, input, range, type, max, step, settings};
         this.controls.push(control);
+        range?.addEventListener('change', () => this.edit(control));
         input.addEventListener(Array.isArray(type) || type === 'boolean' ? 'change' : 'input', () => this.edit(control));
         (section === 'parameters' && index < 7 ? basic : group).append(row);
       }
@@ -224,7 +224,7 @@ class ConfigurationPanel {
     return !invalid;
   }
 
-  setBusy(value) {
+  setDisabled(value) {
     for (const {input, range} of this.controls) {
       input.disabled = value;
       if (range) range.disabled = value;

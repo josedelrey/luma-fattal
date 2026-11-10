@@ -197,7 +197,11 @@ class Workbench:
         self.uploads: dict[str, dict] = {}
         self.lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=1)
-        self.busy = False
+        self.active_job: str | None = None
+
+    @property
+    def busy(self):
+        return self.active_job is not None
 
     def submit(self, kind: str, data: dict) -> str:
         config = Config.from_dict(data["config"])
@@ -205,10 +209,13 @@ class Workbench:
             raise ValueError("Choose one Fattal filter for video")
         upload = self.uploads[data["upload"]]
         with self.lock:
-            if self.busy:
-                raise ValueError("Another operation is still running")
-            self.busy = True
+            if self.active_job is not None:
+                active = self.jobs[self.active_job]
+                if active["kind"] != "preview":
+                    raise ValueError("Another operation is still running")
+                active["state"] = "superseded"
             identifier = uuid4().hex
+            self.active_job = identifier
             self.job_started[identifier] = time.monotonic()
             self.jobs[identifier] = dict(
                 state="running",
@@ -216,11 +223,17 @@ class Workbench:
                 total=16 if kind == "analyze" else 10 if kind == "preview" else None,
                 kind=kind,
             )
-        self.executor.submit(self.run, identifier, kind, upload, config)
+            self.executor.submit(self.run, identifier, kind, upload, config)
         return identifier
+
+    def is_active(self, identifier: str):
+        with self.lock:
+            return identifier == self.active_job
 
     def update(self, identifier: str, **values):
         with self.lock:
+            if identifier != self.active_job:
+                return
             job = self.jobs[identifier]
             job.update(values)
             if job["kind"] == "process":
@@ -240,11 +253,15 @@ class Workbench:
                     fps=fps,
                     eta=remaining / fps if fps and remaining is not None else None,
                 )
+            if job["state"] in ("done", "error"):
+                self.active_job = None
 
     def run(self, identifier: str, kind: str, upload: dict, config: Config):
         folder = self.directory / identifier
-        folder.mkdir()
         try:
+            if not self.is_active(identifier):
+                return
+            folder.mkdir()
             if kind == "analyze":
                 samples = []
                 previous = None
@@ -282,13 +299,18 @@ class Workbench:
                         else config
                     )
                     for index, frame in enumerate(frames):
+                        if not self.is_active(identifier):
+                            return
                         filename = f"{phase}-{index}.png"
-                        preview_frame(
+                        image = preview_frame(
                             upload["path"],
                             preview_config,
                             frame["time"],
                             max_edge=max_edge,
-                        ).save(folder / filename)
+                        )
+                        if not self.is_active(identifier):
+                            return
+                        image.save(folder / filename)
                         url = f"/media/{identifier}/{filename}"
                         # Publish snapshots only after the image is fully written.
                         frames = [
@@ -326,9 +348,6 @@ class Workbench:
                 )
         except Exception as error:
             self.update(identifier, state="error", error=str(error))
-        finally:
-            with self.lock:
-                self.busy = False
 
 
 class Handler(BaseHTTPRequestHandler):

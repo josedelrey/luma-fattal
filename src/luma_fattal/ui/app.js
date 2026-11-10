@@ -19,6 +19,7 @@ for (const [surface, filename] of Object.entries({body: 'viscera', controls: 'pa
 }
 document.documentElement.style.setProperty('--monitor-texture', `url('${secured('/assets/panel-078-red.png')}')`);
 let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, revision = 0, previewRevision = -1, timer, resultConfig, pendingImport;
+let previewRun, pendingSubmission = Promise.resolve(), importing = false;
 const player = $('player');
 const fileDialogs = window.desktopFiles;
 if (window.desktopWindow) {
@@ -54,10 +55,16 @@ async function api(path, options = {}) {
 function formatTime(seconds) { if (!Number.isFinite(seconds)) return '00:00'; return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`; }
 function setBusy(value) {
   busy = value;
+  if (value) {
+    clearTimeout(timer);
+    previewRun = undefined;
+  }
   $('rescan').disabled = value || !upload;
   for (const id of ['process', 'refresh']) $(id).disabled = value || !upload;
-  for (const id of ['open-video', 'screen-load', 'presets', 'import-preset', 'filter', 'reset', 'save-preset']) $(id).disabled = value;
-  settingsPanel.setBusy(value);
+  for (const id of ['open-video', 'screen-load']) $(id).disabled = value;
+  for (const id of ['presets', 'import-preset', 'filter', 'reset', 'save-preset']) $(id).disabled = !config;
+  settingsPanel.setDisabled(!config);
+  if (!value) schedulePreview();
 }
 function setProcessing(value) {
   document.querySelector('.process-slot').classList.toggle('is-processing', value);
@@ -70,11 +77,14 @@ function updateProcessing(job) {
   $('process-eta').textContent = job.total && job.completed >= job.total ? 'Finalizing…' :
     Number.isFinite(job.eta) ? `ETA ${formatTime(Math.ceil(job.eta))}` : 'ETA —';
 }
+function schedulePreview() {
+  clearTimeout(timer);
+  if (!busy && upload && $('auto-preview').checked && previewRevision !== revision) timer = setTimeout(preview, 350);
+}
 function changed() {
   revision++;
   $('preview-state').textContent = upload ? 'Settings changed. Preview is out of date.' : 'Five evenly spaced frames:';
-  clearTimeout(timer);
-  if (upload && $('auto-preview').checked) timer = setTimeout(preview, 700);
+  schedulePreview();
 }
 function loadConfig(value, name = $('presets').value) {
   config = structuredClone(value);
@@ -155,9 +165,10 @@ function showVideo(processed) {
   $('original-tab').classList.toggle('active', !processed); $('result-tab').classList.toggle('active', processed);
   $('original-tab').setAttribute('aria-pressed', !processed); $('result-tab').setAttribute('aria-pressed', processed);
 }
-async function poll(identifier, onUpdate) {
-  while (true) {
+async function poll(identifier, onUpdate, current) {
+  while (current()) {
     const job = await api(`/api/jobs/${identifier}`);
+    if (!current() || job.state === 'superseded') return;
     onUpdate?.(job);
     updateProcessing(job);
     const progress = $('progress');
@@ -169,27 +180,44 @@ async function poll(identifier, onUpdate) {
     await new Promise(resolve => setTimeout(resolve, onUpdate ? 150 : 600));
   }
 }
-async function start(kind, onUpdate) {
+async function start(kind, onUpdate, current = () => true) {
   $('progress').style.visibility = '';
-  const response = await api(`/api/${kind}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({upload: upload.upload, config})});
-  return poll(response.job, onUpdate);
+  const body = JSON.stringify({upload: upload.upload, config});
+  // Keep submissions ordered even if an older preview is still waiting for its job ID.
+  const submission = pendingSubmission.then(() => current() && api(`/api/${kind}`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body,
+  }));
+  pendingSubmission = submission.catch(() => {});
+  const response = await submission;
+  if (response && current()) return poll(response.job, onUpdate, current);
 }
 async function preview() {
-  if (busy || !upload || previewRevision === revision || !settingsPanel.valid()) return;
-  clearTimeout(timer); setBusy(true); $('preview-state').textContent = 'Generating previews…';
+  if (busy || !upload || previewRevision === revision || previewRun?.revision === revision || !settingsPanel.valid()) return;
+  clearTimeout(timer);
+  const run = {revision};
+  previewRun = run;
+  const current = () => previewRun === run && revision === run.revision;
+  $('preview-state').textContent = 'Generating previews…';
   status('PREPARING PREVIEW / first use may compile numerical kernels');
   try {
-    const atRevision = revision;
     placeholders();
-    await start('preview', updatePreviewFrames);
-    previewRevision = atRevision;
+    const job = await start('preview', updatePreviewFrames, current);
+    if (!current() || !job) return;
+    previewRevision = run.revision;
     $('preview-state').textContent = 'Current settings / five independent frames';
     status('Preview ready. Click a frame to enlarge.');
-  } catch (error) { previewError = true; if ($('lightbox').open) updateLightbox(); status(error.message, true); $('preview-state').textContent = 'PREVIEW FAILED / adjust settings and retry'; }
-  finally { setBusy(false); }
+  } catch (error) {
+    if (!current()) return;
+    previewError = true;
+    if ($('lightbox').open) updateLightbox();
+    status(error.message, true);
+    $('preview-state').textContent = 'PREVIEW FAILED / adjust settings and retry';
+  } finally {
+    if (previewRun === run) previewRun = undefined;
+  }
 }
 async function loadVideo(file, nextUpload) {
-  clearTimeout(timer); setBusy(true); status('COPYING SOURCE TO LOCAL SESSION…'); $('progress').style.visibility = ''; $('progress').removeAttribute('value');
+  setBusy(true); status('COPYING SOURCE TO LOCAL SESSION…'); $('progress').style.visibility = ''; $('progress').removeAttribute('value');
   try {
     nextUpload ??= await api('/api/upload', {method: 'POST', body: file});
     upload = nextUpload; originalUrl = upload.url; resultUrl = undefined;
@@ -219,15 +247,15 @@ $('filter').onchange = () => { config.filter = $('filter').value; changed(); };
 $('auto-preview').onchange = () => { if ($('auto-preview').checked) preview(); else clearTimeout(timer); };
 $('import-preset').onclick = async () => {
   if (!fileDialogs) return $('preset-file').click();
-  if (busy) return;
-  setBusy(true);
+  if (importing) return;
+  importing = true;
   try { const selected = await fileDialogs.open('preset'); if (selected) { loadImported(selected.config, selected.name); status(`RECIPE LOADED / ${selected.name}`); } }
   catch (error) { status(error.message, true); }
-  finally { setBusy(false); }
+  finally { importing = false; }
 };
 $('preset-file').onchange = async event => {
-  const file = event.target.files[0]; if (!file || busy) return;
-  setBusy(true);
+  const file = event.target.files[0]; if (!file || importing) return;
+  importing = true;
   try {
     pendingImport ??= {filename: file.name, files: {}};
     const name = pendingImport.missingSource || file.name;
@@ -243,13 +271,13 @@ $('preset-file').onchange = async event => {
       status(`Open… ${error.missingSource} to complete this recipe. Cancel the file picker to start over.`, true);
     } else { pendingImport = undefined; status(error.message, true); }
   }
-  finally { setBusy(false); event.target.value = ''; }
+  finally { importing = false; event.target.value = ''; }
 };
 $('preset-file').oncancel = () => { pendingImport = undefined; };
-$('refresh').onclick = () => { if (!settingsPanel.valid(true)) return; previewRevision = -1; preview(); };
+$('refresh').onclick = () => { if (!settingsPanel.valid(true)) return; revision++; preview(); };
 $('process').onclick = async () => {
   if (busy || !upload || !settingsPanel.valid(true)) return;
-  clearTimeout(timer); setBusy(true); setProcessing(true); $('export-panel').hidden = true; status('VALIDATING SOURCE / preparing encoder and filter');
+  setBusy(true); setProcessing(true); $('export-panel').hidden = true; status('VALIDATING SOURCE / preparing encoder and filter');
   const snapshot = structuredClone(config);
   try {
     const job = await start('process'); resultUrl = job.url; resultConfig = snapshot;
