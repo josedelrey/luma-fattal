@@ -7,8 +7,48 @@ const { runtimePaths } = require('../desktop/paths.cjs')
 const path = require('node:path')
 const { EventEmitter } = require('node:events')
 const { installDisplayScaling } = require('../desktop/layout.cjs')
+const { download } = require('../desktop/download.cjs')
+const http = require('node:http')
+const { Readable } = require('node:stream')
+const { mkdtemp, readFile, rm } = require('node:fs/promises')
+const os = require('node:os')
 
 const entry = 'http://127.0.0.1:8765/?token=session-secret'
+
+test('streams desktop exports and reports interrupted responses', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'luma-download-'))
+  const original = http.get
+  const payload = Buffer.alloc(1024 * 1024, 73)
+  let response
+  http.get = (url, callback) => {
+    const request = new EventEmitter()
+    process.nextTick(() => callback(response))
+    return request
+  }
+  try {
+    response = Readable.from([payload.subarray(0, 200000), payload.subarray(200000)])
+    response.statusCode = 200
+    const destination = path.join(directory, 'result')
+    await download('http://127.0.0.1/test', destination)
+    assert.deepEqual(await readFile(destination), payload)
+
+    response = new Readable({
+      read() {
+        this.push(Buffer.from('partial'))
+        this.destroy(new Error('connection interrupted'))
+      },
+    })
+    response.statusCode = 200
+    await assert.rejects(download('http://127.0.0.1/test', path.join(directory, 'partial')), /connection interrupted/)
+
+    response = Readable.from(['missing'])
+    response.statusCode = 404
+    await assert.rejects(download('http://127.0.0.1/test', path.join(directory, 'missing')), /Export failed \(404\)/)
+  } finally {
+    http.get = original
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test('accepts the authenticated loopback URL printed by the UI server', () => {
   assert.equal(workbenchURL(entry), entry)

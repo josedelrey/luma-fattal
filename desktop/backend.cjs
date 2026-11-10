@@ -2,6 +2,7 @@
 
 const { spawn } = require('node:child_process')
 const { existsSync, mkdirSync, createWriteStream } = require('node:fs')
+const http = require('node:http')
 const path = require('node:path')
 const readline = require('node:readline')
 const { setTimeout: delay } = require('node:timers/promises')
@@ -60,9 +61,18 @@ class Backend {
         finish()
         try {
           const url = workbenchURL(line.slice('Luma Fattal: '.length).trim())
-          const response = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: 'error' })
-          await response.body?.cancel()
-          if (!response.ok) throw new Error('The Python backend did not accept its session URL.')
+          await new Promise((resolve, reject) => {
+            const request = http.get(url, { timeout: 5000 }, response => {
+              response.resume()
+              response.on('error', reject)
+              response.on('end', () => {
+                if (response.statusCode >= 200 && response.statusCode < 300) resolve()
+                else reject(new Error('The Python backend did not accept its session URL.'))
+              })
+            })
+            request.on('timeout', () => request.destroy(new Error('The Python backend did not respond in time.')))
+            request.on('error', reject)
+          })
           if (this.stopping || this.child.exitCode !== null) return
           this.started = true
           resolve(url)

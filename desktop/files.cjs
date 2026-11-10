@@ -1,10 +1,10 @@
 'use strict'
 
-const { createReadStream, createWriteStream, promises: fs } = require('node:fs')
+const { createReadStream, promises: fs } = require('node:fs')
 const http = require('node:http')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
-const { pipeline } = require('node:stream/promises')
+const { download } = require('./download.cjs')
 const { dialog, ipcMain } = require('electron')
 
 function installFileDialogs(window, entry) {
@@ -93,11 +93,7 @@ function installFileDialogs(window, entry) {
     const temporary = `${target}.${randomUUID()}.tmp`
     try {
       if (kind === 'config') await fs.writeFile(temporary, content, { flag: 'wx' })
-      else {
-        const response = await fetch(endpoint(mediaPath))
-        if (!response.ok || !response.body) throw new Error(`Export failed (${response.status})`)
-        await pipeline(response.body, createWriteStream(temporary, { flags: 'wx' }))
-      }
+      else await download(endpoint(mediaPath), temporary)
       await fs.rename(temporary, target)
       return true
     } finally { await fs.rm(temporary, { force: true }) }
