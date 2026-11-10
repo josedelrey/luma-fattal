@@ -6,6 +6,7 @@ import argparse
 import hmac
 import json
 import mimetypes
+import os
 import secrets
 import shutil
 import subprocess
@@ -435,7 +436,12 @@ class Workbench:
             {"time": timestamp, "width": dimensions[0], "height": dimensions[1]}
             for timestamp in timestamps
         ]
-        cuda = self.preview_cuda if self.preview_cuda.core is not None else None
+        cuda = (
+            self.preview_cuda
+            if config.video.filter_backend == "auto"
+            and self.preview_cuda.core is not None
+            else None
+        )
         self.update(identifier, frames=frames)
         remaining_bytes = PREVIEW_BITMAP_BYTES
 
@@ -470,31 +476,73 @@ class Workbench:
             }
             self.update(identifier, completed=index + 1, frames=frames)
 
-        # Decode the next sample while the job worker filters this one.
-        with ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="preview-decode"
-        ) as io:
-            decoding = io.submit(samples.decode, config, timestamps[0])
-            try:
-                for index, timestamp in enumerate(timestamps):
-                    if not self.is_active(identifier):
-                        return
-                    frame = decoding.result()
-                    if not self.is_active(identifier):
-                        return
-                    if index + 1 < len(timestamps):
-                        decoding = io.submit(
-                            samples.decode, config, timestamps[index + 1]
-                        )
-                    image = _filter_preview(frame, config, cuda, tone_maps[timestamp])
-                    if cuda is not None and cuda.core is None:
-                        for slots in tone_maps.values():
-                            slots.cuda.value = None
-                            slots.cuda.color_inputs = None
-                        cuda = None
-                    publish(index, image)
-            finally:
-                decoding.cancel()
+        def render(timestamp: float, frame: np.ndarray):
+            nonlocal cuda
+            if not self.is_active(identifier):
+                return None
+            image = _filter_preview(frame, config, cuda, tone_maps[timestamp])
+            if cuda is not None and cuda.core is None:
+                for slots in tone_maps.values():
+                    slots.cuda.value = None
+                    slots.cuda.color_inputs = None
+                cuda = None
+            return image
+
+        cpu_workers = min(3, os.cpu_count() or 1)
+        if (
+            cuda is None
+            and cpu_workers > 1
+            and config.parameters.fade < 100
+            and all(timestamp in samples.frames for timestamp in timestamps)
+        ):
+            # Give the first sample the full CPU before sharing work.
+            first = render(timestamps[0], samples.frames[timestamps[0]])
+            if first is None:
+                return
+            publish(0, first)
+            if not self.is_active(identifier):
+                return
+            with ThreadPoolExecutor(
+                max_workers=cpu_workers, thread_name_prefix="preview-filter"
+            ) as workers:
+                pending = [
+                    workers.submit(render, timestamp, samples.frames[timestamp])
+                    for timestamp in timestamps[1:]
+                ]
+                try:
+                    for index, future in enumerate(pending, start=1):
+                        if not self.is_active(identifier):
+                            return
+                        image = future.result()
+                        if image is None:
+                            return
+                        publish(index, image)
+                finally:
+                    for future in pending:
+                        future.cancel()
+        else:
+            # Decode the next sample while the job worker filters this one.
+            with ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="preview-decode"
+            ) as io:
+                decoding = io.submit(samples.decode, config, timestamps[0])
+                try:
+                    for index, timestamp in enumerate(timestamps):
+                        if not self.is_active(identifier):
+                            return
+                        frame = decoding.result()
+                        if not self.is_active(identifier):
+                            return
+                        if index + 1 < len(timestamps):
+                            decoding = io.submit(
+                                samples.decode, config, timestamps[index + 1]
+                            )
+                        image = render(timestamp, frame)
+                        if image is None:
+                            return
+                        publish(index, image)
+                finally:
+                    decoding.cancel()
         self.update(identifier, state="done")
 
     def run(self, identifier: str, kind: str, upload: dict, config: Config):

@@ -452,6 +452,76 @@ def test_preview_spills_to_disk_when_bitmap_budget_is_full(tmp_path, monkeypatch
         app.executor.shutdown()
 
 
+def test_warm_cpu_preview_prioritizes_first_frame_and_supersedes_parallel_work(
+    tmp_path, monkeypatch
+):
+    from threading import Event, Lock
+
+    from luma_fattal.ui import server
+
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["test"] = dict(path=tmp_path / "source.mp4", duration=10)
+    monkeypatch.setattr(server.os, "cpu_count", lambda: 8)
+    monkeypatch.setattr(server, "_probe", lambda *_: {})
+    monkeypatch.setattr(server, "_geometry", lambda *_: ((3, 2), 0, 1))
+    monkeypatch.setattr(
+        server,
+        "decoded_sample",
+        lambda source, config, timestamp, **_: np.full(
+            (2, 3, 3), int(timestamp), np.uint8
+        ),
+    )
+    first_started, first_release = Event(), Event()
+    filters_overlap, filters_release = Event(), Event()
+    started = []
+    lock = Lock()
+
+    def render(frame, config, cuda, tone_maps):
+        timestamp = int(frame[0, 0, 0])
+        if config.parameters.beta == 70:
+            with lock:
+                started.append(timestamp)
+                if len(started) >= 3:
+                    filters_overlap.set()
+            if timestamp == 1:
+                first_started.set()
+                assert first_release.wait(10)
+            else:
+                assert filters_release.wait(10)
+        return Image.fromarray(frame)
+
+    def submit(params):
+        config = Config(parameters=params)
+        return app.submit("preview", dict(upload="test", config=config.to_dict()))
+
+    monkeypatch.setattr(server, "_filter_preview", render)
+    try:
+        initial = submit(FilterParams(fade=100))
+        app.executor.submit(lambda: None).result(timeout=10)
+        assert app.jobs[initial]["state"] == "done"
+        edited = submit(FilterParams(beta=70))
+        assert first_started.wait(10)
+        with lock:
+            assert started == [1]
+        first_release.set()
+        assert filters_overlap.wait(10)
+        assert app.jobs[edited]["completed"] == 1
+        assert "url" in app.jobs[edited]["frames"][0]
+        latest = submit(FilterParams(beta=60))
+        filters_release.set()
+        app.executor.submit(lambda: None).result(timeout=10)
+        assert app.jobs[edited]["state"] == "superseded"
+        assert app.jobs[edited]["completed"] == 1
+        assert app.jobs[latest]["state"] == "done"
+        for sample in app.jobs[latest]["frames"]:
+            with Image.open(BytesIO(app.preview_bitmaps[sample["url"]])) as image:
+                assert image.getpixel((0, 0)) == (int(sample["time"]),) * 3
+    finally:
+        first_release.set()
+        filters_release.set()
+        app.executor.shutdown()
+
+
 def test_preview_replacement_skips_stale_frames_and_queued_jobs(tmp_path, monkeypatch):
     import threading
 

@@ -230,8 +230,8 @@ The desktop shell starts and stops its own local server automatically.
 3. Adjust sliders, numeric fields, and selectors. **More settings** always shows
    the same controls, including settings inactive for the selected mode or backend.
    Automatic previews update after you release a slider or finish typing a value.
-   You can keep editing while previews render. A newer preview replaces the
-   previous one after its current frame. Turn off auto preview to make several
+   You can keep editing while previews render. A newer preview starts when
+   the frames already running finish. Turn off auto preview to make several
    changes, then Refresh. **Save…** beside the filter
    saves your current configuration before rendering, and **Reset** restores the
    loaded preset values.
@@ -240,12 +240,13 @@ The desktop shell starts and stops its own local server automatically.
 5. Process video, then switch between Original and Processed playback. Save
    the MP4, run metadata, and the exact render configuration from the output panel.
 
-Each sample appears as soon as its full preview is ready. Previews use the video
+Full preview samples appear in order as they finish. Previews use the video
 adapter's geometry, color conversion, source treatments, and normal filter
 resolution. Auto backend mode can reuse CUDA after background initialization.
-The CPU handles previews while CUDA is warming up or unavailable. Each sample is
-filtered independently. Temporal cleanup history, cadence conversion, and
-export-specific GPU settings can affect the rendered video.
+The CPU handles previews while CUDA is warming up or unavailable. When decoded
+samples are already cached, the CPU filters the first frame before assigning
+the rest to up to three workers. Temporal cleanup history, cadence conversion,
+and export-specific GPU settings can affect the rendered video.
 Short clips may repeat their last available frame. Full previews can take longer
 for large inputs. A video render uses the settings in effect when it starts.
 

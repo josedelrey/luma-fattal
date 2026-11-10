@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass
 from functools import lru_cache
+from threading import Lock
 from typing import Generic, Protocol, Self, TypeVar
 
 import numpy as np
@@ -505,11 +506,12 @@ class _ColorArray(Protocol):
 _Array = TypeVar("_Array", bound=_ColorArray)
 
 
-@dataclass
 class ColorInputBudget:
     """Shared allowance for prepared color inputs across preview samples."""
 
-    remaining: int
+    def __init__(self, remaining: int):
+        self.remaining = remaining
+        self.lock = Lock()
 
 
 @dataclass(frozen=True)
@@ -544,15 +546,16 @@ class ToneMapSlot(Generic[_Array]):
             size += colors.nbytes
         if reference is not None and not shared_reference:
             size += reference.nbytes
-        if size > budget.remaining:
-            return
-        if copy:
-            luminance = luminance.copy()
-            colors = None if colors is None else colors.copy()
-            if reference is not None:
-                reference = luminance if shared_reference else reference.copy()
-        self.color_inputs = _ColorInputs(luminance, colors, reference)
-        budget.remaining -= size
+        with budget.lock:
+            if size > budget.remaining:
+                return
+            if copy:
+                luminance = luminance.copy()
+                colors = None if colors is None else colors.copy()
+                if reference is not None:
+                    reference = luminance if shared_reference else reference.copy()
+            self.color_inputs = _ColorInputs(luminance, colors, reference)
+            budget.remaining -= size
 
 
 def _solve_tone_map(luminance, maximum, variant, params, numerics, solver):
