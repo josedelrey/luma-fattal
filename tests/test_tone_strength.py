@@ -13,7 +13,6 @@ from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
-    ProcessingConfig,
     apply_filter,
 )
 from luma_fattal.cli import main
@@ -129,14 +128,16 @@ def test_zero_strength_handles_degenerate_flat_mapping(variant):
 @pytest.mark.parametrize("variant", [1, 2])
 @pytest.mark.parametrize("max_edge", [None, 40])
 def test_tone_strength_changes_both_resolution_routes_and_retains_fade(
-    variant, max_edge
+    variant,
+    max_edge,
+    set_size_limits,
 ):
+    set_size_limits(max_edge)
     pixels = np.random.default_rng(83).integers(20, 220, (67, 91, 3), np.uint8)
     original = pixels.copy()
     config = Config(
         filter=f"fattal{variant}",
         parameters=FilterParams(fade=0, tone_strength=40),
-        processing=ProcessingConfig(resize=max_edge is not None, max_edge=max_edge),
     )
     result = apply_filter(pixels, config=config)
     full = apply_filter(

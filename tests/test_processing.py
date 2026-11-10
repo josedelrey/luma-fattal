@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fattal import FilterParams, apply_filter
+from luma_fattal import Config, FilterParams, apply_filter
 from luma_fattal.cli import main
 from luma_fattal.processing import (
     enlargement_sizes,
@@ -146,20 +146,25 @@ def test_profile_rejects_unvalidated_transparent_route():
         apply_filter(np.zeros((32, 32, 4), np.uint8))
 
 
-def test_default_large_route_reduces_before_filtering(monkeypatch):
+@pytest.mark.parametrize(
+    "preset", ["default-fast", "fattal-1-compressed-fast", "high-fast"]
+)
+def test_presets_use_fixed_working_grid(monkeypatch, preset):
     from luma_fattal import core
     from luma_fattal.processing import resize_nearest
 
     pixels = np.random.default_rng(55).integers(0, 256, (32, 2048, 3), np.uint8)
     calls = []
-    original_apply = apply_filter
+    config = Config.load(
+        Path(__file__).resolve().parents[1] / "configs" / f"{preset}.yaml"
+    )
 
     def record_core_call(image, variant, params, numerics):
         calls.append((image.copy(), variant, params.fade, numerics))
         return image.copy()
 
     monkeypatch.setattr(core, "apply_core", record_core_call)
-    result = original_apply(pixels, 2, FilterParams(fade=0))
+    result = apply_filter(pixels, 2, FilterParams(fade=0), config=config)
     assert result.shape == pixels.shape
     assert len(calls) == 1
     work, variant, fade, numerics = calls[0]

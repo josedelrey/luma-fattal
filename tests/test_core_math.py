@@ -12,7 +12,6 @@ from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
-    ProcessingConfig,
     apply_filter,
 )
 from luma_fattal.core import _divergence, _normalize, _phi, _pyramid, _recombine, _sor
@@ -86,7 +85,6 @@ def test_image_processing_handles_tiny_alpha_without_numeric_warnings(
     original = pixels.copy()
     config = Config(
         parameters=FilterParams(alpha=alpha, beta=beta, fade=0),
-        processing=ProcessingConfig(resize=False),
         numerics=NumericsConfig(power_mode=power_mode),
     )
     with np.errstate(divide="raise", over="raise", invalid="raise"):

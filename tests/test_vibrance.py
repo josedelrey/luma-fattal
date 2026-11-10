@@ -171,7 +171,9 @@ def test_protected_shadows_keep_original_color(softness):
 def test_vibrance_works_in_both_resolution_routes_and_preserves_fade_and_alpha(
     variant,
     max_edge,
+    set_size_limits,
 ):
+    set_size_limits(max_edge)
     pixels = np.random.default_rng(97).integers(20, 240, (67, 91, 4), np.uint8)
     before = pixels.copy()
     config = Config(
@@ -184,9 +186,7 @@ def test_vibrance_works_in_both_resolution_routes_and_preserves_fade_and_alpha(
             black_level=5,
             white_level=95,
         ),
-        processing=ProcessingConfig(
-            resize=max_edge is not None, max_edge=max_edge, transparency="straight"
-        ),
+        processing=ProcessingConfig(transparency="straight"),
     )
     result = apply_filter(pixels, config=config)
     disabled = apply_filter(

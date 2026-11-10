@@ -1,17 +1,16 @@
 """Sampled decoder references and file-versus-pixel API contracts."""
 
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image
 
-from luma_fattal import Config, FilterParams, ProcessingConfig, apply_filter
+from luma_fattal import Config, FilterParams, apply_filter
 from luma_fattal.cli import main
 from luma_fattal.image_io import decode_input
-from luma_fattal.processing import input_size
+from luma_fattal.processing import input_size, resize_bilinear_fixed
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GEOMETRY_REFERENCE = json.loads((FIXTURES / "input-geometry.json").read_text())
@@ -48,40 +47,17 @@ def test_loaded_jpeg_is_an_already_decoded_pixel_input():
         assert decode_input(original, 100, True) is original
 
 
-@pytest.mark.parametrize(
-    "device,limit", [("low", 4_000_000), ("medium", 8_000_000), ("high", 12_000_000)]
-)
-def test_import_limits_are_separate_from_working_edge(device, limit):
-    config = ProcessingConfig(device_class=device, max_edge=32)
-    assert config.effective_max_input_pixels == limit
-    assert config.effective_max_edge == 32
-    assert replace(config, limit_input_pixels=False).effective_max_input_pixels is None
-
-
-@pytest.mark.parametrize(
-    "values",
-    [
-        {"max_input_pixels": True},
-        {"max_input_pixels": 3},
-        {"limit_input_pixels": 1},
-        {"max_input_pixels": 100, "resize": False},
-        {"max_input_pixels": 100, "limit_input_pixels": False},
-    ],
-)
-def test_incompatible_import_settings_are_rejected(values):
-    with pytest.raises(ValueError):
-        ProcessingConfig(**values)
-
-
 @pytest.mark.parametrize("pillow", [False, True])
 @pytest.mark.parametrize("codec", ["png", "jpg"])
-def test_fade_identity_bypasses_input_and_working_limits(pillow, codec):
+def test_fade_identity_bypasses_input_and_working_limits(
+    pillow, codec, set_size_limits
+):
+    set_size_limits(4, pixels=100)
     source = FIXTURES / f"decode-pattern.{codec}"
     with Image.open(source) as image:
         pixels = np.asarray(image).copy()
     config = Config(
         parameters=FilterParams(fade=100),
-        processing=ProcessingConfig(max_input_pixels=100, max_edge=4),
     )
     if pillow:
         with Image.open(source) as image:
@@ -93,20 +69,28 @@ def test_fade_identity_bypasses_input_and_working_limits(pillow, codec):
     np.testing.assert_array_equal(np.asarray(result), pixels)
 
 
-def test_import_limit_applies_when_filtering_and_can_be_disabled():
+def test_import_limit_applies_when_filtering(set_size_limits):
+    set_size_limits(pixels=100)
     pixels = np.asarray(Image.open(FIXTURES / "decode-pattern.png"))
-    config = Config(processing=ProcessingConfig(max_input_pixels=100))
-    assert apply_filter(pixels, config=config).shape == (8, 11, 3)
-    bypass = replace(config, processing=ProcessingConfig(limit_input_pixels=False))
-    assert apply_filter(pixels, config=bypass).shape == pixels.shape
+    assert apply_filter(pixels).shape == (8, 11, 3)
     assert input_size((4000, 2000), 8_000_000) == (4000, 2000)
     assert input_size((3264, 2448), 8_000_000) == (3264, 2448)
 
 
+def test_legacy_core_profile_fits_straight_rgba_to_fixed_limits(set_size_limits):
+    set_size_limits(4, pixels=16)
+    pixels = np.random.default_rng(6).integers(0, 256, (6, 6, 4), np.uint8)
+    result = apply_filter(pixels, profile="core")
+    assert result.shape == (4, 4, 4)
+    expected_alpha = resize_bilinear_fixed(pixels[..., 3:], (4, 4))[..., 0]
+    np.testing.assert_array_equal(result[..., 3], expected_alpha)
+
+
 @pytest.mark.parametrize("fade", [0, 100])
 def test_cli_records_sampling_and_evaluation_uses_matching_geometry(
-    tmp_path, capsys, fade
+    tmp_path, capsys, fade, set_size_limits
 ):
+    set_size_limits(pixels=100)
     inputs = tmp_path / "inputs"
     inputs.mkdir()
     source = inputs / "pattern.png"
@@ -115,8 +99,6 @@ def test_cli_records_sampling_and_evaluation_uses_matching_geometry(
     options = [
         "--fade",
         str(fade),
-        "--max-input-pixels",
-        "100",
         "--output-format",
         "png",
     ]

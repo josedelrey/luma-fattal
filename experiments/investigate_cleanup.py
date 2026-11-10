@@ -62,8 +62,6 @@ CASES = {
 
 
 def prepare(rgb, config):
-    if not config.processing.resize:
-        return rgb
     rgb = limit_input_pixels(rgb, config.processing.effective_max_input_pixels)
     return resize_working(
         rgb,

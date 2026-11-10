@@ -66,17 +66,13 @@ dependencies for GPU speedups.
 
 | Preset | Purpose |
 | --- | --- |
-| [default.yaml](../configs/default.yaml) | General defaults, 8 MP input cap, 1536-pixel working edge |
-| [high.yaml](../configs/high.yaml) | General defaults with a 12 MP input cap and 2048-pixel working edge |
+| [default.yaml](../configs/default.yaml) | General defaults |
+| [high.yaml](../configs/high.yaml) | Legacy alias for general defaults |
 | [fattal-1.yaml](../configs/fattal-1.yaml), [fattal-2.yaml](../configs/fattal-2.yaml) | Full reference effect with smooth shadows |
 | [fattal-1-compressed.yaml](../configs/fattal-1-compressed.yaml) | Smooth shadows, gentle video debanding, standard cleanup 0.75 |
 | [fattal-1-compressed-multiscale.yaml](../configs/fattal-1-compressed-multiscale.yaml) | Compressed preset with scale-separated cleanup |
 | [fattal-1-compressed-noise.yaml](../configs/fattal-1-compressed-noise.yaml) | Compressed preset with masked high-pass noise at 0.35 RMS |
 | [fattal-1-compressed-fbm.yaml](../configs/fattal-1-compressed-fbm.yaml) | Masked fBm-like noise at 0.75 RMS, flat cleanup disabled |
-
-All `compressed` presets process frames at full resolution with
-`processing.resize: false`. They disable both the input-area cap and
-working-resolution reduction.
 
 Presets are configuration values. Loading one resolves inheritance and fills
 omitted fields from `Config()` defaults. It replaces the previous configuration,
@@ -85,7 +81,7 @@ behavior depends on the preset filename.
 
 The GUI keeps the same controls for every preset. Seven common effect controls
 are visible initially. **More settings** contains every remaining setting,
-including resolution, numerical controls, source treatment, encoding, and GPU
+including resampling, numerical controls, source treatment, encoding, and GPU
 performance. Controls stay available when their mode or backend is inactive.
 Image input and image export settings are also editable and saved, although they
 do not affect video processing. Schema version `1` is fixed, and video requires
@@ -99,11 +95,7 @@ that render. Both produce a complete JSON file that can be reopened in the GUI
 or loaded through the CLI and Python API.
 
 Numeric fields retain the preset's exact values and allow finer changes than
-the sliders' practical increments. Blank size limits use the selected size
-budget. Blank GPU iterations use `numerics.iterations`. Changing the size budget
-clears explicit size limits. Disabling resize clears both limits, and disabling
-the input-area cap clears its limit. Entering an explicit limit enables the
-corresponding resize controls.
+the sliders' practical increments. Blank GPU iterations use `numerics.iterations`.
 
 Use `extends` to inherit from a parent configuration and override selected settings.
 Parent paths are relative to the child file. Named sections merge by setting,
@@ -161,26 +153,17 @@ See [processing order](method.md#processing-order) for interactions between cont
 
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
-| `processing.device_class` | `medium` | `low`, `medium`, or `high`. Selects the size budgets below. This is a fixed profile, with no hardware detection. |
-| `processing.max_edge` | `null` | `null` uses the device-class working edge. An integer ≥ `2` overrides it. Limits the longest edge at which the effect runs. The result is enlarged to the prepared input dimensions afterward. |
-| `processing.max_input_pixels` | `null` | `null` uses the device-class input budget. An integer ≥ `4` overrides it. Caps input area before working-resolution filtering and can reduce final output dimensions. |
-| `processing.limit_input_pixels` | `true` | Boolean. Disable to remove the input-area cap while retaining the working-edge limit. |
-| `processing.resize` | `true` | Boolean. Disable to run at original dimensions without input-area fitting or working-resolution reduction. |
 | `processing.transparency` | `reject` | `reject` refuses nonopaque pixels. `straight` permits experimental straight-alpha RGBA processing, retaining alpha. Video output is always opaque. |
 | `processing.blend_mode` | `normal` | Only `normal` is supported. Controls blending of the filtered result with the original. |
 | `processing.working_resampler` | `nearest` | `nearest`, `bilinear`, or `bicubic` reduction to working resolution. Bilinear and bicubic use no antialias prefilter and truncate to RGB8. Bicubic clamps overshoot. Input-area fitting and enlargement use their own fixed resamplers. |
 
-| Device class | Input-area budget | Working longest edge |
-| --- | ---: | ---: |
-| `low` | 4,000,000 pixels | 1024 pixels |
-| `medium` | 8,000,000 pixels | 1536 pixels |
-| `high` | 12,000,000 pixels | 2048 pixels |
+Every preset uses the same fixed input-area cap of 8,000,000 pixels and
+working longest edge of 1536 pixels. The filtered image is enlarged to the
+prepared input dimensions afterward. The area cap can reduce output dimensions
+for large inputs. A fully bypassed effect preserves the original dimensions.
 
-`null` selects a device-class budget. To disable a limit, use the corresponding
-boolean. With `resize: false`, both explicit limits must be `null`. With
-`limit_input_pixels: false`, `max_input_pixels` must be `null`. Input-area
-reduction requires opaque pixels, so disable input pixel limiting when processing
-transparent RGBA that would exceed the budget.
+Older configuration files still load. Their `device_class`, `max_edge`,
+`max_input_pixels`, `limit_input_pixels`, and `resize` settings are ignored.
 
 ### Image input
 
@@ -303,9 +286,9 @@ Original pixels still control shadow protection and Fade.
 ## CLI overrides
 
 Settings use CLI flags with the section name removed and underscores replaced by
-hyphens, such as `--tone-strength 60`, `--max-edge 2048`, and `--pre-noise-rms 0.35`.
+hyphens, such as `--tone-strength 60` and `--pre-noise-rms 0.35`.
 `output.format` uses `--output-format`. Boolean settings also accept a `--no-`
-form, such as `--no-resize`, `--no-embed-icc`, and `--no-pre-noise-masked`.
+form, such as `--no-embed-icc` and `--no-pre-noise-masked`.
 `--jpeg-background` takes three integers, such as `--jpeg-background 255 255 255`.
 `schema_version` and `extends` are file-only settings.
 
@@ -313,12 +296,6 @@ Image input/output flags apply to `apply` and `evaluate`. Video flags apply to
 `video`. Effect, processing, and numerical flags apply to all three commands.
 Run `luma-fattal COMMAND --help` for command-specific options.
 
-Changing `--device-class` clears inherited explicit size limits unless they are
-also supplied on the CLI. `--no-resize` clears inherited limits, and
-`--no-limit-input-pixels` clears the inherited input-area limit. Explicit CLI
-limits must still satisfy the processing constraints.
-
-`--profile bounded-1536` selects built-in defaults. `--profile core` starts from
-those defaults with resizing disabled and straight RGBA allowed. `--profile`
-cannot be combined with `--config`. Profiles are CLI/API conveniences, with no
-configuration-file key.
+The legacy `--profile bounded-1536` selects built-in defaults. The legacy
+`--profile core` also allows straight RGBA. Both use the fixed size limits.
+`--profile` cannot be combined with `--config`.

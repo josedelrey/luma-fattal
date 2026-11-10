@@ -9,7 +9,6 @@ from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
-    ProcessingConfig,
     process_frames,
 )
 from luma_fattal.cleanup import SourceCleanup
@@ -217,12 +216,14 @@ def test_new_moving_edges_immediately_override_old_flat_mask():
 
 @pytest.mark.parametrize("variant", ["fattal1", "fattal2"])
 @pytest.mark.parametrize("resize", [True, False])
-def test_zero_strength_preserves_frame_pixels_and_fade(variant, resize):
+def test_zero_strength_preserves_frame_pixels_and_fade(
+    variant, resize, set_size_limits
+):
+    set_size_limits(60 if resize else None)
     rgb = np.random.default_rng(19).integers(0, 256, (35, 47, 3), np.uint8)
     config = Config(
         filter=variant,
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(resize=resize),
         numerics=NumericsConfig(iterations=11, shadow_softness=6),
     )
     baseline = next(process_frames([rgb], config=config))
@@ -240,12 +241,11 @@ def test_zero_strength_preserves_frame_pixels_and_fade(variant, resize):
     assert cleanup.frames == 0
 
 
-def test_cleanup_is_applied_at_working_resolution():
+def test_cleanup_is_applied_at_working_resolution(set_size_limits):
+    set_size_limits(60)
     rgb = np.full((80, 120, 3), 80, np.uint8)
     cleanup = SourceCleanup(0.25)
-    config = Config(
-        processing=ProcessingConfig(max_edge=60), numerics=NumericsConfig(iterations=11)
-    )
+    config = Config(numerics=NumericsConfig(iterations=11))
     output = next(process_frames([rgb], config=config, source_cleanup=cleanup))
     assert cleanup.shape == (40, 60, 3)
     assert output.shape == rgb.shape

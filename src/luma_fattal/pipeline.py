@@ -8,8 +8,8 @@ import numpy as np
 from PIL import Image
 
 from .configuration import Config, FilterParams, resolve_config
-from .core import apply_core
 from .image_io import decode_input, prepare_image
+from .processing import process_pixels
 
 
 def _prepare_pillow_input(image: Image.Image, config: Config) -> Image.Image:
@@ -53,10 +53,10 @@ def apply_filter(
 ) -> Image.Image | np.ndarray:
     """Apply Fattal variant 1 or 2 to 8-bit RGB/RGBA pixels or a Pillow image.
 
-    The default route includes an 8 MP input-area budget and
+    Filtering uses an 8 MP input-area budget and
     1536-pixel effect working limit. File sampling requires a lazy Pillow
     image with its compressed stream available. Arrays are decoded pixels.
-    The core profile preserves original dimensions and straight RGBA.
+    The legacy core profile enables straight RGBA.
     Alpha behavior has limited test coverage.
     """
     config = resolve_config(config, profile)
@@ -97,14 +97,7 @@ def apply_filter(
         raise ValueError(
             'opaque pixels required, set processing.transparency="straight" for the unvalidated RGBA extension'
         )
-    if config.processing.resize:
-        from .processing import process_pixels
-
-        result = process_pixels(
-            array, variant, params, config.processing, config.numerics
-        )
-    else:
-        result = apply_core(array, variant, params, config.numerics)
+    result = process_pixels(array, variant, params, config.processing, config.numerics)
     if pil_input:
         assert isinstance(image, Image.Image)
         output = Image.fromarray(result)
@@ -152,22 +145,11 @@ def process_frames(
             options = {"source_cleanup": source_cleanup}
             if solver is not None:
                 options["solver"] = solver
-            if config.processing.resize:
-                from .processing import process_pixels
-
-                yield process_pixels(
-                    frame,
-                    int(config.filter[-1]),
-                    config.parameters,
-                    config.processing,
-                    config.numerics,
-                    **options,
-                )
-            else:
-                yield apply_core(
-                    frame,
-                    int(config.filter[-1]),
-                    config.parameters,
-                    config.numerics,
-                    **options,
-                )
+            yield process_pixels(
+                frame,
+                int(config.filter[-1]),
+                config.parameters,
+                config.processing,
+                config.numerics,
+                **options,
+            )

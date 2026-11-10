@@ -35,28 +35,9 @@ def _settings(args: argparse.Namespace) -> Config:
     }
     processing = {
         key: getattr(args, key)
-        for key in (
-            "device_class",
-            "max_edge",
-            "max_input_pixels",
-            "limit_input_pixels",
-            "resize",
-            "transparency",
-            "blend_mode",
-            "working_resampler",
-        )
+        for key in asdict(config.processing)
         if getattr(args, key, None) is not None
     }
-    if args.device_class is not None and args.max_edge is None:
-        processing["max_edge"] = None
-    if args.resize is False and args.max_edge is None:
-        processing["max_edge"] = None
-    if (
-        args.device_class is not None
-        or args.resize is False
-        or args.limit_input_pixels is False
-    ) and args.max_input_pixels is None:
-        processing["max_input_pixels"] = None
     image = {
         key: getattr(args, key)
         for key in (
@@ -492,7 +473,7 @@ def main(argv: list[str] | None = None) -> None:
             "--profile",
             choices=("core", "bounded-1536"),
             default=None,
-            help="Processing profile, default: bounded working resolution",
+            help="Legacy profile. The core profile enables straight alpha",
         )
         for name, default in asdict(FilterParams()).items():
             command.add_argument(
@@ -565,27 +546,6 @@ def main(argv: list[str] | None = None) -> None:
             choices=("nearest", "bilinear", "bicubic"),
             default=None,
             help="Resampler used to reduce to effect working resolution",
-        )
-        command.add_argument(
-            "--device-class", choices=("low", "medium", "high"), default=None
-        )
-        command.add_argument(
-            "--max-edge",
-            type=int,
-            default=None,
-            help="Override the device-class working limit",
-        )
-        command.add_argument(
-            "--max-input-pixels",
-            type=int,
-            default=None,
-            help="Override the import pixel-area limit",
-        )
-        command.add_argument(
-            "--limit-input-pixels", action=argparse.BooleanOptionalAction, default=None
-        )
-        command.add_argument(
-            "--resize", action=argparse.BooleanOptionalAction, default=None
         )
         command.add_argument(
             "--transparency", choices=("reject", "straight"), default=None

@@ -639,22 +639,16 @@ class AdaptiveFrameProcessor:
             pass
 
     def cpu(self, frame):
-        from .core import apply_core
         from .processing import process_pixels
 
         config = self.config
-        options = dict(source_cleanup=self.source_cleanup)
-        if config.processing.resize:
-            return process_pixels(
-                frame,
-                int(config.filter[-1]),
-                config.parameters,
-                config.processing,
-                config.numerics,
-                **options,
-            )
-        return apply_core(
-            frame, int(config.filter[-1]), config.parameters, config.numerics, **options
+        return process_pixels(
+            frame,
+            int(config.filter[-1]),
+            config.parameters,
+            config.processing,
+            config.numerics,
+            source_cleanup=self.source_cleanup,
         )
 
     def __call__(self, frame):
@@ -697,11 +691,10 @@ class AdaptiveFrameProcessor:
         self.backend = "cpu"
         self.record["backend"] = "cpu"
         size = (frame.shape[1], frame.shape[0])
-        if self.config.processing.resize:
-            size = working_size(
-                input_size(size, self.config.processing.effective_max_input_pixels),
-                self.config.processing.effective_max_edge,
-            )
+        size = working_size(
+            input_size(size, self.config.processing.effective_max_input_pixels),
+            self.config.processing.effective_max_edge,
+        )
         if size[0] * size[1] < 65536:
             self.record["reason"] = "frame workload too small to amortize GPU overhead"
             self.record["cpu_frames"] += 1

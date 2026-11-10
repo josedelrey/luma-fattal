@@ -9,18 +9,19 @@ from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
-    ProcessingConfig,
     apply_filter,
     process_frames,
 )
 
 
 @pytest.mark.parametrize("filter_name", ["fattal1", "fattal2"])
-def test_frame_stream_is_lazy_ordered_and_matches_image_api(filter_name):
+def test_frame_stream_is_lazy_ordered_and_matches_image_api(
+    filter_name, set_size_limits
+):
+    set_size_limits(24)
     config = Config(
         filter=filter_name,
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(max_edge=24),
         numerics=NumericsConfig(iterations=11),
     )
     frames = [
@@ -60,11 +61,11 @@ def test_interleaved_streams_keep_independent_configurations():
 
 
 @pytest.mark.parametrize("with_cleanup", [False, True])
-def test_fade_identity_bypasses_frame_preparation(with_cleanup):
+def test_fade_identity_bypasses_frame_preparation(with_cleanup, set_size_limits):
+    set_size_limits(4, pixels=100)
     frame = np.random.default_rng(51).integers(0, 256, (35, 47, 3), np.uint8)
     config = Config(
         parameters=FilterParams(fade=100),
-        processing=ProcessingConfig(max_input_pixels=100, max_edge=4),
     )
 
     def cleanup(*args):

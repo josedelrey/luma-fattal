@@ -186,7 +186,10 @@ def test_one_pixel_wide_identity_extension_receives_levels(shape):
 
 @pytest.mark.parametrize("variant", [1, 2])
 @pytest.mark.parametrize("max_edge", [None, 40])
-def test_levels_bound_full_effect_and_preserve_fade_and_alpha(variant, max_edge):
+def test_levels_bound_full_effect_and_preserve_fade_and_alpha(
+    variant, max_edge, set_size_limits
+):
+    set_size_limits(max_edge)
     pixels = np.random.default_rng(94).integers(0, 256, (67, 91, 4), np.uint8)
     before = pixels.copy()
     config = Config(
@@ -198,9 +201,7 @@ def test_levels_bound_full_effect_and_preserve_fade_and_alpha(variant, max_edge)
             tone_strength=60,
             highlight_compression=75,
         ),
-        processing=ProcessingConfig(
-            resize=max_edge is not None, max_edge=max_edge, transparency="straight"
-        ),
+        processing=ProcessingConfig(transparency="straight"),
     )
     result = apply_filter(pixels, config=config)
     assert result[..., :3].min() >= 51 and result[..., :3].max() <= 204

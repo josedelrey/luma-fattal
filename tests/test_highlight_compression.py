@@ -10,7 +10,7 @@ import pytest
 from PIL import Image
 from test_video import tools as tools
 
-from luma_fattal import Config, FilterParams, ProcessingConfig, apply_filter
+from luma_fattal import Config, FilterParams, apply_filter
 from luma_fattal.cli import main
 from luma_fattal.core import _compress_highlights, _recombine
 from luma_fattal.pipeline import process_frames
@@ -166,14 +166,16 @@ def test_compression_retains_original_shadow_protection(softness):
 @pytest.mark.parametrize("variant", [1, 2])
 @pytest.mark.parametrize("max_edge", [None, 40])
 def test_compression_works_in_both_resolution_routes_and_retains_fade(
-    variant, max_edge
+    variant,
+    max_edge,
+    set_size_limits,
 ):
+    set_size_limits(max_edge)
     pixels = np.random.default_rng(92).integers(20, 240, (67, 91, 3), np.uint8)
     before = pixels.copy()
     config = Config(
         filter=f"fattal{variant}",
         parameters=FilterParams(fade=0, highlight_compression=80, tone_strength=70),
-        processing=ProcessingConfig(resize=max_edge is not None, max_edge=max_edge),
     )
     compressed = apply_filter(pixels, config=config)
     disabled = apply_filter(

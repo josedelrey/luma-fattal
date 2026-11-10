@@ -58,47 +58,6 @@ def test_gui_controls_cover_every_configuration_field():
                     Config.from_dict(candidate)
 
 
-def test_gui_size_edits_keep_the_processing_contract_valid():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is needed to verify GUI setting changes")
-    script = REPOSITORY / "src/luma_fattal/ui/settings.js"
-    original = Config.load(REPOSITORY / "configs/fattal-1.yaml").to_dict()
-    snapshots = json.loads(
-        subprocess.run(
-            [
-                node,
-                "-e",
-                """
-const {updateSetting} = require(process.argv[1]);
-const config = JSON.parse(process.argv[2]);
-const snapshots = [];
-for (const [key, value] of [['resize', false], ['max_edge', 2048],
-    ['limit_input_pixels', false], ['max_input_pixels', 4000000], ['device_class', 'high']]) {
-  updateSetting(config, 'processing', key, value);
-  snapshots.push(structuredClone(config));
-}
-process.stdout.write(JSON.stringify(snapshots));
-""",
-                str(script),
-                json.dumps(original),
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-    )
-    configs = [Config.from_dict(snapshot) for snapshot in snapshots]
-    assert configs[0].processing.effective_max_edge is None
-    assert configs[0].processing.max_input_pixels is None
-    assert configs[1].processing.effective_max_edge == 2048
-    assert configs[2].processing.effective_max_input_pixels is None
-    assert configs[3].processing.effective_max_input_pixels == 4000000
-    assert configs[4].processing.max_edge is None
-    assert configs[4].processing.max_input_pixels is None
-    assert configs[4].processing.effective_max_edge == 2048
-
-
 def test_samples_cover_equal_segments_without_eof():
     assert sample_times(10) == [1, 3, 5, 7, 9]
     assert all(0 < value < 0.01 for value in sample_times(0.01))
@@ -446,23 +405,13 @@ def test_thumbnail_is_closer_to_full_result(variant, relaxation):
     assert adjusted_error < original_error * 0.6
 
 
-def test_thumbnail_uses_effective_working_resolution():
+def test_thumbnail_uses_effective_working_resolution(set_size_limits):
     from dataclasses import replace
 
     config = Config()
-    bounded = replace(config, processing=replace(config.processing, max_edge=512))
     # Both sources reach the same working grid before filtering.
-    assert thumbnail_config(bounded, (1920, 1080), 256) == thumbnail_config(
-        bounded, (3840, 2160), 256
-    )
-    area_limited = replace(
-        config,
-        processing=replace(
-            config.processing, max_edge=4096, max_input_pixels=512 * 288
-        ),
-    )
-    assert thumbnail_config(area_limited, (1920, 1080), 256).numerics == (
-        thumbnail_config(bounded, (1920, 1080), 256).numerics
+    assert thumbnail_config(config, (1920, 1080), 256) == thumbnail_config(
+        config, (3840, 2160), 256
     )
     before = config.to_dict()
     adjusted = thumbnail_config(config, (1920, 1080), 256)
@@ -472,14 +421,12 @@ def test_thumbnail_uses_effective_working_resolution():
     assert adjusted.video == config.video
     assert adjusted.numerics.iterations == config.numerics.iterations
     assert thumbnail_config(config, (256, 144), 256) is config
-    assert (
-        thumbnail_config(
-            replace(config, processing=replace(config.processing, max_edge=128)),
-            (1920, 1080),
-            256,
-        ).numerics
-        == config.numerics
-    )
+    set_size_limits(512)
+    bounded = thumbnail_config(config, (1920, 1080), 256)
+    set_size_limits(4096, pixels=512 * 288)
+    assert thumbnail_config(config, (1920, 1080), 256).numerics == bounded.numerics
+    set_size_limits(128)
+    assert thumbnail_config(config, (1920, 1080), 256) is config
     bypass = replace(config, parameters=FilterParams(fade=100))
     assert thumbnail_config(bypass, (1920, 1080), 256) is bypass
 

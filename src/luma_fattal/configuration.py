@@ -52,8 +52,15 @@ _ConfigLoader.add_implicit_resolver(
     list("-+0123456789."),
 )
 
-DEVICE_MAX_EDGES = {"low": 1024, "medium": 1536, "high": 2048}
-DEVICE_INPUT_PIXELS = {"low": 4_000_000, "medium": 8_000_000, "high": 12_000_000}
+WORKING_MAX_EDGE = 1536
+INPUT_MAX_PIXELS = 8_000_000
+_LEGACY_SIZE_OPTIONS = {
+    "device_class",
+    "max_edge",
+    "max_input_pixels",
+    "limit_input_pixels",
+    "resize",
+}
 
 VIDEO_COLOR_PROFILES = {
     "bt709": ("bt709", "bt709", "bt709"),
@@ -195,67 +202,33 @@ class FilterParams:
 
 @dataclass(frozen=True)
 class ProcessingConfig:
-    """Input and working-size limits, transparency, and pixel blending."""
+    """Transparency, pixel blending, and working resampling."""
 
-    device_class: str = "medium"
-    max_edge: int | None = None
-    max_input_pixels: int | None = None
-    limit_input_pixels: bool = True
-    resize: bool = True
     transparency: str = "reject"
     blend_mode: str = "normal"
     working_resampler: str = "nearest"
 
     def __post_init__(self):
-        _choice("device_class", self.device_class, DEVICE_MAX_EDGES)
         _choice(
             "working_resampler",
             self.working_resampler,
             ("nearest", "bilinear", "bicubic"),
         )
-        if self.max_edge is not None:
-            _integer("max_edge", self.max_edge, 2)
-        if self.max_input_pixels is not None:
-            _integer("max_input_pixels", self.max_input_pixels, 4)
-        if not isinstance(self.limit_input_pixels, bool):
-            raise ValueError("limit_input_pixels must be a boolean")
-        if self.max_input_pixels is not None and (
-            not self.resize or not self.limit_input_pixels
-        ):
-            raise ValueError(
-                "max_input_pixels requires resize=true and limit_input_pixels=true"
-            )
-        if not isinstance(self.resize, bool):
-            raise ValueError("resize must be a boolean")
-        if not self.resize and self.max_edge is not None:
-            raise ValueError("max_edge cannot be combined with resize=false")
         _choice("transparency", self.transparency, ("reject", "straight"))
         if self.blend_mode != "normal":
             raise ValueError('Only blend_mode="normal" is supported')
 
     @property
     def effective_max_edge(self):
-        if not self.resize:
-            return None
-        return (
-            self.max_edge
-            if self.max_edge is not None
-            else DEVICE_MAX_EDGES[self.device_class]
-        )
+        return WORKING_MAX_EDGE
 
     @property
     def effective_max_input_pixels(self):
-        if not self.resize or not self.limit_input_pixels:
-            return None
-        return (
-            self.max_input_pixels
-            if self.max_input_pixels is not None
-            else DEVICE_INPUT_PIXELS[self.device_class]
-        )
+        return INPUT_MAX_PIXELS
 
     @property
     def profile_name(self):
-        return "core" if not self.resize else f"bounded-{self.effective_max_edge}"
+        return f"bounded-{self.effective_max_edge}"
 
 
 @dataclass(frozen=True)
@@ -473,6 +446,12 @@ class Config:
                 raise ValueError(f"{name} must be an object")
             if any(not isinstance(key, str) for key in section):
                 raise ValueError(f"{name} keys must be strings")
+            if name == "processing":
+                section = {
+                    key: value
+                    for key, value in section.items()
+                    if key not in _LEGACY_SIZE_OPTIONS
+                }
             unknown = set(section) - {item.name for item in fields(types[name])}
             if unknown:
                 raise ValueError(
@@ -607,7 +586,5 @@ def resolve_config(config=None, profile=None):
     if profile is None or profile == "bounded-1536":
         return Config()
     if profile == "core":
-        return replace(
-            Config(), processing=ProcessingConfig(resize=False, transparency="straight")
-        )
+        return replace(Config(), processing=ProcessingConfig(transparency="straight"))
     raise ValueError("profile must be core or bounded-1536")

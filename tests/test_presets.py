@@ -24,6 +24,8 @@ def test_presets_apply_full_effect(path):
     config = configuration.Config.load(path)
     assert config.parameters.fade == 0
     assert config.numerics.shadow_softness == 6
+    assert config.processing.effective_max_edge == 1536
+    assert config.processing.effective_max_input_pixels == 8_000_000
 
 
 def test_fast_presets_mirror_each_original_recipe():
@@ -55,11 +57,9 @@ def test_fast_presets_mirror_each_original_recipe():
         )
 
 
-def test_frozen_recipes_are_complete_and_independent_of_device_defaults(monkeypatch):
+def test_frozen_recipes_are_complete():
     _, presets = check_presets.load_contract()
     assert [entry["name"] for entry, _ in presets] == ["Fattal 1", "Fattal 2"]
-    monkeypatch.setitem(configuration.DEVICE_MAX_EDGES, "medium", 2048)
-    monkeypatch.setitem(configuration.DEVICE_INPUT_PIXELS, "medium", 12_000_000)
     for _, config in presets:
         assert config.parameters.fade == 0
         assert config.processing.effective_max_edge == 1536
@@ -80,13 +80,6 @@ def test_compressed_presets_enable_smooth_shadows_debanding_and_cleanup(variant)
     )
     assert compressed == replace(
         reference,
-        processing=replace(
-            reference.processing,
-            resize=False,
-            limit_input_pixels=False,
-            max_edge=None,
-            max_input_pixels=None,
-        ),
         video=replace(reference.video, deband="gentle", denoise=0.0, flat_cleanup=0.75),
     )
 

@@ -999,25 +999,20 @@ class CudaCore:
                 else:
                     rgb = cp.asarray(array)
                 size = (array.shape[1], array.shape[0])
-                if config.processing.resize:
-                    destination = input_size(
-                        size, config.processing.effective_max_input_pixels
-                    )
-                    if destination != size:
-                        w, h = size
-                        while (
-                            float(np.float32(w * h) * np.float32(0.25))
-                            >= destination[0] * destination[1]
-                        ):
-                            w, h = max(1, w // 2), max(1, h // 2)
-                            rgb = self.resize(rgb, (w, h))
-                        rgb = self.resize(rgb, destination)
-                        size = destination
-                work_size = (
-                    working_size(size, config.processing.effective_max_edge)
-                    if config.processing.resize
-                    else size
+                destination = input_size(
+                    size, config.processing.effective_max_input_pixels
                 )
+                if destination != size:
+                    w, h = size
+                    while (
+                        float(np.float32(w * h) * np.float32(0.25))
+                        >= destination[0] * destination[1]
+                    ):
+                        w, h = max(1, w // 2), max(1, h // 2)
+                        rgb = self.resize(rgb, (w, h))
+                    rgb = self.resize(rgb, destination)
+                    size = destination
+                work_size = working_size(size, config.processing.effective_max_edge)
                 work = self.resize(rgb, work_size, config.processing.working_resampler)
                 params = (
                     config.parameters

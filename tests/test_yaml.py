@@ -12,7 +12,6 @@ from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
-    ProcessingConfig,
     apply_filter,
 )
 from luma_fattal.cli import main
@@ -26,7 +25,7 @@ def test_yaml_round_trip_preserves_nulls_and_numeric_controls(tmp_path, suffix):
     path.write_text(config.to_yaml())
     assert Config.load(path) == config
     assert "jpeg_background: null" in path.read_text()
-    assert "max_edge: null" in path.read_text()
+    assert "max_edge:" not in path.read_text()
 
 
 @pytest.mark.parametrize(
@@ -39,8 +38,6 @@ def test_yaml_round_trip_preserves_nulls_and_numeric_controls(tmp_path, suffix):
         "parameters:\n  fade: 0\n  fade: 100",
         "parameters: [0, 1]",
         "parameters:\n  fdae: 20",
-        "processing:\n  resize: on",
-        'processing:\n  resize: "true"',
         "schema_version: 2",
         "schema_version: true",
         "numerics:\n  iterations: 0",
@@ -88,13 +85,15 @@ def test_yaml_scientific_notation_is_numeric(tmp_path):
 )
 @pytest.mark.parametrize("max_edge", [None, 32])
 def test_numeric_controls_change_actual_pixels_in_both_resolution_routes(
-    numerics, max_edge
+    numerics,
+    max_edge,
+    set_size_limits,
 ):
+    set_size_limits(max_edge)
     pixels = np.random.default_rng(19).integers(0, 256, (67, 91, 3), np.uint8)
     original = pixels.copy()
     config = Config(
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(resize=max_edge is not None, max_edge=max_edge),
     )
     reference = apply_filter(pixels, config=config)
     candidate = apply_filter(pixels, config=replace(config, numerics=numerics))
@@ -212,7 +211,7 @@ def test_image_records_all_inherited_config_fingerprints(tmp_path, capsys, mode)
     "section,values",
     [
         ("parameters", {"fade": 25}),
-        ("processing", {"max_edge": 512}),
+        ("processing", {"working_resampler": "bilinear"}),
         ("image", {"color_space": "encoded"}),
         ("output", {"format": "png"}),
         ("numerics", {"iterations": 12}),

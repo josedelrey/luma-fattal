@@ -176,14 +176,17 @@ def test_bicubic_working_resampler_clips_step_edge_overshoot():
     "control", ["detail_level", "power_mode", "output_gamma", "luminance_mode"]
 )
 def test_experiments_change_pixels_in_both_resolution_routes(
-    variant, max_edge, control
+    variant,
+    max_edge,
+    control,
+    set_size_limits,
 ):
+    set_size_limits(max_edge)
     pixels = np.random.default_rng(19).integers(0, 256, (67, 91, 3), np.uint8)
     original = pixels.copy()
     config = Config(
         filter=f"fattal{variant}",
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(resize=max_edge is not None, max_edge=max_edge),
         numerics=NumericsConfig(iterations=10, pyramid_min_size=8),
     )
     changes = {
@@ -210,12 +213,14 @@ def test_experiments_change_pixels_in_both_resolution_routes(
 
 @pytest.mark.parametrize("variant", [1, 2])
 @pytest.mark.parametrize("method", ["bilinear", "bicubic"])
-def test_working_resampler_changes_bounded_filter_outputs(variant, method):
+def test_working_resampler_changes_bounded_filter_outputs(
+    variant, method, set_size_limits
+):
+    set_size_limits(40)
     pixels = np.random.default_rng(21).integers(0, 256, (67, 91, 3), np.uint8)
     config = Config(
         filter=f"fattal{variant}",
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(max_edge=40),
     )
     expected = apply_filter(pixels, config=config)
     output = apply_filter(
@@ -230,11 +235,13 @@ def test_working_resampler_changes_bounded_filter_outputs(variant, method):
 
 
 @pytest.mark.parametrize("max_edge", [None, 40])
-def test_gamma_is_applied_before_fade_and_bypassed_at_fade_100(max_edge):
+def test_gamma_is_applied_before_fade_and_bypassed_at_fade_100(
+    max_edge, set_size_limits
+):
+    set_size_limits(max_edge)
     pixels = np.random.default_rng(25).integers(0, 256, (67, 91, 3), np.uint8)
     config = Config(
         parameters=FilterParams(fade=0, output_gamma=1.7),
-        processing=ProcessingConfig(resize=max_edge is not None, max_edge=max_edge),
     )
     filtered = apply_filter(pixels, config=config)
     mixed = apply_filter(
@@ -249,14 +256,19 @@ def test_gamma_is_applied_before_fade_and_bypassed_at_fade_100(max_edge):
 @pytest.mark.parametrize("shadow_softness", [0, 6])
 @pytest.mark.parametrize("luminance_mode", ["rounded", "fractional"])
 def test_cli_overrides_experimental_settings_and_records_resolved_values(
-    tmp_path, capsys, shadow_softness, luminance_mode
+    tmp_path,
+    capsys,
+    shadow_softness,
+    luminance_mode,
+    set_size_limits,
 ):
+    set_size_limits(40)
     pixels = np.random.default_rng(27).integers(0, 256, (67, 91, 3), np.uint8)
     source, output = tmp_path / "source.png", tmp_path / "output.png"
     Image.fromarray(pixels).save(source)
     config = Config(
         parameters=FilterParams(fade=0, output_gamma=0.8),
-        processing=ProcessingConfig(max_edge=40, working_resampler="bicubic"),
+        processing=ProcessingConfig(working_resampler="bicubic"),
         numerics=NumericsConfig(
             iterations=7,
             pyramid_min_size=8,

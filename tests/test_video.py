@@ -20,7 +20,6 @@ from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
-    ProcessingConfig,
     apply_filter,
     process_frames,
 )
@@ -312,7 +311,8 @@ def test_cpu_encoding_failure_after_nvenc_fallback_publishes_no_output(
     assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
-def test_nvenc_hardware_output_matches_cpu_filtering(tmp_path, tools):
+def test_nvenc_hardware_output_matches_cpu_filtering(tmp_path, tools, set_size_limits):
+    set_size_limits(24)
     from luma_fattal.video import _validate_nvenc
 
     settings = VideoConfig(encoder="h264_nvenc", nvenc_cq=23, nvenc_preset="p2")
@@ -325,9 +325,7 @@ def test_nvenc_hardware_output_matches_cpu_filtering(tmp_path, tools):
     source = make_clip(
         tmp_path / "source.mkv", tools, width=159, height=127, audio=True
     )
-    config = Config(
-        processing=ProcessingConfig(max_edge=24), numerics=NumericsConfig(iterations=3)
-    )
+    config = Config(numerics=NumericsConfig(iterations=3))
     cpu = process_video(
         source, tmp_path / "cpu.mp4", config=config, ffmpeg=tools[0], ffprobe=tools[1]
     )
@@ -391,7 +389,6 @@ def test_gpu_filtering_fallback_preserves_source_treatments_and_records_selectio
     monkeypatch.setattr(gpu, "CudaSolver", unavailable)
     source = make_clip(tmp_path / "source.mkv", tools, width=320, height=240, count=8)
     config = Config(
-        processing=ProcessingConfig(resize=False),
         video=VideoConfig(
             filter_backend="auto",
             flat_cleanup=0.25,
@@ -818,14 +815,15 @@ def test_video_matches_image_processing_and_preserves_timing(
     filter_name,
     shadow_softness,
     luminance_mode,
+    set_size_limits,
 ):
+    set_size_limits(24)
     source = make_clip(tmp_path / "synthetic.mkv", tools, audio=True, offset=2)
     original = source.read_bytes()
     destination = tmp_path / "nested" / "filtered.mp4"
     config = Config(
         filter=filter_name,
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(max_edge=24),
         numerics=NumericsConfig(
             iterations=11,
             shadow_softness=shadow_softness,
@@ -885,12 +883,13 @@ def test_video_deblocking_precedes_filter_and_records_setting(
     tools,
     filter_name,
     deblock,
+    set_size_limits,
 ):
+    set_size_limits(24)
     source = make_clip(tmp_path / "blocks.mkv", tools)
     config = Config(
         filter=filter_name,
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(max_edge=24),
         numerics=NumericsConfig(iterations=11, shadow_softness=6),
     )
     expected = hashlib.sha256()
@@ -975,9 +974,12 @@ def test_compressed_preset_video_defaults_and_cli_overrides(
         assert "source_cleanup" not in record
 
 
-def test_progress_reports_frames_without_changing_video(tmp_path, tools, capsys):
+def test_progress_reports_frames_without_changing_video(
+    tmp_path, tools, capsys, set_size_limits
+):
+    set_size_limits(24)
     source = make_clip(tmp_path / "progress.mkv", tools)
-    config = Config(processing=ProcessingConfig(max_edge=24))
+    config = Config()
     plain = process_video(
         source,
         tmp_path / "plain.mp4",
@@ -1007,14 +1009,15 @@ def test_cli_cleanup_matches_working_frame_pipeline_and_records_state(
     tools,
     capsys,
     variant,
+    set_size_limits,
 ):
+    set_size_limits(24)
     source = make_clip(
         tmp_path / "smooth.mkv", tools, width=48, height=36, vf="boxblur=5:1"
     )
     config = Config(
         filter=f"fattal{variant}",
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(max_edge=24),
         numerics=NumericsConfig(iterations=11, shadow_softness=6),
         video=VideoConfig(deband="gentle"),
     )
@@ -1062,14 +1065,19 @@ def test_cli_cleanup_matches_working_frame_pipeline_and_records_state(
     ],
 )
 def test_fractional_rate_full_range_and_input_budget(
-    tmp_path, tools, fade, prepared, dimensions
+    tmp_path,
+    tools,
+    fade,
+    prepared,
+    dimensions,
+    set_size_limits,
 ):
+    set_size_limits(pixels=400)
     source = make_clip(
         tmp_path / "fractional.mkv", tools, rate="30000/1001", color_range="pc"
     )
     config = Config(
         parameters=FilterParams(fade=fade),
-        processing=ProcessingConfig(max_input_pixels=400),
     )
     destination = tmp_path / "fractional.mp4"
     record = process_video(

@@ -134,7 +134,9 @@ def test_cuda_frames_remain_close_with_effect_controls_and_source_treatments(
     variant,
     resize,
     treatment,
+    set_size_limits,
 ):
+    set_size_limits(128 if resize else None)
     yy, xx = np.indices((137, 193))
     rgb = np.stack(((xx * 3) % 256, (yy * 4) % 256, (xx + yy) % 256), axis=-1).astype(
         np.uint8
@@ -143,7 +145,6 @@ def test_cuda_frames_remain_close_with_effect_controls_and_source_treatments(
     original = rgb.copy()
     config = Config(
         filter=f"fattal{variant}",
-        processing=ProcessingConfig(resize=resize, max_edge=128 if resize else None),
         parameters=FilterParams(
             fade=23,
             output_gamma=1.2,
@@ -187,11 +188,13 @@ def test_cuda_frames_remain_close_with_effect_controls_and_source_treatments(
 @pytest.mark.parametrize(
     "resize,fade", [(False, 0), (True, 0), (True, 37), (True, 100)]
 )
-def test_solver_callback_is_forwarded_without_changing_cpu_frames(resize, fade):
+def test_solver_callback_is_forwarded_without_changing_cpu_frames(
+    resize, fade, set_size_limits
+):
+    set_size_limits(48 if resize else None)
     rgb = np.random.default_rng(13).integers(0, 256, (81, 97, 3), np.uint8)
     config = Config(
         parameters=FilterParams(fade=fade),
-        processing=ProcessingConfig(resize=resize, max_edge=48 if resize else None),
     )
     expected = list(process_frames([rgb], config=config))[0]
     calls = []
@@ -380,8 +383,14 @@ def test_fixed_size_normalization_preserves_zero_exclusion(cuda_core, kind):
     "treatment", ["none", "cleanup", "noise", "denoise", "multiscale"]
 )
 def test_cuda_frame_pipeline_preserves_appearance_and_controls(
-    cuda_core, variant, optimized, resize, treatment
+    cuda_core,
+    variant,
+    optimized,
+    resize,
+    treatment,
+    set_size_limits,
 ):
+    set_size_limits(128 if resize else None)
     from luma_fattal.cleanup import MultiscaleSourceCleanup
     from luma_fattal.configuration import VideoConfig
 
@@ -393,7 +402,6 @@ def test_cuda_frame_pipeline_preserves_appearance_and_controls(
     original = rgb.copy()
     config = Config(
         filter=f"fattal{variant}",
-        processing=ProcessingConfig(resize=resize, max_edge=128 if resize else None),
         parameters=FilterParams(
             fade=23,
             output_gamma=1.2,
@@ -471,7 +479,6 @@ def test_cuda_frame_degenerate_fields_and_numerical_modes(
         rgb = rgb[:1]
     config = Config(
         filter=f"fattal{variant}",
-        processing=ProcessingConfig(resize=False),
         numerics=NumericsConfig(
             power_mode=power_mode, luminance_mode=luminance_mode, detail_level=detail
         ),
@@ -534,9 +541,7 @@ def test_frame_selection_measures_complete_processing_and_advances_history_once(
 ):
     fake_frame_hardware(monkeypatch, cuda_time=seconds)
     treatment = SourceCleanup(0.75)
-    processor = gpu.AdaptiveFrameProcessor(
-        Config(processing=ProcessingConfig(resize=False)), treatment, expected_frames=64
-    )
+    processor = gpu.AdaptiveFrameProcessor(Config(), treatment, expected_frames=64)
     rgb = np.full((256, 256, 3), 70, np.uint8)
     for _ in range(3):
         np.testing.assert_array_equal(processor(rgb), rgb)
@@ -552,9 +557,7 @@ def test_frame_selection_rejects_quality_loss_or_unrecoverable_setup(
     monkeypatch, difference, setup, frames, reason
 ):
     fake_frame_hardware(monkeypatch, difference=difference, setup_time=setup)
-    processor = gpu.AdaptiveFrameProcessor(
-        Config(processing=ProcessingConfig(resize=False)), expected_frames=frames
-    )
+    processor = gpu.AdaptiveFrameProcessor(Config(), expected_frames=frames)
     rgb = np.full((256, 256, 3), 70, np.uint8)
     np.testing.assert_array_equal(processor(rgb), rgb)
     assert processor.record["backend"] == "cpu"
@@ -564,9 +567,7 @@ def test_frame_selection_rejects_quality_loss_or_unrecoverable_setup(
 def test_frame_failure_restores_history_before_cpu_retry(monkeypatch):
     instances = fake_frame_hardware(monkeypatch, fail_after=3)
     treatment = SourceCleanup(0.75)
-    processor = gpu.AdaptiveFrameProcessor(
-        Config(processing=ProcessingConfig(resize=False)), treatment, expected_frames=64
-    )
+    processor = gpu.AdaptiveFrameProcessor(Config(), treatment, expected_frames=64)
     rgb = np.full((256, 256, 3), 70, np.uint8)
     for _ in range(3):
         np.testing.assert_array_equal(processor(rgb), rgb)
@@ -579,9 +580,7 @@ def test_frame_failure_restores_history_before_cpu_retry(monkeypatch):
 
 def test_frame_sustained_slowdown_switches_to_cpu(monkeypatch):
     instances = fake_frame_hardware(monkeypatch)
-    processor = gpu.AdaptiveFrameProcessor(
-        Config(processing=ProcessingConfig(resize=False)), expected_frames=64
-    )
+    processor = gpu.AdaptiveFrameProcessor(Config(), expected_frames=64)
     rgb = np.full((256, 256, 3), 70, np.uint8)
     processor(rgb)
     instances[0].seconds = 0.2
@@ -613,14 +612,16 @@ def test_cuda_resampling_matches_reference_coordinates(cuda_core, method, size):
 @pytest.mark.parametrize("resampler", ["nearest", "bilinear", "bicubic"])
 @pytest.mark.parametrize("fade", [0, 23, 100])
 def test_cuda_staged_area_fitting_and_enlargement_keep_output_geometry(
-    cuda_core, resampler, fade
+    cuda_core,
+    resampler,
+    fade,
+    set_size_limits,
 ):
+    set_size_limits(31, pixels=3000)
     rgb = np.random.default_rng(312).integers(0, 256, (131, 173, 3), np.uint8)
     config = Config(
         parameters=FilterParams(fade=fade),
-        processing=ProcessingConfig(
-            max_input_pixels=3000, max_edge=31, working_resampler=resampler
-        ),
+        processing=ProcessingConfig(working_resampler=resampler),
     )
     expected = next(process_frames([rgb], config=config))
     actual = cuda_core(rgb, config)
@@ -664,7 +665,6 @@ def test_frame_selection_skips_gpu_for_small_short_or_identity_work(
     processor = gpu.AdaptiveFrameProcessor(
         Config(
             parameters=FilterParams(fade=fade),
-            processing=ProcessingConfig(resize=False),
         ),
         expected_frames=frames,
     )
@@ -702,7 +702,6 @@ def test_cuda_denoising_matches_noise_estimation_and_band_shrinkage(
     np.testing.assert_allclose(actual[1], expected[1], rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(actual[0], expected[0], rtol=0, atol=0.002)
     config = Config(
-        processing=ProcessingConfig(resize=False),
         numerics=NumericsConfig(shadow_softness=6),
     )
 
@@ -723,7 +722,6 @@ def test_real_frame_failure_restores_nested_mask_history(
     from dataclasses import replace
 
     config = Config(
-        processing=ProcessingConfig(resize=False),
         numerics=NumericsConfig(shadow_softness=6),
     )
     config = replace(

@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from .configuration import NumericsConfig, ProcessingConfig
+from .configuration import WORKING_MAX_EDGE, NumericsConfig, ProcessingConfig
 
 
 def input_size(size: tuple[int, int], max_pixels: int | None) -> tuple[int, int]:
@@ -19,28 +19,22 @@ def input_size(size: tuple[int, int], max_pixels: int | None) -> tuple[int, int]
 
 
 def limit_input_pixels(array: np.ndarray, max_pixels: int | None) -> np.ndarray:
-    """Reduce opaque decoded pixels through staged bilinear area fitting."""
+    """Reduce decoded RGB or straight RGBA pixels through staged bilinear area fitting."""
     source_size = (array.shape[1], array.shape[0])
     destination = input_size(source_size, max_pixels)
     if destination == source_size:
         return array
-    if array.shape[2] == 4 and np.any(array[..., 3] != 255):
-        raise ValueError(
-            "Input pixel limiting requires opaque pixels. Disable limit_input_pixels for straight alpha"
-        )
-    rgb = array[..., :3]
     width, height = source_size
     target_area = destination[0] * destination[1]
     while float(np.float32(width * height) * np.float32(0.25)) >= target_area:
         width, height = max(1, width // 2), max(1, height // 2)
-        rgb = resize_bilinear_fixed(rgb, (width, height))
-    rgb = resize_bilinear_fixed(rgb, destination)
-    if array.shape[2] == 3:
-        return rgb
-    return np.concatenate((rgb, np.full((*rgb.shape[:2], 1), 255, np.uint8)), axis=2)
+        array = resize_bilinear_fixed(array, (width, height))
+    return resize_bilinear_fixed(array, destination)
 
 
-def working_size(size: tuple[int, int], max_edge: int | None = 1536) -> tuple[int, int]:
+def working_size(
+    size: tuple[int, int], max_edge: int | None = WORKING_MAX_EDGE
+) -> tuple[int, int]:
     """Fit the longest edge using float32 scaling, rounding positive half ties up."""
     width, height = size
     if max_edge is None or max(size) <= max_edge:
@@ -164,7 +158,7 @@ def _filtered_axis(source: int, destination: int, *, horizontal: bool):
 
 
 def resize_bilinear_fixed(rgb: np.ndarray, size: tuple[int, int]) -> np.ndarray:
-    """Resample RGB8 with four-bit bilinear weights and integer quantization.
+    """Resample 8-bit channels with four-bit bilinear weights and integer quantization.
 
     Coordinates use float32 inverse scaling and 32.32 horizontal stepping
     in blocks of 127 pixels, with clamping at image edges.
@@ -174,7 +168,7 @@ def resize_bilinear_fixed(rgb: np.ndarray, size: tuple[int, int]) -> np.ndarray:
         return rgb.copy()
     ix, nx, wx = _filtered_axis(rgb.shape[1], width, horizontal=True)
     iy, ny, wy = _filtered_axis(rgb.shape[0], height, horizontal=False)
-    result = np.empty((height, width, 3), np.uint8)
+    result = np.empty((height, width, rgb.shape[2]), np.uint8)
     for start in range(0, height, 64):
         end = min(height, start + 64)
         a = rgb[iy[start:end, None], ix[None, :]].astype(np.int32)

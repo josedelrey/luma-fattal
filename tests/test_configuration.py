@@ -21,22 +21,29 @@ from luma_fattal import (
     fattal2,
 )
 from luma_fattal.cli import main
-from luma_fattal.processing import working_size
 
 
-@pytest.mark.parametrize(
-    "device,edge", [("low", 1024), ("medium", 1536), ("high", 2048)]
-)
-def test_device_and_custom_limits(device, edge):
-    config = ProcessingConfig(device_class=device)
-    assert working_size((3264, 2448), config.effective_max_edge) == (
-        edge,
-        edge * 3 // 4,
+def test_legacy_processing_options_cannot_override_fixed_limits():
+    config = Config.from_dict(
+        {
+            "processing": {
+                "device_class": "high",
+                "max_edge": 512,
+                "max_input_pixels": 100,
+                "limit_input_pixels": False,
+                "resize": False,
+                "working_resampler": "bilinear",
+            }
+        }
     )
-    assert ProcessingConfig(device_class=device, max_edge=512).effective_max_edge == 512
-    assert working_size(
-        (3264, 2448), ProcessingConfig(resize=False).effective_max_edge
-    ) == (3264, 2448)
+    assert config.processing.effective_max_edge == 1536
+    assert config.processing.effective_max_input_pixels == 8_000_000
+    assert config.processing == ProcessingConfig(working_resampler="bilinear")
+    assert set(config.to_dict()["processing"]) == {
+        "working_resampler",
+        "blend_mode",
+        "transparency",
+    }
 
 
 @pytest.mark.parametrize(
@@ -44,10 +51,6 @@ def test_device_and_custom_limits(device, edge):
     [
         {"unexpected": {}},
         {"parameters": {"fdae": 0}},
-        {"processing": {"max_edge": True}},
-        {"processing": {"max_edge": 1}},
-        {"processing": {"device_class": "unknown"}},
-        {"processing": {"resize": False, "max_edge": 1024}},
         {"processing": {"blend_mode": "multiply"}},
         {"processing": {"transparency": "premultiplied"}},
         {"parameters": {"fade": "50"}},
@@ -290,13 +293,13 @@ def test_api_uses_filter_selection_and_convenience_overrides():
         apply_filter(rgb, params={})  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
-def test_custom_limit_changes_real_processing_without_changing_dimensions():
+def test_working_limit_changes_real_processing_without_changing_dimensions(
+    set_size_limits,
+):
     rgb = np.random.default_rng(23).integers(0, 256, (72, 96, 3), np.uint8)
-    config = Config(
-        parameters=FilterParams(fade=0), processing=ProcessingConfig(max_edge=48)
-    )
-    small = apply_filter(rgb, config=config)
-    full_size = apply_filter(rgb, 1, FilterParams(fade=0), profile="core")
+    full_size = apply_filter(rgb)
+    set_size_limits(48)
+    small = apply_filter(rgb)
     assert small.shape == rgb.shape
     assert np.mean(np.abs(small.astype(float) - full_size)) > 1
     np.testing.assert_array_equal(
@@ -320,8 +323,6 @@ def test_cli_overrides_file_and_records_effective_configuration(tmp_path, capsys
             str(path),
             "--fade",
             "100",
-            "--device-class",
-            "high",
             "--jpeg-quality",
             "95",
         ]
@@ -332,8 +333,8 @@ def test_cli_overrides_file_and_records_effective_configuration(tmp_path, capsys
         record = json.loads(image.with_suffix(".meta.json").read_text())
         assert record["configuration"]["filter"] == f"fattal{variant}"
         assert record["configuration"]["parameters"]["fade"] == 100
-        assert record["configuration"]["processing"]["max_edge"] is None
-        assert record["resolved_processing"]["max_edge"] == 2048
+        assert "max_edge" not in record["configuration"]["processing"]
+        assert record["resolved_processing"]["max_edge"] == 1536
         assert record["resolved_processing"]["working_dimensions"] is None
         assert record["configuration"]["output"]["jpeg_quality"] == 95
         assert (

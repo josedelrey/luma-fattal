@@ -14,11 +14,6 @@ parameters:
   white_level: 100
   vibrance: 0
 processing:
-  device_class: "medium"
-  max_edge: 1536
-  max_input_pixels: 8000000
-  limit_input_pixels: true
-  resize: true
   transparency: "reject"
   blend_mode: "normal"
   working_resampler: "nearest"

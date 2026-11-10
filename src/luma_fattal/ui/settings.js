@@ -15,12 +15,7 @@ const settingGroups = [
     ['white_level', 'White level', 0, 100, 1],
     ['vibrance', 'Vibrance', 0, 100, 1],
   ]],
-  ['processing', 'Resolution and processing', [
-    ['device_class', 'Size budget', ['low', 'medium', 'high']],
-    ['resize', 'Resize', 'boolean'],
-    ['max_edge', 'Working longest edge', 2, null, 1, {nullable: true, placeholder: 'Device budget'}],
-    ['limit_input_pixels', 'Limit input area', 'boolean'],
-    ['max_input_pixels', 'Input pixel limit', 4, null, 1, {nullable: true, placeholder: 'Device budget'}],
+  ['processing', 'Processing', [
     ['working_resampler', 'Working resampler', ['nearest', 'bilinear', 'bicubic']],
     ['transparency', 'Transparency', ['reject', 'straight']],
     ['blend_mode', 'Blend mode', ['normal']],
@@ -90,22 +85,6 @@ const settingGroups = [
     ['jpeg_background', 'JPEG background RGB', 'rgb', {placeholder: 'None or 255, 255, 255'}],
   ]],
 ];
-
-function updateSetting(config, section, key, value) {
-  config[section][key] = value;
-  if (section !== 'processing') return;
-  const processing = config.processing;
-  if (key === 'device_class' || (key === 'resize' && !value)) {
-    processing.max_edge = null;
-    processing.max_input_pixels = null;
-  }
-  if (key === 'limit_input_pixels' && !value) processing.max_input_pixels = null;
-  if (key === 'max_edge' && value !== null) processing.resize = true;
-  if (key === 'max_input_pixels' && value !== null) {
-    processing.resize = true;
-    processing.limit_input_pixels = true;
-  }
-}
 
 class ConfigurationPanel {
   constructor(basic, advanced, onChange) {
@@ -199,10 +178,7 @@ class ConfigurationPanel {
     else if (type === 'rgb') {
       value = value.trim() === '' ? null : value.split(',').map(part => part.trim() === '' ? NaN : Number(part));
     }
-    updateSetting(this.config, section, key, value);
-    if (section === 'processing') {
-      for (const item of this.controls) if (item.section === section && item !== control) this.sync(item);
-    }
+    this.config[section][key] = value;
     if (control.range && Number.isFinite(value)) {
       const draft = input.value;
       this.sync(control);
@@ -256,4 +232,4 @@ class ConfigurationPanel {
   }
 }
 
-if (typeof module !== 'undefined') module.exports = {settingGroups, updateSetting, ConfigurationPanel};
+if (typeof module !== 'undefined') module.exports = {settingGroups, ConfigurationPanel};

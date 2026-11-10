@@ -10,7 +10,6 @@ from luma_fattal import (
     Config,
     FilterParams,
     NumericsConfig,
-    ProcessingConfig,
     apply_filter,
 )
 from luma_fattal.core import _recombine
@@ -130,13 +129,15 @@ def test_pixels_above_transition_match_reference_bytes(power_mode, gamma):
 
 @pytest.mark.parametrize("variant", [1, 2])
 @pytest.mark.parametrize("max_edge", [None, 32])
-def test_shadow_option_changes_dark_pixels_in_both_resolution_routes(variant, max_edge):
+def test_shadow_option_changes_dark_pixels_in_both_resolution_routes(
+    variant, max_edge, set_size_limits
+):
+    set_size_limits(max_edge)
     pixels = np.random.default_rng(42).integers(0, 40, (47, 63, 3), np.uint8)
     original = pixels.copy()
     config = Config(
         filter=f"fattal{variant}",
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(resize=max_edge is not None, max_edge=max_edge),
         numerics=NumericsConfig(iterations=10),
     )
     reference = apply_filter(pixels, config=config)
@@ -154,7 +155,6 @@ def test_fade_blends_the_completed_smooth_shadow_result():
     pixels = np.random.default_rng(43).integers(0, 40, (17, 23, 3), np.uint8)
     config = Config(
         parameters=FilterParams(fade=0),
-        processing=ProcessingConfig(resize=False),
         numerics=NumericsConfig(iterations=10, shadow_softness=6),
     )
     smooth = apply_filter(pixels, config=config)

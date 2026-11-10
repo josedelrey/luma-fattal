@@ -10,7 +10,7 @@ import pytest
 from scipy.ndimage import gaussian_filter
 from test_video import tools as tools
 
-from luma_fattal.configuration import Config, ProcessingConfig, VideoConfig
+from luma_fattal.configuration import Config, VideoConfig
 from luma_fattal.core import apply_core
 from luma_fattal.denoise import SourceDenoise
 from luma_fattal.numerics import luminance_fractional, luminance_u8
@@ -136,10 +136,13 @@ def test_frames_have_no_color_history_or_scene_cut_trails():
 
 
 @pytest.mark.parametrize("variant", [1, 2])
-def test_original_fade_shadows_and_working_resolution_are_preserved(variant):
+def test_original_fade_shadows_and_working_resolution_are_preserved(
+    variant, set_size_limits
+):
+    set_size_limits(96)
     rgb, _ = noisy_source()
     rgb[:10] = 2
-    config = Config(filter=f"fattal{variant}", processing=ProcessingConfig(max_edge=96))
+    config = Config(filter=f"fattal{variant}")
     shapes = []
     callback = SourceDenoise(1)
 

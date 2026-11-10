@@ -187,9 +187,8 @@ luma-fattal video local_inputs/input.mp4 outputs/cleaned.mp4 \
   --config configs/fattal-1-compressed.yaml --progress
 ```
 
-All compressed presets disable resizing, so the effect runs at full frame
-resolution without the 8 MP input cap or 1536-pixel working limit. Full-resolution
-processing takes more time and memory.
+Compressed presets use the same 8 MP input cap and 1536-pixel working edge
+as the other presets.
 
 Deblocking and debanding operate on planar YUV. RGB sources are converted to YUV
 first when these treatments are enabled.
