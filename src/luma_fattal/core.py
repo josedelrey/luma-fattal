@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import warnings
+from dataclasses import dataclass
 from functools import lru_cache
+from typing import Generic, TypeVar
 
 import numpy as np
 from numba import njit
@@ -493,6 +495,47 @@ def _recombine(
     return result
 
 
+_Array = TypeVar("_Array")
+
+
+@dataclass
+class ToneMapSlot(Generic[_Array]):
+    """A normalized map for one frame and a fixed set of solver inputs."""
+
+    value: _Array | None = None
+
+
+def _solve_tone_map(luminance, maximum, variant, params, numerics, solver):
+    # Add the offset in float64, then narrow before the scalar logarithm.
+    log_source = scalar_math_f32(
+        (
+            (luminance * np.float32(100) / maximum).astype(np.float64)
+            + numerics.log_offset
+        ).astype(np.float32),
+        False,
+    )
+    pyramid = _pyramid(log_source, numerics.pyramid_min_size)
+    phi = _phi(
+        pyramid,
+        variant,
+        params,
+        numerics.gradient_threshold,
+        numerics.detail_level,
+        numerics.power_mode,
+    )
+    solution = (_sor if solver is None else solver)(
+        _divergence(log_source, phi),
+        numerics.iterations,
+        numerics.relaxation,
+    )
+    return _normalize(
+        scalar_math_f32(solution, True) + np.float32(-numerics.log_offset),
+        numerics.normalization_low,
+        numerics.normalization_high,
+        numerics.normalization_floor,
+    )
+
+
 def apply_core(
     array: np.ndarray,
     variant: int,
@@ -501,6 +544,7 @@ def apply_core(
     *,
     source_cleanup=None,
     solver=None,
+    tone_map: ToneMapSlot[np.ndarray] | None = None,
 ) -> np.ndarray:
     """Apply the effect to decoded pixels with no file or resizing policies."""
     result = array.copy()
@@ -535,34 +579,13 @@ def apply_core(
                 color_rgb, luminance = source_cleanup(rgb, luminance)
             maximum = np.max(luminance)
             if maximum > 0:
-                # Add the offset in float64, then narrow before the scalar logarithm.
-                log_source = scalar_math_f32(
-                    (
-                        (luminance * np.float32(100) / maximum).astype(np.float64)
-                        + numerics.log_offset
-                    ).astype(np.float32),
-                    False,
-                )
-                pyramid = _pyramid(log_source, numerics.pyramid_min_size)
-                phi = _phi(
-                    pyramid,
-                    variant,
-                    params,
-                    numerics.gradient_threshold,
-                    numerics.detail_level,
-                    numerics.power_mode,
-                )
-                solution = (_sor if solver is None else solver)(
-                    _divergence(log_source, phi),
-                    numerics.iterations,
-                    numerics.relaxation,
-                )
-                mapped = _normalize(
-                    scalar_math_f32(solution, True) + np.float32(-numerics.log_offset),
-                    numerics.normalization_low,
-                    numerics.normalization_high,
-                    numerics.normalization_floor,
-                )
+                mapped = None if tone_map is None else tone_map.value
+                if mapped is None:
+                    mapped = _solve_tone_map(
+                        luminance, maximum, variant, params, numerics, solver
+                    )
+                    if tone_map is not None:
+                        tone_map.value = mapped
                 filtered = _recombine(
                     rgb,
                     luminance,

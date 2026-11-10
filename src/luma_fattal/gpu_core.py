@@ -861,34 +861,9 @@ class CudaCore:
             )
         return output
 
-    def core(
-        self, rgb, variant, params, numerics, *, source_cleanup=None, lighting_scale=1.0
-    ):
+    def solve_tone_map(self, lum, maximum, variant, params, numerics, lighting_scale):
         cp = self.cp
-        if params.fade == 100 or min(rgb.shape[:2]) < 2:
-            # The CPU identity extension also reports its one-pixel warning.
-            from .core import apply_core
-
-            return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
-        h, w = rgb.shape[:2]
-        lum = self.buffer("luminance", (h, w), cp.float32)
-        self.launch(
-            "luminance",
-            lum.shape,
-            rgb,
-            lum,
-            np.int32(h * w),
-            np.int32(numerics.luminance_mode == "fractional"),
-        )
-        reference = lum
-        colors = rgb.astype(cp.float32)
-        if source_cleanup is not None:
-            colors, lum = self.treat(rgb, reference, source_cleanup)
-        maximum = cp.max(lum)
-        if float(maximum) <= 0:
-            from .core import apply_core
-
-            return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
+        h, w = lum.shape
         log_source = self.buffer("log-source", lum.shape, cp.float32)
         self.launch(
             "log_source",
@@ -953,7 +928,52 @@ class CudaCore:
             np.int32(h * w),
             np.float32(numerics.log_offset),
         )
-        mapped = self.normalize(mapped, numerics)
+        return self.normalize(mapped, numerics)
+
+    def core(
+        self,
+        rgb,
+        variant,
+        params,
+        numerics,
+        *,
+        source_cleanup=None,
+        lighting_scale=1.0,
+        tone_map=None,
+    ):
+        cp = self.cp
+        if params.fade == 100 or min(rgb.shape[:2]) < 2:
+            # The CPU identity extension also reports its one-pixel warning.
+            from .core import apply_core
+
+            return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
+        h, w = rgb.shape[:2]
+        lum = self.buffer("luminance", (h, w), cp.float32)
+        self.launch(
+            "luminance",
+            lum.shape,
+            rgb,
+            lum,
+            np.int32(h * w),
+            np.int32(numerics.luminance_mode == "fractional"),
+        )
+        reference = lum
+        colors = rgb.astype(cp.float32)
+        if source_cleanup is not None:
+            colors, lum = self.treat(rgb, reference, source_cleanup)
+        maximum = cp.max(lum)
+        if float(maximum) <= 0:
+            from .core import apply_core
+
+            return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
+        mapped = None if tone_map is None else tone_map.value
+        if mapped is None:
+            mapped = self.solve_tone_map(
+                lum, maximum, variant, params, numerics, lighting_scale
+            )
+            if tone_map is not None:
+                # The optimized normalization output is shared scratch storage.
+                tone_map.value = mapped.copy()
         output = self.buffer("recombined", rgb.shape, cp.uint8)
         self.launch(
             "recombine",
@@ -979,7 +999,7 @@ class CudaCore:
         )
         return output
 
-    def __call__(self, array, config, source_cleanup=None, *, out=None):
+    def __call__(self, array, config, source_cleanup=None, *, out=None, tone_map=None):
         from .processing import enlargement_sizes, input_size, working_size
 
         cp = self.cp
@@ -1033,6 +1053,7 @@ class CudaCore:
                     numerics,
                     source_cleanup=source_cleanup,
                     lighting_scale=config.video.lighting_scale,
+                    tone_map=tone_map,
                 )
                 if size != work_size:
                     for intermediate in enlargement_sizes(work_size, size):

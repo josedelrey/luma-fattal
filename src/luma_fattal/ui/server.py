@@ -13,7 +13,7 @@ import threading
 import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
@@ -28,11 +28,12 @@ from PIL import Image
 
 from ..cleanup import MultiscaleSourceCleanup, SourceCleanup
 from ..configuration import Config, _ConfigLoader
+from ..core import ToneMapSlot
 from ..denoise import SourceDenoise
 from ..gpu import GPUUnavailable
 from ..gpu_core import CudaCore
-from ..pipeline import process_frames
 from ..prenoise import SourceNoise
+from ..processing import process_pixels
 from ..video import (
     _decode_command,
     _geometry,
@@ -107,6 +108,12 @@ def decoded_sample(
     return np.frombuffer(decoded.stdout, np.uint8).reshape(height, width, 3).copy()
 
 
+@dataclass
+class _PreviewToneMaps:
+    cpu: ToneMapSlot[np.ndarray] = field(default_factory=ToneMapSlot[np.ndarray])
+    cuda: ToneMapSlot = field(default_factory=ToneMapSlot)
+
+
 class _PreviewSamples:
     """Retain decoded pixels for the current source and decode settings."""
 
@@ -121,6 +128,35 @@ class _PreviewSamples:
         self.stream = _probe(source, "ffprobe")
         self.frames: dict[float, np.ndarray] = {}
         self.bytes_used = 0
+        self.tone_key = None
+        self.tone_maps: dict[float, _PreviewToneMaps] = {}
+
+    def tone_maps_for(self, config: Config, timestamps: list[float]):
+        params, video = config.parameters, config.video
+        # Track inputs that can change the solve. Color controls and Fade are
+        # applied afterward, including when the result is enlarged.
+        key = (
+            tuple(timestamps),
+            config.filter,
+            config.processing,
+            config.numerics,
+            params.alpha,
+            params.beta,
+            params.noise,
+            video.denoise,
+            video.flat_cleanup,
+            video.flat_cleanup_mode,
+            video.flat_cleanup_coarse_strength,
+            video.flat_cleanup_sigma,
+            video.pre_noise_rms,
+            video.pre_noise_kind,
+            video.pre_noise_masked,
+            video.pre_noise_seed,
+        )
+        if key != self.tone_key:
+            self.tone_key = key
+            self.tone_maps = {timestamp: _PreviewToneMaps() for timestamp in timestamps}
+        return self.tone_maps
 
     def decode(self, config: Config, timestamp: float):
         frame = self.frames.get(timestamp)
@@ -171,7 +207,7 @@ class _PreviewCuda:
         core.host_rings.clear()
         core.pending_history.clear()
 
-    def filter(self, frame: np.ndarray, config: Config, treatment):
+    def filter(self, frame: np.ndarray, config: Config, treatment, *, tone_map=None):
         core = self.core
         if core is None:
             raise GPUUnavailable("CUDA preview is unavailable")
@@ -186,7 +222,7 @@ class _PreviewCuda:
                 cache.clear()
             self.shape = frame.shape
         try:
-            result = core(frame, self.settings(config), treatment)
+            result = core(frame, self.settings(config), treatment, tone_map=tone_map)
         except GPUUnavailable:
             self.core = None
             raise
@@ -210,7 +246,12 @@ def preview_frame(
     return _filter_preview(decoded_sample(source, config, timestamp), config, cuda)
 
 
-def _filter_preview(frame: np.ndarray, config: Config, cuda: _PreviewCuda | None):
+def _filter_preview(
+    frame: np.ndarray,
+    config: Config,
+    cuda: _PreviewCuda | None,
+    tone_maps: _PreviewToneMaps | None = None,
+):
     if config.parameters.fade == 100:
         return Image.fromarray(frame)
     if (
@@ -220,14 +261,23 @@ def _filter_preview(frame: np.ndarray, config: Config, cuda: _PreviewCuda | None
     ):
         try:
             return Image.fromarray(
-                cuda.filter(frame, config, _preview_treatment(config))
+                cuda.filter(
+                    frame,
+                    config,
+                    _preview_treatment(config),
+                    tone_map=None if tone_maps is None else tone_maps.cuda,
+                )
             )
         except GPUUnavailable:
             pass
-    result = next(
-        process_frames(
-            [frame], config=config, source_cleanup=_preview_treatment(config)
-        )
+    result = process_pixels(
+        frame,
+        int(config.filter[-1]),
+        config.parameters,
+        config.processing,
+        config.numerics,
+        source_cleanup=_preview_treatment(config),
+        tone_map=None if tone_maps is None else tone_maps.cpu,
     )
     return Image.fromarray(result)
 
@@ -371,6 +421,7 @@ class Workbench:
             self.preview_samples = samples
         dimensions, _, _ = _geometry(samples.stream)
         timestamps = sample_times(upload["duration"])
+        tone_maps = samples.tone_maps_for(config, timestamps)
         frames: list[_PreviewFrame] = [
             {"time": timestamp, "width": dimensions[0], "height": dimensions[1]}
             for timestamp in timestamps
@@ -416,7 +467,7 @@ class Workbench:
         ) as io:
             decoding = io.submit(samples.decode, config, timestamps[0])
             try:
-                for index in range(len(timestamps)):
+                for index, timestamp in enumerate(timestamps):
                     if not self.is_active(identifier):
                         return
                     frame = decoding.result()
@@ -426,7 +477,11 @@ class Workbench:
                         decoding = io.submit(
                             samples.decode, config, timestamps[index + 1]
                         )
-                    image = _filter_preview(frame, config, cuda)
+                    image = _filter_preview(frame, config, cuda, tone_maps[timestamp])
+                    if cuda is not None and cuda.core is None:
+                        for slots in tone_maps.values():
+                            slots.cuda.value = None
+                        cuda = None
                     publish(index, image)
             finally:
                 decoding.cancel()

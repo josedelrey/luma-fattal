@@ -370,7 +370,7 @@ def test_preview_overlaps_io_and_publishes_in_order(tmp_path, monkeypatch):
             decoded_second.set()
         return np.full((1, 1, 3), int(timestamp), np.uint8)
 
-    def frame(pixels, config, cuda):
+    def frame(pixels, config, cuda, tone_maps):
         assert config == Config()
         calls.append(int(pixels[0, 0, 0]))
         if len(calls) == 1:
@@ -465,7 +465,7 @@ def test_preview_replacement_skips_stale_frames_and_queued_jobs(tmp_path, monkey
     monkeypatch.setattr(server, "_probe", lambda *_: {})
     monkeypatch.setattr(server, "_geometry", lambda *_: ((32, 24), 0, 1))
 
-    def frame(pixels, config, cuda):
+    def frame(pixels, config, cuda, tone_maps):
         beta = config.parameters.beta
         calls.append(beta)
         if beta == 80:
@@ -522,9 +522,9 @@ def test_preview_reuses_decoded_pixels_until_source_or_decode_settings_change(
         decodes.append((source, config.video.deband, timestamp, max_edge))
         return np.zeros((24, 32, 3), np.uint8)
 
-    def filter_frames(frames, *, config, source_cleanup):
-        filtered.append(config.parameters.beta)
-        yield next(iter(frames))
+    def filter_frame(frame, variant, params, *_, **__):
+        filtered.append(params.beta)
+        return frame
 
     def preview(upload, config):
         identifier = app.submit("preview", dict(upload=upload, config=config.to_dict()))
@@ -532,7 +532,7 @@ def test_preview_reuses_decoded_pixels_until_source_or_decode_settings_change(
         assert app.jobs[identifier]["state"] == "done", app.jobs[identifier]
 
     monkeypatch.setattr(server, "decoded_sample", decode)
-    monkeypatch.setattr(server, "process_frames", filter_frames)
+    monkeypatch.setattr(server, "process_pixels", filter_frame)
     config = Config()
     try:
         preview("first", config)
@@ -577,6 +577,76 @@ def test_preview_cache_respects_byte_budget(tmp_path, monkeypatch):
     assert samples.bytes_used == 24
 
 
+def test_preview_caches_tone_maps_across_color_edits(
+    tmp_path, monkeypatch, set_size_limits
+):
+    from dataclasses import replace
+
+    from luma_fattal import core
+    from luma_fattal.ui import server
+
+    set_size_limits(40, pixels=3000)
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["first"] = dict(path=tmp_path / "first.mp4", duration=10)
+    app.uploads["second"] = dict(path=tmp_path / "second.mp4", duration=10)
+    monkeypatch.setattr(server, "_probe", lambda *_: {})
+    monkeypatch.setattr(server, "_geometry", lambda *_: ((81, 51), 0, 1))
+
+    def decode(source, config, timestamp, *, stream=None):
+        seed = int(timestamp) + 100 * (source.stem == "second")
+        return np.random.default_rng(seed).integers(0, 256, (51, 81, 3), np.uint8)
+
+    original_solve = core._solve_tone_map
+    solves = []
+
+    def solve(*args):
+        solves.append(True)
+        return original_solve(*args)
+
+    def preview(config, expected_solves, upload="first"):
+        before = len(solves)
+        identifier = app.submit("preview", dict(upload=upload, config=config.to_dict()))
+        app.executor.submit(lambda: None).result(timeout=10)
+        job = app.jobs[identifier]
+        assert job["state"] == "done", job
+        assert len(solves) - before == expected_solves
+        source = app.uploads[upload]["path"]
+        for sample in job["frames"]:
+            expected = preview_frame(source, config, sample["time"])
+            with Image.open(BytesIO(app.preview_bitmaps[sample["url"]])) as actual:
+                np.testing.assert_array_equal(actual, expected)
+
+    monkeypatch.setattr(server, "decoded_sample", decode)
+    monkeypatch.setattr(core, "_solve_tone_map", solve)
+    config = Config()
+    color_edit = replace(
+        config,
+        parameters=FilterParams(
+            output_gamma=1.2, saturation=70, black_level=5, vibrance=20, fade=23
+        ),
+    )
+    try:
+        preview(config, 5)
+        preview(color_edit, 0)
+        preview(replace(config, parameters=FilterParams(fade=100)), 0)
+        preview(color_edit, 0)
+        beta_edit = replace(
+            color_edit, parameters=replace(color_edit.parameters, beta=65)
+        )
+        preview(beta_edit, 5)
+        cleanup_edit = replace(
+            beta_edit, video=replace(beta_edit.video, flat_cleanup=0.5)
+        )
+        preview(cleanup_edit, 5)
+        decode_edit = replace(
+            cleanup_edit, video=replace(cleanup_edit.video, deband="gentle")
+        )
+        preview(decode_edit, 5)
+        preview(decode_edit, 5, upload="second")
+    finally:
+        app.executor.shutdown()
+
+
 def test_preview_uses_cpu_during_warmup_and_reuses_cuda_afterward(
     tmp_path, monkeypatch
 ):
@@ -605,7 +675,7 @@ def test_preview_uses_cpu_during_warmup_and_reuses_cuda_afterward(
             self.mask_axes = {}
             self.noise_fields = {}
 
-        def __call__(self, frame, config, treatment):
+        def __call__(self, frame, config, treatment, *, tone_map=None):
             assert not self.solver.parallel_edge
             if frame.shape == (64, 64, 3):
                 warming.set()
@@ -625,14 +695,14 @@ def test_preview_uses_cpu_during_warmup_and_reuses_cuda_afterward(
                 raise server.GPUUnavailable("simulated CUDA failure")
             return np.full_like(frame, 42)
 
-    def cpu(frames, *, config, source_cleanup):
+    def cpu(frame, variant, params, *_, source_cleanup, **__):
         assert source_cleanup.frames == 0
-        cpu_calls.append(config.parameters.beta)
-        yield next(iter(frames))
+        cpu_calls.append(params.beta)
+        return frame
 
     monkeypatch.setattr(server, "CudaCore", FakeCore)
     monkeypatch.setattr(server, "decoded_sample", lambda *_: pixels)
-    monkeypatch.setattr(server, "process_frames", cpu)
+    monkeypatch.setattr(server, "process_pixels", cpu)
     cuda = server._PreviewCuda()
     thread = Thread(target=cuda.warm)
     thread.start()
