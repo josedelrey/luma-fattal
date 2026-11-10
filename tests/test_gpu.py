@@ -387,7 +387,11 @@ def test_warmed_cuda_preview_matches_normal_cpu_colors(
         assert difference.max() <= 3
     assert len(cuda.core.solver.graphs) == 1
     frames = (pixels, 255 - pixels)
-    slots = [server._PreviewToneMaps() for _ in frames]
+    budget = core.ColorInputBudget(96 * 1024**2)
+    slots = [
+        server._PreviewToneMaps(cuda=core.ToneMapSlot(color_budget=budget))
+        for _ in frames
+    ]
     edited = replace(config, parameters=FilterParams(output_gamma=1.2, saturation=72))
     reference = [
         np.asarray(server._filter_preview(frame, edited, cuda)) for frame in frames
@@ -395,11 +399,16 @@ def test_warmed_cuda_preview_matches_normal_cpu_colors(
     for frame, maps in zip(frames, slots, strict=True):
         server._filter_preview(frame, config, cuda, maps)
         assert maps.cuda.value is not None
+        assert maps.cuda.color_inputs is not None
 
     def unexpected_solve(*args):
         pytest.fail("A cached color edit should not run the CUDA solve")
 
+    def unexpected_cleanup(*args):
+        pytest.fail("Cached color inputs should bypass CUDA source cleanup")
+
     monkeypatch.setattr(cuda.core, "solve_tone_map", unexpected_solve)
+    monkeypatch.setattr(cuda.core, "treat", unexpected_cleanup)
     for frame, maps, expected in zip(frames, slots, reference, strict=True):
         actual = server._filter_preview(frame, edited, cuda, maps)
         np.testing.assert_array_equal(actual, expected)

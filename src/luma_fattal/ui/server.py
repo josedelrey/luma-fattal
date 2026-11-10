@@ -28,7 +28,7 @@ from PIL import Image
 
 from ..cleanup import MultiscaleSourceCleanup, SourceCleanup
 from ..configuration import Config, _ConfigLoader
-from ..core import ToneMapSlot
+from ..core import ColorInputBudget, ToneMapSlot
 from ..denoise import SourceDenoise
 from ..gpu import GPUUnavailable
 from ..gpu_core import CudaCore
@@ -46,6 +46,7 @@ STATIC = Path(__file__).parent
 REPOSITORY = STATIC.parents[2]
 PREVIEW_CACHE_BYTES = 128 * 1024 * 1024
 PREVIEW_BITMAP_BYTES = 128 * 1024 * 1024
+PREVIEW_COLOR_BYTES = 96 * 1024 * 1024
 
 
 class _PreviewFrame(TypedDict):
@@ -155,7 +156,15 @@ class _PreviewSamples:
         )
         if key != self.tone_key:
             self.tone_key = key
-            self.tone_maps = {timestamp: _PreviewToneMaps() for timestamp in timestamps}
+            cpu_budget = ColorInputBudget(PREVIEW_COLOR_BYTES)
+            cuda_budget = ColorInputBudget(PREVIEW_COLOR_BYTES)
+            self.tone_maps = {
+                timestamp: _PreviewToneMaps(
+                    cpu=ToneMapSlot(color_budget=cpu_budget),
+                    cuda=ToneMapSlot(color_budget=cuda_budget),
+                )
+                for timestamp in timestamps
+            }
         return self.tone_maps
 
     def decode(self, config: Config, timestamp: float):
@@ -481,6 +490,7 @@ class Workbench:
                     if cuda is not None and cuda.core is None:
                         for slots in tone_maps.values():
                             slots.cuda.value = None
+                            slots.cuda.color_inputs = None
                         cuda = None
                     publish(index, image)
             finally:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Generic, TypeVar
+from typing import Generic, Protocol, Self, TypeVar
 
 import numpy as np
 from numba import njit
@@ -495,14 +495,64 @@ def _recombine(
     return result
 
 
-_Array = TypeVar("_Array")
+class _ColorArray(Protocol):
+    @property
+    def nbytes(self) -> int: ...
+
+    def copy(self) -> Self: ...
+
+
+_Array = TypeVar("_Array", bound=_ColorArray)
+
+
+@dataclass
+class ColorInputBudget:
+    """Shared allowance for prepared color inputs across preview samples."""
+
+    remaining: int
+
+
+@dataclass(frozen=True)
+class _ColorInputs(Generic[_Array]):
+    luminance: _Array
+    colors: _Array | None
+    reference: _Array | None
 
 
 @dataclass
 class ToneMapSlot(Generic[_Array]):
-    """A normalized map for one frame and a fixed set of solver inputs."""
+    """A normalized map and optional color inputs for one frame and solve."""
 
     value: _Array | None = None
+    color_budget: ColorInputBudget | None = None
+    color_inputs: _ColorInputs[_Array] | None = None
+
+    def retain_color_inputs(
+        self,
+        luminance: _Array,
+        colors: _Array | None,
+        reference: _Array | None,
+        *,
+        copy: bool = False,
+    ):
+        budget = self.color_budget
+        if budget is None:
+            return
+        shared_reference = reference is luminance
+        size = luminance.nbytes
+        if colors is not None:
+            size += colors.nbytes
+        if reference is not None and not shared_reference:
+            size += reference.nbytes
+        if size > budget.remaining:
+            return
+        if copy:
+            luminance = luminance.copy()
+            colors = None if colors is None else colors.copy()
+            if reference is not None:
+                reference = luminance if shared_reference else reference.copy()
+        self.color_inputs = _ColorInputs(luminance, colors, reference)
+        budget.remaining -= size
 
 
 def _solve_tone_map(luminance, maximum, variant, params, numerics, solver):
@@ -568,24 +618,38 @@ def apply_core(
                     params.white_level,
                 )
         else:
-            if numerics.luminance_mode == "fractional":
-                luminance = luminance_fractional(rgb)
+            mapped = None if tone_map is None else tone_map.value
+            inputs = None if tone_map is None else tone_map.color_inputs
+            if inputs is not None:
+                luminance = inputs.luminance
+                color_rgb = inputs.colors
+                shadow_luminance = inputs.reference
             else:
-                luminance = luminance_u8(rgb).astype(np.float32) * np.float32(1 / 255)
-            color_rgb = None
-            shadow_luminance = None
-            if source_cleanup is not None:
-                shadow_luminance = luminance
-                color_rgb, luminance = source_cleanup(rgb, luminance)
-            maximum = np.max(luminance)
-            if maximum > 0:
-                mapped = None if tone_map is None else tone_map.value
-                if mapped is None:
-                    mapped = _solve_tone_map(
-                        luminance, maximum, variant, params, numerics, solver
+                if numerics.luminance_mode == "fractional":
+                    luminance = luminance_fractional(rgb)
+                else:
+                    luminance = luminance_u8(rgb).astype(np.float32) * np.float32(
+                        1 / 255
                     )
+                color_rgb = None
+                shadow_luminance = None
+                if source_cleanup is not None:
+                    shadow_luminance = luminance
+                    color_rgb, luminance = source_cleanup(rgb, luminance)
+                maximum = np.max(luminance)
+                if maximum > 0:
+                    if mapped is None:
+                        mapped = _solve_tone_map(
+                            luminance, maximum, variant, params, numerics, solver
+                        )
                     if tone_map is not None:
                         tone_map.value = mapped
+                        tone_map.retain_color_inputs(
+                            luminance, color_rgb, shadow_luminance
+                        )
+                else:
+                    mapped = None
+            if mapped is not None:
                 filtered = _recombine(
                     rgb,
                     luminance,

@@ -577,8 +577,9 @@ def test_preview_cache_respects_byte_budget(tmp_path, monkeypatch):
     assert samples.bytes_used == 24
 
 
-def test_preview_caches_tone_maps_across_color_edits(
-    tmp_path, monkeypatch, set_size_limits
+@pytest.mark.parametrize("color_bytes,cached_frames", [(20_000, 1), (96 * 1024**2, 5)])
+def test_preview_caches_tone_maps_and_prepared_colors(
+    tmp_path, monkeypatch, set_size_limits, color_bytes, cached_frames
 ):
     from dataclasses import replace
 
@@ -591,25 +592,37 @@ def test_preview_caches_tone_maps_across_color_edits(
     app.uploads["second"] = dict(path=tmp_path / "second.mp4", duration=10)
     monkeypatch.setattr(server, "_probe", lambda *_: {})
     monkeypatch.setattr(server, "_geometry", lambda *_: ((81, 51), 0, 1))
+    monkeypatch.setattr(server, "PREVIEW_COLOR_BYTES", color_bytes)
 
     def decode(source, config, timestamp, *, stream=None):
         seed = int(timestamp) + 100 * (source.stem == "second")
         return np.random.default_rng(seed).integers(0, 256, (51, 81, 3), np.uint8)
 
     original_solve = core._solve_tone_map
+    original_cleanup = server.SourceCleanup.__call__
     solves = []
+    cleanups = []
 
     def solve(*args):
         solves.append(True)
         return original_solve(*args)
 
+    def cleanup(self, *args):
+        cleanups.append(True)
+        return original_cleanup(self, *args)
+
     def preview(config, expected_solves, upload="first"):
         before = len(solves)
+        before_cleanup = len(cleanups)
         identifier = app.submit("preview", dict(upload=upload, config=config.to_dict()))
         app.executor.submit(lambda: None).result(timeout=10)
         job = app.jobs[identifier]
         assert job["state"] == "done", job
         assert len(solves) - before == expected_solves
+        expected_cleanups = expected_solves
+        if expected_solves == 0 and config.parameters.fade < 100:
+            expected_cleanups = 5 - cached_frames
+        assert len(cleanups) - before_cleanup == expected_cleanups
         source = app.uploads[upload]["path"]
         for sample in job["frames"]:
             expected = preview_frame(source, config, sample["time"])
@@ -618,7 +631,9 @@ def test_preview_caches_tone_maps_across_color_edits(
 
     monkeypatch.setattr(server, "decoded_sample", decode)
     monkeypatch.setattr(core, "_solve_tone_map", solve)
+    monkeypatch.setattr(server.SourceCleanup, "__call__", cleanup)
     config = Config()
+    config = replace(config, video=replace(config.video, flat_cleanup=0.5))
     color_edit = replace(
         config,
         parameters=FilterParams(
@@ -635,7 +650,7 @@ def test_preview_caches_tone_maps_across_color_edits(
         )
         preview(beta_edit, 5)
         cleanup_edit = replace(
-            beta_edit, video=replace(beta_edit.video, flat_cleanup=0.5)
+            beta_edit, video=replace(beta_edit.video, flat_cleanup=0.75)
         )
         preview(cleanup_edit, 5)
         decode_edit = replace(

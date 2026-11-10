@@ -948,32 +948,42 @@ class CudaCore:
 
             return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
         h, w = rgb.shape[:2]
-        lum = self.buffer("luminance", (h, w), cp.float32)
-        self.launch(
-            "luminance",
-            lum.shape,
-            rgb,
-            lum,
-            np.int32(h * w),
-            np.int32(numerics.luminance_mode == "fractional"),
-        )
-        reference = lum
-        colors = rgb.astype(cp.float32)
-        if source_cleanup is not None:
-            colors, lum = self.treat(rgb, reference, source_cleanup)
-        maximum = cp.max(lum)
-        if float(maximum) <= 0:
-            from .core import apply_core
-
-            return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
         mapped = None if tone_map is None else tone_map.value
-        if mapped is None:
-            mapped = self.solve_tone_map(
-                lum, maximum, variant, params, numerics, lighting_scale
+        inputs = None if tone_map is None else tone_map.color_inputs
+        if inputs is not None:
+            lum, colors, reference = inputs.luminance, inputs.colors, inputs.reference
+        else:
+            lum = self.buffer("luminance", (h, w), cp.float32)
+            self.launch(
+                "luminance",
+                lum.shape,
+                rgb,
+                lum,
+                np.int32(h * w),
+                np.int32(numerics.luminance_mode == "fractional"),
             )
+            reference = lum
+            colors = rgb.astype(cp.float32)
+            if source_cleanup is not None:
+                colors, lum = self.treat(rgb, reference, source_cleanup)
+            maximum = cp.max(lum)
+            if float(maximum) <= 0:
+                from .core import apply_core
+
+                return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
+            if mapped is None:
+                mapped = self.solve_tone_map(
+                    lum, maximum, variant, params, numerics, lighting_scale
+                )
+                if tone_map is not None:
+                    # Normalization can return shared scratch storage.
+                    tone_map.value = mapped.copy()
             if tone_map is not None:
-                # The optimized normalization output is shared scratch storage.
-                tone_map.value = mapped.copy()
+                try:
+                    tone_map.retain_color_inputs(lum, colors, reference, copy=True)
+                except cp.cuda.memory.OutOfMemoryError:
+                    # Prepared colors are optional. Keep the map-only cache.
+                    pass
         output = self.buffer("recombined", rgb.shape, cp.uint8)
         self.launch(
             "recombine",
