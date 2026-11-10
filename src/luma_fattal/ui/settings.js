@@ -94,7 +94,17 @@ class ConfigurationPanel {
       const group = document.createElement('fieldset');
       group.className = 'settings-group';
       const legend = document.createElement('legend');
-      legend.textContent = title;
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'settings-group-toggle';
+      const rows = [];
+      const setExpanded = expanded => {
+        toggle.textContent = `${expanded ? '−' : '+'} ${title}`;
+        toggle.setAttribute('aria-expanded', String(expanded));
+        for (const row of rows) row.hidden = !expanded;
+      };
+      toggle.addEventListener('click', () => setExpanded(toggle.getAttribute('aria-expanded') !== 'true'));
+      legend.append(toggle);
       group.append(legend);
       advanced.append(group);
       for (const [index, definition] of definitions.entries()) {
@@ -141,12 +151,15 @@ class ConfigurationPanel {
             input.value = range.value;
           });
         }
-        const control = {section, key, input, range, type, max, step, settings};
+        const isBasic = section === 'parameters' && index < 7;
+        const control = {section, key, input, range, type, max, step, settings, expand: isBasic ? null : setExpanded};
         this.controls.push(control);
         range?.addEventListener('change', () => this.edit(control, true));
         input.addEventListener(Array.isArray(type) || type === 'boolean' ? 'change' : 'input', () => this.edit(control));
-        (section === 'parameters' && index < 7 ? basic : group).append(row);
+        (isBasic ? basic : group).append(row);
+        if (!isBasic) rows.push(row);
       }
+      setExpanded(section === 'parameters');
     }
   }
 
@@ -219,6 +232,7 @@ class ConfigurationPanel {
     if (invalid && report) {
       const details = invalid.input.closest('details');
       if (details) details.open = true;
+      invalid.expand?.(true);
       invalid.input.reportValidity();
     }
     return !invalid;

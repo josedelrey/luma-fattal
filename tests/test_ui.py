@@ -58,6 +58,56 @@ def test_gui_controls_cover_every_configuration_field():
                     Config.from_dict(candidate)
 
 
+def test_settings_sections_toggle_and_reveal_invalid_controls():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is needed to inspect settings interactions")
+    script = REPOSITORY / "src/luma_fattal/ui/settings.js"
+    subprocess.run(
+        [
+            node,
+            "-e",
+            """
+const assert = require('node:assert/strict');
+class Element {
+  constructor() { this.children = []; this.attributes = {}; this.dataset = {}; this.validity = {valid: true}; }
+  append(child) { this.children.push(child); }
+  setAttribute(name, value) { this.attributes[name] = value; }
+  getAttribute(name) { return this.attributes[name]; }
+  addEventListener(name, fn) { this[name] = fn; }
+  closest() { return outer; }
+  reportValidity() { this.reported = true; }
+}
+global.document = {createElement: () => new Element()};
+const outer = {open: false};
+const {ConfigurationPanel, settingGroups} = require(process.argv[1]);
+const basic = new Element(), advanced = new Element();
+const panel = new ConfigurationPanel(basic, advanced, () => {});
+assert.equal(advanced.children.length, settingGroups.length);
+for (const [index, group] of advanced.children.entries()) {
+  const toggle = group.children[0].children[0];
+  assert.equal(toggle.getAttribute('aria-expanded'), String(index === 0));
+  assert.ok(group.children.slice(1).every(row => row.hidden === (index !== 0)));
+  toggle.click();
+  assert.ok(group.children.slice(1).every(row => row.hidden === (index === 0)));
+  toggle.click();
+}
+const invalid = panel.controls.find(control => control.section === 'numerics');
+invalid.input.validity.valid = false;
+assert.equal(panel.valid(true), false);
+assert.equal(outer.open, true);
+assert.equal(invalid.input.reported, true);
+const numerical = advanced.children[2];
+assert.equal(numerical.children[0].children[0].getAttribute('aria-expanded'), 'true');
+""",
+            str(script),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_samples_cover_equal_segments_without_eof():
     assert sample_times(10) == [1, 3, 5, 7, 9]
     assert all(0 < value < 0.01 for value in sample_times(0.01))
@@ -346,6 +396,47 @@ def test_processing_rate_and_eta_use_elapsed_job_time(tmp_path, monkeypatch):
         monkeypatch.setattr("luma_fattal.ui.server.time.monotonic", lambda: 140.0)
         app.update("render", completed=1000)
         assert app.jobs["render"]["eta"] == 0.0
+    finally:
+        app.executor.shutdown()
+
+
+@pytest.mark.parametrize("frame_rate,expected", [("auto", 240), ("30", 300)])
+def test_streaming_export_estimates_progress_total(
+    tmp_path, monkeypatch, frame_rate, expected
+):
+    from dataclasses import replace
+
+    from luma_fattal.ui import server
+
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["test"] = dict(path=tmp_path / "source.mp4", duration=10)
+    monkeypatch.setattr(server, "_probe", lambda *_: {"avg_frame_rate": "24/1"})
+    snapshots = []
+
+    def process(source, destination, *, config, on_progress):
+        assert app.active_job is not None
+        identifier = app.active_job
+        on_progress(24, None)
+        snapshots.append(app.jobs[identifier].copy())
+        on_progress(expected + 1, None)
+        snapshots.append(app.jobs[identifier].copy())
+        on_progress(25, 250)
+        snapshots.append(app.jobs[identifier].copy())
+        return {"encoding": {"encoder": "libx264"}}
+
+    monkeypatch.setattr(server, "process_video", process)
+    config = Config()
+    config = replace(config, video=replace(config.video, frame_rate=frame_rate))
+    try:
+        identifier = app.submit("process", dict(upload="test", config=config.to_dict()))
+        app.executor.submit(lambda: None).result(timeout=10)
+        assert app.jobs[identifier]["state"] == "done"
+        assert snapshots[0]["total"] == expected
+        assert snapshots[0]["total_estimated"]
+        assert snapshots[0]["eta"] is not None
+        assert snapshots[1]["eta"] > 0
+        assert snapshots[2]["total"] == 250
+        assert not snapshots[2]["total_estimated"]
     finally:
         app.executor.shutdown()
 

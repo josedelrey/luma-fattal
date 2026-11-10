@@ -15,6 +15,7 @@ import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
+from fractions import Fraction
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
@@ -40,6 +41,7 @@ from ..video import (
     _geometry,
     _probe,
     _resolve_color,
+    _source_rate,
     process_video,
 )
 
@@ -411,7 +413,10 @@ class Workbench:
                     else None
                 )
                 remaining = (
-                    max(0, job["total"] - job["completed"])
+                    max(
+                        1 if job.get("total_estimated") else 0,
+                        job["total"] - job["completed"],
+                    )
                     if job["total"] is not None
                     else None
                 )
@@ -577,13 +582,31 @@ class Workbench:
             elif kind == "preview":
                 self.run_preview(identifier, folder, upload, config)
             else:
+                estimate = None
+                try:
+                    stream = upload.get("stream") or _probe(upload["path"], "ffprobe")
+                    rate = (
+                        _source_rate(stream, config.video)
+                        if config.video.frame_rate == "auto"
+                        else Fraction(config.video.frame_rate)
+                    )
+                    estimate = max(1, round(upload["duration"] * float(rate)))
+                except (ValueError, OSError, subprocess.SubprocessError, OverflowError):
+                    pass
+
+                def report_progress(count, total):
+                    self.update(
+                        identifier,
+                        completed=count,
+                        total=total if total is not None else estimate,
+                        total_estimated=total is None and estimate is not None,
+                    )
+
                 record = process_video(
                     upload["path"],
                     folder / "processed.mp4",
                     config=config,
-                    on_progress=lambda count, total: self.update(
-                        identifier, completed=count, total=total
-                    ),
+                    on_progress=report_progress,
                 )
                 self.update(
                     identifier,
@@ -765,7 +788,9 @@ class Handler(BaseHTTPRequestHandler):
                             json.loads(report.stdout)["format"]["duration"]
                         )
                     sample_times(duration)
-                    app.uploads[identifier] = dict(path=target, duration=duration)
+                    app.uploads[identifier] = dict(
+                        path=target, duration=duration, stream=stream
+                    )
                     self.send_json(
                         dict(
                             upload=identifier,

@@ -74,8 +74,8 @@ function setProcessing(value) {
 function updateProcessing(job) {
   if (job.kind !== 'process' || job.state !== 'running') return;
   $('process-speed').textContent = Number.isFinite(job.fps) && job.fps > 0 ? `${job.fps.toFixed(2)} frames/s` : 'Preparing…';
-  $('process-eta').textContent = job.total && job.completed >= job.total ? 'Finalizing…' :
-    Number.isFinite(job.eta) ? `ETA ${formatTime(Math.ceil(job.eta))}` : 'ETA —';
+  $('process-eta').textContent = job.total && !job.total_estimated && job.completed >= job.total ? 'Finalizing…' :
+    Number.isFinite(job.eta) ? `ETA ${job.total_estimated ? '~' : ''}${formatTime(Math.ceil(job.eta))}` : 'ETA —';
 }
 function schedulePreview(delay = 350) {
   clearTimeout(timer);
@@ -171,9 +171,9 @@ async function poll(identifier, onUpdate, current) {
     onUpdate?.(job);
     updateProcessing(job);
     const progress = $('progress');
-    if (job.total) { progress.value = 100 * job.completed / job.total; }
+    if (job.total) { progress.value = Math.min(job.total_estimated ? 99 : 100, 100 * job.completed / job.total); }
     else progress.removeAttribute('value');
-    status(`${job.kind === 'analyze' ? 'ANALYZING' : job.kind === 'preview' ? 'PREVIEW' : 'PROCESSING'} / ${job.completed}${job.total ? ` OF ${job.total}` : ''} FRAMES`);
+    status(`${job.kind === 'analyze' ? 'ANALYZING' : job.kind === 'preview' ? 'PREVIEW' : 'PROCESSING'} / ${job.completed}${job.total ? ` OF ${job.total_estimated ? '~' : ''}${job.total}` : ''} FRAMES`);
     if (job.state === 'error') throw new Error(job.error);
     if (job.state === 'done') { progress.value = 100; return job; }
     await new Promise(resolve => setTimeout(resolve, onUpdate ? 100 : 600));
