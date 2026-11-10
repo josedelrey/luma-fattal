@@ -16,8 +16,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
-from typing import cast
+from typing import NotRequired, TypedDict, cast
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
@@ -28,9 +29,10 @@ from PIL import Image
 from ..cleanup import MultiscaleSourceCleanup, SourceCleanup
 from ..configuration import Config, _ConfigLoader
 from ..denoise import SourceDenoise
+from ..gpu import GPUUnavailable
+from ..gpu_core import CudaCore
 from ..pipeline import process_frames
 from ..prenoise import SourceNoise
-from ..processing import input_size, working_size
 from ..video import (
     _decode_command,
     _geometry,
@@ -41,6 +43,15 @@ from ..video import (
 
 STATIC = Path(__file__).parent
 REPOSITORY = STATIC.parents[2]
+PREVIEW_CACHE_BYTES = 128 * 1024 * 1024
+PREVIEW_BITMAP_BYTES = 128 * 1024 * 1024
+
+
+class _PreviewFrame(TypedDict):
+    time: float
+    width: int
+    height: int
+    url: NotRequired[str]
 
 
 def sample_times(duration: float) -> list[float]:
@@ -51,10 +62,16 @@ def sample_times(duration: float) -> list[float]:
 
 
 def decoded_sample(
-    source: Path, config: Config, timestamp: float, max_edge: int | None = None
+    source: Path,
+    config: Config,
+    timestamp: float,
+    max_edge: int | None = None,
+    *,
+    stream: dict | None = None,
 ) -> np.ndarray:
     """Decode one color-normalized sample with an optional output size bound."""
-    stream = _probe(source, "ffprobe")
+    if stream is None:
+        stream = cast(dict, _probe(source, "ffprobe"))
     dimensions, rotation, _ = _geometry(stream)
     color, _ = _resolve_color(stream, config.video)
     command = _decode_command(
@@ -68,7 +85,7 @@ def decoded_sample(
         rotation=rotation,
         interlaced=stream.get("field_order") not in (None, "unknown", "progressive"),
     )
-    # Input seeking avoids decoding the whole clip for every thumbnail.
+    # Input seeking avoids decoding the whole clip for every sample.
     command[command.index("-i") : command.index("-i")] = ["-ss", str(timestamp)]
     if max_edge is not None:
         scale = min(1, max_edge / max(dimensions))
@@ -90,11 +107,132 @@ def decoded_sample(
     return np.frombuffer(decoded.stdout, np.uint8).reshape(height, width, 3).copy()
 
 
+class _PreviewSamples:
+    """Retain decoded pixels for the current source and decode settings."""
+
+    @staticmethod
+    def key_for(source: Path, config: Config):
+        video = config.video
+        return source, video.input_color, video.input_range, video.deblock, video.deband
+
+    def __init__(self, source: Path, config: Config):
+        self.source = source
+        self.key = self.key_for(source, config)
+        self.stream = _probe(source, "ffprobe")
+        self.frames: dict[float, np.ndarray] = {}
+        self.bytes_used = 0
+
+    def decode(self, config: Config, timestamp: float):
+        frame = self.frames.get(timestamp)
+        if frame is None:
+            frame = decoded_sample(self.source, config, timestamp, stream=self.stream)
+            if self.bytes_used + frame.nbytes <= PREVIEW_CACHE_BYTES:
+                self.frames[timestamp] = frame
+                self.bytes_used += frame.nbytes
+        return frame
+
+
+class _PreviewCuda:
+    """Warm once in the background, then reuse CUDA across isolated samples."""
+
+    def __init__(self):
+        self.core: CudaCore | None = None
+        self.shape = None
+
+    @staticmethod
+    def settings(config: Config):
+        return replace(
+            config,
+            video=replace(
+                config.video,
+                gpu_iterations=None,
+                lighting_scale=1.0,
+                gpu_buffer_reuse=True,
+                gpu_cleanup_graph=False,
+            ),
+        )
+
+    def warm(self):
+        try:
+            core = CudaCore()
+            # Use the reference boundary sweep for preview color agreement.
+            core.solver.parallel_edge = False
+            probe = np.random.default_rng(0).integers(0, 256, (64, 64, 3), np.uint8)
+            core(probe, self.settings(Config()), SourceCleanup(0.75))
+            self.clear_history(core)
+            self.core = core
+        except GPUUnavailable:
+            pass
+
+    @staticmethod
+    def clear_history(core: CudaCore):
+        core.history.clear()
+        core.device_masks.clear()
+        core.host_rings.clear()
+        core.pending_history.clear()
+
+    def filter(self, frame: np.ndarray, config: Config, treatment):
+        core = self.core
+        if core is None:
+            raise GPUUnavailable("CUDA preview is unavailable")
+        if self.shape != frame.shape:
+            for cache in (
+                core.buffers,
+                core.axes,
+                core.resize_axes,
+                core.mask_axes,
+                core.noise_fields,
+            ):
+                cache.clear()
+            self.shape = frame.shape
+        try:
+            result = core(frame, self.settings(config), treatment)
+        except GPUUnavailable:
+            self.core = None
+            raise
+        self.clear_history(core)
+        # Keep only the current solver graph and noise field across edits.
+        while len(core.solver.graphs) > 1:
+            del core.solver.graphs[next(iter(core.solver.graphs))]
+        while len(core.noise_fields) > 1:
+            del core.noise_fields[next(iter(core.noise_fields))]
+        return result
+
+
 def preview_frame(
-    source: Path, config: Config, timestamp: float, max_edge: int | None = None
+    source: Path,
+    config: Config,
+    timestamp: float,
+    *,
+    cuda: _PreviewCuda | None = None,
 ) -> Image.Image:
     """Use the video color/geometry path and independently initialized treatment."""
-    frame = decoded_sample(source, config, timestamp, max_edge=max_edge)
+    return _filter_preview(decoded_sample(source, config, timestamp), config, cuda)
+
+
+def _filter_preview(frame: np.ndarray, config: Config, cuda: _PreviewCuda | None):
+    if config.parameters.fade == 100:
+        return Image.fromarray(frame)
+    if (
+        cuda is not None
+        and cuda.core is not None
+        and config.video.filter_backend == "auto"
+    ):
+        try:
+            return Image.fromarray(
+                cuda.filter(frame, config, _preview_treatment(config))
+            )
+        except GPUUnavailable:
+            pass
+    result = next(
+        process_frames(
+            [frame], config=config, source_cleanup=_preview_treatment(config)
+        )
+    )
+    return Image.fromarray(result)
+
+
+def _preview_treatment(config: Config):
     settings = config.video
     treatment = None
     if settings.flat_cleanup:
@@ -117,43 +255,7 @@ def preview_frame(
         )
     if settings.denoise:
         treatment = SourceDenoise(settings.denoise, source_cleanup=treatment)
-    result = next(process_frames([frame], config=config, source_cleanup=treatment))
-    return Image.fromarray(result)
-
-
-def thumbnail_config(config: Config, size: tuple[int, int], max_edge: int) -> Config:
-    """Approximate full-size spatial behavior on a reduced preview grid."""
-    processing = config.processing
-
-    def work_size(dimensions):
-        return working_size(
-            input_size(dimensions, processing.effective_max_input_pixels),
-            processing.effective_max_edge,
-        )
-
-    decode_scale = min(1, max_edge / max(size))
-    thumbnail_size = tuple(max(2, round(edge * decode_scale)) for edge in size)
-    full_work, small_work = work_size(size), work_size(thumbnail_size)
-    scale = min(1, max(small_work) / max(full_work))
-    if scale == 1 or config.parameters.fade == 100:
-        return config
-    numerics = config.numerics
-    omega = numerics.relaxation
-    # Match the approximate SOR diffusion distance in source-image coordinates.
-    # Its squared distance scales with omega / (2 - omega) per iteration.
-    relaxation = 2 * omega * scale**2 / (2 - omega + omega * scale**2)
-    # Keep the same number of attenuation levels where the small grid permits.
-    levels = max(1, (min(full_work) // numerics.pyramid_min_size).bit_length())
-    last_level = min(small_work) // 2 ** (levels - 1)
-    minimum = max(last_level // 2 + 1, round(numerics.pyramid_min_size * scale))
-    return replace(
-        config,
-        numerics=replace(
-            numerics,
-            relaxation=max(float(np.finfo(np.float32).eps), relaxation),
-            pyramid_min_size=max(2, min(last_level, minimum)),
-        ),
-    )
+    return treatment
 
 
 def signal_metrics(frame: np.ndarray, previous: np.ndarray | None = None) -> dict:
@@ -198,6 +300,9 @@ class Workbench:
         self.lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.active_job: str | None = None
+        self.preview_samples: _PreviewSamples | None = None
+        self.preview_bitmaps: dict[str, bytes] = {}
+        self.preview_cuda = _PreviewCuda()
 
     @property
     def busy(self):
@@ -216,11 +321,13 @@ class Workbench:
                 active["state"] = "superseded"
             identifier = uuid4().hex
             self.active_job = identifier
+            if kind == "preview":
+                self.preview_bitmaps.clear()
             self.job_started[identifier] = time.monotonic()
             self.jobs[identifier] = dict(
                 state="running",
                 completed=0,
-                total=16 if kind == "analyze" else 10 if kind == "preview" else None,
+                total=16 if kind == "analyze" else 5 if kind == "preview" else None,
                 kind=kind,
             )
             self.executor.submit(self.run, identifier, kind, upload, config)
@@ -256,12 +363,82 @@ class Workbench:
             if job["state"] in ("done", "error"):
                 self.active_job = None
 
+    def run_preview(self, identifier: str, folder: Path, upload: dict, config: Config):
+        source = upload["path"]
+        samples = self.preview_samples
+        if samples is None or samples.key != _PreviewSamples.key_for(source, config):
+            samples = _PreviewSamples(source, config)
+            self.preview_samples = samples
+        dimensions, _, _ = _geometry(samples.stream)
+        timestamps = sample_times(upload["duration"])
+        frames: list[_PreviewFrame] = [
+            {"time": timestamp, "width": dimensions[0], "height": dimensions[1]}
+            for timestamp in timestamps
+        ]
+        cuda = self.preview_cuda if self.preview_cuda.core is not None else None
+        self.update(identifier, frames=frames)
+        remaining_bytes = PREVIEW_BITMAP_BYTES
+
+        def publish(index: int, image: Image.Image):
+            nonlocal frames, remaining_bytes
+            if not self.is_active(identifier):
+                return
+            bitmap_size = 54 + ((3 * image.width + 3) & ~3) * image.height
+            if bitmap_size <= remaining_bytes:
+                buffer = BytesIO()
+                image.save(buffer, format="BMP")
+                payload = buffer.getvalue()
+                url = f"/media/{identifier}/full-{index}.bmp"
+                with self.lock:
+                    if self.active_job != identifier:
+                        return
+                    self.preview_bitmaps[url] = payload
+                remaining_bytes -= len(payload)
+            else:
+                # Retain all five previews without growing the in-memory budget.
+                folder.mkdir(exist_ok=True)
+                filename = f"full-{index}.png"
+                image.save(folder / filename, compress_level=1)
+                url = f"/media/{identifier}/{filename}"
+            # Publish a fresh snapshot after the image is ready to serve.
+            frames = frames.copy()
+            frames[index] = {
+                "time": timestamps[index],
+                "url": url,
+                "width": image.width,
+                "height": image.height,
+            }
+            self.update(identifier, completed=index + 1, frames=frames)
+
+        # Decode the next sample while the job worker filters this one.
+        with ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="preview-decode"
+        ) as io:
+            decoding = io.submit(samples.decode, config, timestamps[0])
+            try:
+                for index in range(len(timestamps)):
+                    if not self.is_active(identifier):
+                        return
+                    frame = decoding.result()
+                    if not self.is_active(identifier):
+                        return
+                    if index + 1 < len(timestamps):
+                        decoding = io.submit(
+                            samples.decode, config, timestamps[index + 1]
+                        )
+                    image = _filter_preview(frame, config, cuda)
+                    publish(index, image)
+            finally:
+                decoding.cancel()
+        self.update(identifier, state="done")
+
     def run(self, identifier: str, kind: str, upload: dict, config: Config):
         folder = self.directory / identifier
         try:
             if not self.is_active(identifier):
                 return
-            folder.mkdir()
+            if kind != "preview":
+                folder.mkdir()
             if kind == "analyze":
                 samples = []
                 previous = None
@@ -285,51 +462,7 @@ class Workbench:
                     )
                 self.update(identifier, state="done")
             elif kind == "preview":
-                dimensions, _, _ = _geometry(_probe(upload["path"], "ffprobe"))
-                frames = [
-                    dict(time=timestamp, width=dimensions[0], height=dimensions[1])
-                    for timestamp in sample_times(upload["duration"])
-                ]
-                self.update(identifier, total=10, frames=frames, phase="thumbnail")
-                for phase, max_edge in (("thumbnail", 256), ("full", None)):
-                    self.update(identifier, phase=phase)
-                    preview_config = (
-                        thumbnail_config(config, dimensions, max_edge)
-                        if max_edge is not None
-                        else config
-                    )
-                    for index, frame in enumerate(frames):
-                        if not self.is_active(identifier):
-                            return
-                        filename = f"{phase}-{index}.png"
-                        image = preview_frame(
-                            upload["path"],
-                            preview_config,
-                            frame["time"],
-                            max_edge=max_edge,
-                        )
-                        if not self.is_active(identifier):
-                            return
-                        image.save(folder / filename)
-                        url = f"/media/{identifier}/{filename}"
-                        # Publish snapshots only after the image is fully written.
-                        frames = [
-                            {
-                                **entry,
-                                phase: url,
-                                **({"url": url} if phase == "full" else {}),
-                            }
-                            if position == index
-                            else entry
-                            for position, entry in enumerate(frames)
-                        ]
-                        self.update(
-                            identifier,
-                            completed=index + 1 + (5 if phase == "full" else 0),
-                            phase=phase,
-                            frames=frames,
-                        )
-                self.update(identifier, state="done")
+                self.run_preview(identifier, folder, upload, config)
             else:
                 record = process_video(
                     upload["path"],
@@ -392,6 +525,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(job, 200 if job else 404)
         else:
             if path.startswith("/media/"):
+                with app.lock:
+                    bitmap = app.preview_bitmaps.get(path)
+                if bitmap is not None:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/bmp")
+                    self.send_header("Content-Length", str(len(bitmap)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Referrer-Policy", "no-referrer")
+                    self.end_headers()
+                    try:
+                        self.wfile.write(bitmap)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
                 target = app.directory / path.removeprefix("/media/")
                 root = app.directory
             else:
@@ -595,6 +742,9 @@ def main():
     directory = args.output_dir / uuid4().hex
     app = Workbench(directory, args.presets)
     server = Server(args.port, app)
+    threading.Thread(
+        target=app.preview_cuda.warm, name="preview-cuda-warmup", daemon=True
+    ).start()
     url = f"http://127.0.0.1:{server.server_port}/?token={app.token}"
     print(f"Luma Fattal: {url}\nSession files: {directory.resolve()}", flush=True)
     if not args.no_browser:

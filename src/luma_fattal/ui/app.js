@@ -77,14 +77,14 @@ function updateProcessing(job) {
   $('process-eta').textContent = job.total && job.completed >= job.total ? 'Finalizing…' :
     Number.isFinite(job.eta) ? `ETA ${formatTime(Math.ceil(job.eta))}` : 'ETA —';
 }
-function schedulePreview() {
+function schedulePreview(delay = 350) {
   clearTimeout(timer);
-  if (!busy && upload && $('auto-preview').checked && previewRevision !== revision) timer = setTimeout(preview, 350);
+  if (!busy && upload && $('auto-preview').checked && previewRevision !== revision) timer = setTimeout(preview, delay);
 }
-function changed() {
+function changed(sliderCommit = false) {
   revision++;
   $('preview-state').textContent = upload ? 'Settings changed. Preview is out of date.' : 'Five evenly spaced frames:';
-  schedulePreview();
+  schedulePreview(sliderCommit ? 120 : 350);
 }
 function loadConfig(value, name = $('presets').value) {
   config = structuredClone(value);
@@ -107,7 +107,7 @@ function updateLightbox() {
   const frame = previewFrames[selectedFrame];
   if (!frame) return;
   const image = $('large-frame'), loading = $('preview-loading');
-  const url = frame.full || frame.thumbnail;
+  const url = frame.url;
   image.width = frame.width || upload.width;
   image.height = frame.height || upload.height;
   image.style.setProperty('--sample-width', `${image.width}px`);
@@ -117,7 +117,7 @@ function updateLightbox() {
   image.style.visibility = url ? '' : 'hidden';
   if (!url) { image.removeAttribute('src'); return; }
   const source = secured(url);
-  const loaded = () => { loading.hidden = Boolean(frame.full) && !previewError; };
+  const loaded = () => { loading.hidden = !previewError; };
   image.onload = loaded;
   image.onerror = () => { loading.hidden = false; loading.textContent = 'PREVIEW FAILED'; };
   if (image.getAttribute('src') !== source) image.src = source;
@@ -128,7 +128,7 @@ function updatePreviewFrames(job) {
   previewFrames = job.frames;
   previewFrames.forEach((frame, index) => {
     const button = $('frames').children[index];
-    const source = frame.full || frame.thumbnail;
+    const source = frame.url;
     let image = button.querySelector('img');
     if (source) {
       if (!image) { image = document.createElement('img'); image.alt = `Filtered frame at ${formatTime(frame.time)}`; button.prepend(image); }
@@ -137,7 +137,6 @@ function updatePreviewFrames(job) {
     button.querySelector('.frame-num').textContent = `${index + 1} / ${formatTime(frame.time)}`;
     button.setAttribute('aria-label', `Enlarge filtered sample ${index + 1} at ${formatTime(frame.time)}`);
   });
-  $('preview-state').textContent = job.phase === 'full' ? 'Refining full-resolution previews…' : 'Generating fast previews…';
   if ($('lightbox').open) updateLightbox();
 }
 function placeholders() {
@@ -177,7 +176,7 @@ async function poll(identifier, onUpdate, current) {
     status(`${job.kind === 'analyze' ? 'ANALYZING' : job.kind === 'preview' ? 'PREVIEW' : 'PROCESSING'} / ${job.completed}${job.total ? ` OF ${job.total}` : ''} FRAMES`);
     if (job.state === 'error') throw new Error(job.error);
     if (job.state === 'done') { progress.value = 100; return job; }
-    await new Promise(resolve => setTimeout(resolve, onUpdate ? 150 : 600));
+    await new Promise(resolve => setTimeout(resolve, onUpdate ? 100 : 600));
   }
 }
 async function start(kind, onUpdate, current = () => true) {

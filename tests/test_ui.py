@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import time
+from io import BytesIO
 
 import numpy as np
 import pytest
@@ -16,7 +17,6 @@ from luma_fattal.ui.server import (
     Workbench,
     preview_frame,
     sample_times,
-    thumbnail_config,
 )
 from luma_fattal.video import _decode_command, _geometry, _probe, _resolve_color
 
@@ -105,12 +105,13 @@ def test_workbench_preview_render_and_progress(tmp_path, tools):
             job = app.jobs[identifier]
             assert job["state"] == "done", job
             if kind == "preview":
-                assert job["completed"] == job["total"] == 10
+                assert job["completed"] == job["total"] == 5
                 for frame in job["frames"]:
                     with Image.open(
-                        app.directory / frame["url"].removeprefix("/media/")
+                        BytesIO(app.preview_bitmaps[frame["url"]])
                     ) as image:
                         image.verify()
+                assert not (app.directory / identifier).exists()
             else:
                 output = app.directory / job["url"].removeprefix("/media/")
                 assert _probe(output, tools[1])["codec_name"] == "h264"
@@ -263,6 +264,14 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path, monkeypatch):
         assert b"Content-Range: bytes 2-5/10" in head
         assert request("/media/clip.mp4", headers="Range: bytes=-3\r\n")[1] == b"789"
         assert b"416" in request("/media/clip.mp4", headers="Range: bytes=30-\r\n")[0]
+        bitmap_url = "/media/preview/full-0.bmp"
+        buffer = BytesIO()
+        Image.new("RGB", (3, 2), (12, 34, 56)).save(buffer, format="BMP")
+        app.preview_bitmaps[bitmap_url] = buffer.getvalue()
+        assert b"403" in request(bitmap_url, token=False)[0]
+        head, body = request(bitmap_url)
+        assert b"200" in head and b"image/bmp" in head
+        assert body == buffer.getvalue()
     finally:
         app.executor.shutdown()
 
@@ -341,170 +350,105 @@ def test_processing_rate_and_eta_use_elapsed_job_time(tmp_path, monkeypatch):
         app.executor.shutdown()
 
 
-def test_preview_reduces_frame_before_processing(tmp_path, monkeypatch):
-    from luma_fattal.ui import server
-
-    calls = []
-    small = np.zeros((144, 256, 3), np.uint8)
-
-    def decode(source, config, timestamp, max_edge=None):
-        calls.append(max_edge)
-        return small
-
-    def process(frames, **kwargs):
-        frame = next(iter(frames))
-        assert frame.shape == (144, 256, 3)
-        yield frame
-
-    monkeypatch.setattr(server, "decoded_sample", decode)
-    monkeypatch.setattr(server, "process_frames", process)
-    assert preview_frame(tmp_path / "source.mp4", Config(), 1, max_edge=256).size == (
-        256,
-        144,
-    )
-    assert calls == [256]
-
-
-@pytest.mark.parametrize("variant", (1, 2))
-@pytest.mark.parametrize("relaxation", (1.0, 1.5, 1.9))
-def test_thumbnail_is_closer_to_full_result(variant, relaxation):
-    from dataclasses import replace
-
-    from luma_fattal.pipeline import apply_filter
-
-    # A smooth scene, fine texture and a sharp colored object exercise both
-    # large-scale reconstruction and multiscale attenuation.
-    height, width = 432, 768
-    y, x = np.mgrid[:height, :width].astype(float)
-    x /= width
-    y /= height
-    light = 0.3 + 0.2 * np.sin(8 * x) + 0.2 * y
-    light += 0.04 * np.sin(270 * x) * np.sin(190 * y)
-    scene = np.stack(
-        (
-            light + 0.08 * np.sin(37 * y),
-            light * 0.8 + 0.1 * x,
-            light * 0.7 + 0.1 * np.cos(17 * x),
-        ),
-        axis=-1,
-    )
-    scene[(x - 0.65) ** 2 + (y - 0.4) ** 2 < 0.12**2] = (0.85, 0.4, 0.15)
-    source = np.clip(scene * 255, 0, 255).astype(np.uint8)
-    config = Config(filter=f"fattal{variant}")
-    config = replace(config, numerics=replace(config.numerics, relaxation=relaxation))
-    size = (128, 72)
-    small = np.asarray(Image.fromarray(source).resize(size, Image.Resampling.BICUBIC))
-    reference = np.asarray(
-        Image.fromarray(apply_filter(source, config=config)).resize(
-            size, Image.Resampling.LANCZOS
-        )
-    ).astype(float)
-    original = apply_filter(small, config=config)
-    adjusted = apply_filter(
-        small, config=thumbnail_config(config, (width, height), 128)
-    )
-    original_error = np.abs(original.astype(float) - reference).mean()
-    adjusted_error = np.abs(adjusted.astype(float) - reference).mean()
-    assert adjusted_error < original_error * 0.6
-
-
-def test_thumbnail_uses_effective_working_resolution(set_size_limits):
-    from dataclasses import replace
-
-    config = Config()
-    # Both sources reach the same working grid before filtering.
-    assert thumbnail_config(config, (1920, 1080), 256) == thumbnail_config(
-        config, (3840, 2160), 256
-    )
-    before = config.to_dict()
-    adjusted = thumbnail_config(config, (1920, 1080), 256)
-    assert config.to_dict() == before
-    assert adjusted.parameters == config.parameters
-    assert adjusted.processing == config.processing
-    assert adjusted.video == config.video
-    assert adjusted.numerics.iterations == config.numerics.iterations
-    assert thumbnail_config(config, (256, 144), 256) is config
-    set_size_limits(512)
-    bounded = thumbnail_config(config, (1920, 1080), 256)
-    set_size_limits(4096, pixels=512 * 288)
-    assert thumbnail_config(config, (1920, 1080), 256).numerics == bounded.numerics
-    set_size_limits(128)
-    assert thumbnail_config(config, (1920, 1080), 256) is config
-    bypass = replace(config, parameters=FilterParams(fade=100))
-    assert thumbnail_config(bypass, (1920, 1080), 256) is bypass
-
-
-@pytest.mark.parametrize("size", ((1920, 1200), (1024, 1024), (1080, 1920)))
-def test_thumbnail_preserves_attenuation_depth(size):
-    from luma_fattal.core import _pyramid
-    from luma_fattal.processing import working_size
-
-    config = Config()
-    adjusted = thumbnail_config(config, size, 256)
-    full_size = working_size(size, config.processing.effective_max_edge)
-    small_size = working_size(size, 256)
-    full = np.zeros(full_size[::-1], np.float32)
-    small = np.zeros(small_size[::-1], np.float32)
-    assert len(_pyramid(small, adjusted.numerics.pyramid_min_size)) == len(
-        _pyramid(full, config.numerics.pyramid_min_size)
-    )
-
-
-def test_preview_publishes_all_thumbnails_before_full_frames(tmp_path, monkeypatch):
+def test_preview_overlaps_io_and_publishes_in_order(tmp_path, monkeypatch):
     import threading
 
     from luma_fattal.ui import server
 
     app = Workbench(tmp_path / "session", tmp_path / "no-presets")
     app.uploads["test"] = dict(path=tmp_path / "source.mp4", duration=10)
-    entered_full = threading.Event()
+    decoded_second = threading.Event()
+    entered_second = threading.Event()
+    published_first = threading.Event()
     resume = threading.Event()
     calls = []
     monkeypatch.setattr(server, "_probe", lambda *_: {})
-    monkeypatch.setattr(server, "_geometry", lambda *_: ((1920, 1080), 0, 1))
+    monkeypatch.setattr(server, "_geometry", lambda *_: ((640, 360), 0, 1))
 
-    def frame(source, config, timestamp, max_edge=None):
-        calls.append((timestamp, max_edge))
-        if max_edge is not None:
-            assert config.numerics.relaxation < Config().numerics.relaxation
-        else:
-            assert config == Config()
-        if max_edge is None:
-            entered_full.set()
+    def decode(source, config, timestamp, *, stream):
+        if timestamp == 3:
+            decoded_second.set()
+        return np.full((1, 1, 3), int(timestamp), np.uint8)
+
+    def frame(pixels, config, cuda):
+        assert config == Config()
+        calls.append(int(pixels[0, 0, 0]))
+        if len(calls) == 1:
+            assert decoded_second.wait(10)
+        elif len(calls) == 2:
+            entered_second.set()
             assert resume.wait(10)
-        return Image.new("RGB", (256, 144) if max_edge else (1920, 1080))
+        return Image.new("RGB", (640, 360), (13, 27, 42))
 
-    monkeypatch.setattr(server, "preview_frame", frame)
+    original_update = app.update
+
+    def update(identifier, **values):
+        original_update(identifier, **values)
+        if values.get("completed") == 1:
+            published_first.set()
+
+    monkeypatch.setattr(server, "decoded_sample", decode)
+    monkeypatch.setattr(server, "_filter_preview", frame)
+    monkeypatch.setattr(app, "update", update)
     try:
         identifier = app.submit(
             "preview", dict(upload="test", config=Config().to_dict())
         )
-        assert entered_full.wait(10)
+        assert published_first.wait(10)
+        assert entered_second.wait(10)
         snapshot = app.jobs[identifier].copy()
         assert snapshot["state"] == "running"
-        assert snapshot["completed"] == 5
-        assert [timestamp for timestamp, _ in calls[:5]] == sample_times(10)
-        assert all(edge == 256 for _, edge in calls[:5])
-        for item in snapshot["frames"]:
-            assert "full" not in item
-            assert item["width"] == 1920 and item["height"] == 1080
-            with Image.open(
-                app.directory / item["thumbnail"].removeprefix("/media/")
-            ) as image:
-                assert image.size == (256, 144)
-        resume.set()
-        app.executor.shutdown()
-        job = app.jobs[identifier]
-        assert job["state"] == "done"
-        assert job["completed"] == job["total"] == 10
-        assert all("full" not in item for item in snapshot["frames"])
-        for item in job["frames"]:
-            with Image.open(
-                app.directory / item["full"].removeprefix("/media/")
-            ) as image:
-                assert image.size == (1920, 1080)
+        assert snapshot["completed"] == 1
+        assert calls == sample_times(10)[:2]
+        assert all("url" not in item for item in snapshot["frames"][1:])
+        with Image.open(
+            BytesIO(app.preview_bitmaps[snapshot["frames"][0]["url"]])
+        ) as image:
+            assert image.size == (640, 360)
+            assert image.getpixel((0, 0)) == (13, 27, 42)
     finally:
         resume.set()
+        app.executor.shutdown()
+    job = app.jobs[identifier]
+    assert job["state"] == "done"
+    assert job["completed"] == job["total"] == 5
+    assert calls == sample_times(10)
+    assert all("url" in item for item in job["frames"])
+    assert all("url" not in item for item in snapshot["frames"][1:])
+
+
+def test_preview_spills_to_disk_when_bitmap_budget_is_full(tmp_path, monkeypatch):
+    from luma_fattal.ui import server
+
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["test"] = dict(path=tmp_path / "source.mp4", duration=10)
+    monkeypatch.setattr(server, "_probe", lambda *_: {})
+    monkeypatch.setattr(server, "_geometry", lambda *_: ((3, 2), 0, 1))
+    monkeypatch.setattr(server, "PREVIEW_BITMAP_BYTES", 78)
+    pixels = np.arange(18, dtype=np.uint8).reshape((2, 3, 3))
+    monkeypatch.setattr(server, "decoded_sample", lambda *_, **__: pixels)
+    config = Config(parameters=FilterParams(fade=100))
+    try:
+        previous_url = None
+        for _ in range(2):
+            identifier = app.submit(
+                "preview", dict(upload="test", config=config.to_dict())
+            )
+            app.executor.submit(lambda: None).result(timeout=10)
+            job = app.jobs[identifier]
+            assert job["state"] == "done"
+            first, *overflow = job["frames"]
+            assert list(app.preview_bitmaps) == [first["url"]]
+            assert previous_url not in app.preview_bitmaps
+            with Image.open(BytesIO(app.preview_bitmaps[first["url"]])) as image:
+                np.testing.assert_array_equal(image, pixels)
+            for frame in overflow:
+                with Image.open(
+                    app.directory / frame["url"].removeprefix("/media/")
+                ) as image:
+                    np.testing.assert_array_equal(image, pixels)
+            previous_url = first["url"]
+    finally:
         app.executor.shutdown()
 
 
@@ -521,7 +465,7 @@ def test_preview_replacement_skips_stale_frames_and_queued_jobs(tmp_path, monkey
     monkeypatch.setattr(server, "_probe", lambda *_: {})
     monkeypatch.setattr(server, "_geometry", lambda *_: ((32, 24), 0, 1))
 
-    def frame(source, config, timestamp, max_edge=None):
+    def frame(pixels, config, cuda):
         beta = config.parameters.beta
         calls.append(beta)
         if beta == 80:
@@ -533,7 +477,10 @@ def test_preview_replacement_skips_stale_frames_and_queued_jobs(tmp_path, monkey
         config = Config(parameters=FilterParams(beta=beta))
         return app.submit("preview", dict(upload="test", config=config.to_dict()))
 
-    monkeypatch.setattr(server, "preview_frame", frame)
+    monkeypatch.setattr(
+        server, "decoded_sample", lambda *_, **__: np.zeros((24, 32, 3), np.uint8)
+    )
+    monkeypatch.setattr(server, "_filter_preview", frame)
     try:
         first = submit(80)
         assert entered.wait(10)
@@ -547,20 +494,186 @@ def test_preview_replacement_skips_stale_frames_and_queued_jobs(tmp_path, monkey
         resume.set()
         app.executor.shutdown()
 
-    assert calls == [80, *([60] * 10)]
+    assert calls == [80] + [60] * 5
     assert app.jobs[first]["completed"] == 0
     assert not (app.directory / intermediate).exists()
     assert app.jobs[latest]["state"] == "done"
-    assert app.jobs[latest]["completed"] == 10
+    assert app.jobs[latest]["completed"] == 5
     assert not app.busy
 
 
-@pytest.mark.parametrize("width,height", [(512, 288), (288, 512)])
-def test_fast_preview_bounds_decoded_resolution(tmp_path, tools, width, height):
-    from test_video import make_clip
+def test_preview_reuses_decoded_pixels_until_source_or_decode_settings_change(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
 
-    source = make_clip(tmp_path / "source.mp4", tools, width=width, height=height)
-    image = preview_frame(
-        source, Config(parameters=FilterParams(fade=100)), 0, max_edge=256
+    from luma_fattal.ui import server
+
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["first"] = dict(path=tmp_path / "first.mp4", duration=10)
+    app.uploads["second"] = dict(path=tmp_path / "second.mp4", duration=10)
+    probes = []
+    decodes = []
+    filtered = []
+    monkeypatch.setattr(server, "_probe", lambda path, _: probes.append(path) or {})
+    monkeypatch.setattr(server, "_geometry", lambda *_: ((32, 24), 0, 1))
+
+    def decode(source, config, timestamp, max_edge=None, *, stream=None):
+        decodes.append((source, config.video.deband, timestamp, max_edge))
+        return np.zeros((24, 32, 3), np.uint8)
+
+    def filter_frames(frames, *, config, source_cleanup):
+        filtered.append(config.parameters.beta)
+        yield next(iter(frames))
+
+    def preview(upload, config):
+        identifier = app.submit("preview", dict(upload=upload, config=config.to_dict()))
+        app.executor.submit(lambda: None).result(timeout=10)
+        assert app.jobs[identifier]["state"] == "done", app.jobs[identifier]
+
+    monkeypatch.setattr(server, "decoded_sample", decode)
+    monkeypatch.setattr(server, "process_frames", filter_frames)
+    config = Config()
+    try:
+        preview("first", config)
+        assert len(decodes) == 5
+        assert len(probes) == 1
+        changed_effect = replace(config, parameters=FilterParams(beta=60))
+        preview("first", changed_effect)
+        assert len(decodes) == 5
+        assert len(probes) == 1
+        assert filtered == [80] * 5 + [60] * 5
+
+        changed_decode = replace(config, video=replace(config.video, deband="gentle"))
+        preview("first", changed_decode)
+        assert len(decodes) == 10
+        assert all(deband == "gentle" for _, deband, _, _ in decodes[5:])
+
+        preview("second", changed_decode)
+        assert len(decodes) == 15
+        assert all(
+            source == app.uploads["second"]["path"] for source, *_ in decodes[10:]
+        )
+    finally:
+        app.executor.shutdown()
+
+
+def test_preview_cache_respects_byte_budget(tmp_path, monkeypatch):
+    from luma_fattal.ui import server
+
+    monkeypatch.setattr(server, "_probe", lambda *_: {})
+    monkeypatch.setattr(server, "PREVIEW_CACHE_BYTES", 24)
+    monkeypatch.setattr(
+        server, "decoded_sample", lambda *_, **__: np.zeros((2, 2, 3), np.uint8)
     )
-    assert image.size == (width // 2, height // 2)
+    config = Config()
+    samples = server._PreviewSamples(tmp_path / "source.mp4", config)
+    first = samples.decode(config, 1)
+    second = samples.decode(config, 3)
+    uncached = samples.decode(config, 5)
+    assert samples.decode(config, 1) is first
+    assert samples.decode(config, 3) is second
+    assert samples.decode(config, 5) is not uncached
+    assert samples.bytes_used == 24
+
+
+def test_preview_uses_cpu_during_warmup_and_reuses_cuda_afterward(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+    from threading import Event, Thread
+    from types import SimpleNamespace
+
+    from luma_fattal.ui import server
+
+    warming = Event()
+    resume = Event()
+    gpu_calls = []
+    cpu_calls = []
+    pixels = np.zeros((24, 32, 3), np.uint8)
+
+    class FakeCore:
+        def __init__(self):
+            self.solver = SimpleNamespace(parallel_edge=True, graphs={})
+            self.history = {}
+            self.device_masks = {}
+            self.host_rings = {}
+            self.pending_history = []
+            self.buffers = {}
+            self.axes = {}
+            self.resize_axes = {}
+            self.mask_axes = {}
+            self.noise_fields = {}
+
+        def __call__(self, frame, config, treatment):
+            assert not self.solver.parallel_edge
+            if frame.shape == (64, 64, 3):
+                warming.set()
+                assert resume.wait(10)
+                return frame
+            assert config.video.gpu_iterations is None
+            assert config.video.lighting_scale == 1.0
+            assert config.video.gpu_buffer_reuse
+            assert not config.video.gpu_cleanup_graph
+            assert treatment.frames == 0
+            assert not self.history
+            self.history[0] = True
+            self.solver.graphs[config.numerics.iterations] = True
+            treatment.frames = 1
+            gpu_calls.append((self, config.parameters.beta))
+            if config.parameters.beta == 60:
+                raise server.GPUUnavailable("simulated CUDA failure")
+            return np.full_like(frame, 42)
+
+    def cpu(frames, *, config, source_cleanup):
+        assert source_cleanup.frames == 0
+        cpu_calls.append(config.parameters.beta)
+        yield next(iter(frames))
+
+    monkeypatch.setattr(server, "CudaCore", FakeCore)
+    monkeypatch.setattr(server, "decoded_sample", lambda *_: pixels)
+    monkeypatch.setattr(server, "process_frames", cpu)
+    cuda = server._PreviewCuda()
+    thread = Thread(target=cuda.warm)
+    thread.start()
+    config = Config()
+    config = replace(
+        config,
+        video=replace(
+            config.video,
+            filter_backend="auto",
+            gpu_iterations=12,
+            lighting_scale=0.5,
+            flat_cleanup=0.75,
+        ),
+    )
+
+    def sample(recipe):
+        return preview_frame(tmp_path / "source.mp4", recipe, 1, cuda=cuda).getpixel(
+            (0, 0)
+        )
+
+    try:
+        assert warming.wait(10)
+        assert sample(config) == (0, 0, 0)
+    finally:
+        resume.set()
+        thread.join(timeout=10)
+    assert not thread.is_alive()
+    assert sample(config) == (42, 42, 42)
+    edited = replace(
+        config,
+        parameters=FilterParams(beta=70),
+        numerics=replace(config.numerics, iterations=60),
+    )
+    assert sample(edited) == (42, 42, 42)
+    assert gpu_calls[0][0] is gpu_calls[1][0]
+    assert list(gpu_calls[0][0].solver.graphs) == [60]
+    assert sample(
+        replace(config, video=replace(config.video, filter_backend="cpu"))
+    ) == (0, 0, 0)
+    assert sample(replace(config, parameters=FilterParams(beta=60))) == (0, 0, 0)
+    assert cuda.core is None
+    assert sample(config) == (0, 0, 0)
+    assert [beta for _, beta in gpu_calls] == [80, 70, 60]
+    assert cpu_calls == [80, 80, 60, 80]

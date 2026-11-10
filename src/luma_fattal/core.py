@@ -192,7 +192,7 @@ def _divergence(log_luminance: np.ndarray, phi: np.ndarray) -> np.ndarray:
     return result
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _sor(rhs: np.ndarray, iterations: int = 80, relaxation: float = 1.9) -> np.ndarray:
     """Solve the discrete gradient field with paired SOR sweeps.
 

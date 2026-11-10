@@ -353,6 +353,41 @@ def cuda_core(cuda_solver):
     return CudaCore()
 
 
+def test_warmed_cuda_preview_matches_normal_cpu_colors(
+    cuda_solver, tmp_path, monkeypatch
+):
+    from dataclasses import replace
+    from threading import Thread
+
+    from luma_fattal.ui import server
+
+    yy, xx = np.indices((450, 800))
+    pixels = np.stack(
+        ((xx * 3) % 256, (yy * 4) % 256, (xx + yy) % 256), axis=-1
+    ).astype(np.uint8)
+    monkeypatch.setattr(server, "decoded_sample", lambda *_: pixels)
+    cuda = server._PreviewCuda()
+    thread = Thread(target=cuda.warm)
+    thread.start()
+    thread.join(timeout=120)
+    assert not thread.is_alive()
+    assert cuda.core is not None
+    config = Config()
+    config = replace(
+        config, video=replace(config.video, filter_backend="auto", flat_cleanup=0.75)
+    )
+    source = tmp_path / "source.mp4"
+    for beta in (80, 65):
+        recipe = replace(config, parameters=FilterParams(beta=beta))
+        expected = np.asarray(server.preview_frame(source, recipe, 0))
+        actual = np.asarray(server.preview_frame(source, recipe, 0, cuda=cuda))
+        assert cuda.core is not None
+        difference = np.abs(actual.astype(np.int16) - expected)
+        assert difference.mean() < 0.1
+        assert difference.max() <= 3
+    assert len(cuda.core.solver.graphs) == 1
+
+
 @pytest.mark.parametrize("kind", ["mixed", "zeros", "constant", "nan"])
 def test_fixed_size_normalization_preserves_zero_exclusion(cuda_core, kind):
     values = np.array([-4, -2, 0, 0, 1, 3, 7, 12], np.float32).reshape(2, 4)

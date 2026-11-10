@@ -240,17 +240,18 @@ The desktop shell starts and stops its own local server automatically.
 5. Process video, then switch between Original and Processed playback. Save
    the MP4, run metadata, and the exact render configuration from the output panel.
 
-A fast pass first shows thumbnails bounded to 256 pixels, with solver and pyramid
-settings adjusted for scale to approximate the full result. Each thumbnail is then
-replaced by its full-resolution sample. Fine detail can still change between passes.
-Full-resolution samples use the video adapter's geometry, color conversion, source
-treatments, and recipe resolution. They process isolated frames on the CPU. Temporal
-cleanup history, cadence conversion, and adaptive GPU approximation can differ in a full
-render. Samples are an effect preview, not a guarantee of identical output pixels.
+Each sample appears as soon as its full preview is ready. Previews use the video
+adapter's geometry, color conversion, source treatments, and normal filter
+resolution. Auto backend mode can reuse CUDA after background initialization.
+The CPU handles previews while CUDA is warming up or unavailable. Each sample is
+filtered independently. Temporal cleanup history, cadence conversion, and
+export-specific GPU settings can affect the rendered video.
 Short clips may repeat their last available frame. Full previews can take longer
 for large inputs. A video render uses the settings in effect when it starts.
 
-Uploads, previews, and outputs stay under `outputs/ui/<session>/` by default.
+Uploads and outputs stay under `outputs/ui/<session>/` by default. The app
+serves the current previews from memory and uses lossless PNG files for any
+previews that exceed the memory budget.
 Use `--output-dir` to choose another location. Files remain after shutdown, even
 if you do not download the output. Remove old sessions manually when no longer
 needed. A browser refresh starts a fresh UI state. Previous files remain on disk,

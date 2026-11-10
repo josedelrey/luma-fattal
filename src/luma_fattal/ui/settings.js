@@ -143,7 +143,7 @@ class ConfigurationPanel {
         }
         const control = {section, key, input, range, type, max, step, settings};
         this.controls.push(control);
-        range?.addEventListener('change', () => this.edit(control));
+        range?.addEventListener('change', () => this.edit(control, true));
         input.addEventListener(Array.isArray(type) || type === 'boolean' ? 'change' : 'input', () => this.edit(control));
         (section === 'parameters' && index < 7 ? basic : group).append(row);
       }
@@ -169,7 +169,7 @@ class ConfigurationPanel {
     }
   }
 
-  edit(control) {
+  edit(control, sliderCommit = false) {
     const {section, key, input, type, settings} = control;
     input.setCustomValidity('');
     let value = input.value;
@@ -185,7 +185,7 @@ class ConfigurationPanel {
       input.value = draft;
     }
     this.validate();
-    this.onChange();
+    this.onChange(sliderCommit);
   }
 
   validate() {

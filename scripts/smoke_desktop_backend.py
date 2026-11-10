@@ -91,7 +91,7 @@ def main() -> None:
                     time.sleep(0.25)
                 if kind == "preview":
                     assert len(state["frames"]) == 5
-                    assert request(state["frames"][0]["url"]).startswith(b"\x89PNG")
+                    assert request(state["frames"][0]["url"]).startswith(b"BM")
                 else:
                     video = root / "processed.mp4"
                     video.write_bytes(request(state["url"]))
