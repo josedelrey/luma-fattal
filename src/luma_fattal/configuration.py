@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import sys
 import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
@@ -154,11 +155,19 @@ class NumericsConfig:
             raise ValueError("normalization_low must be below normalization_high")
         for name in ("normalization_floor", "gradient_threshold", "log_offset"):
             value = getattr(self, name)
-            _finite(name, value, 0, FLOAT32_CONTROL_LIMIT, exclusive_min=True)
-            if float(np.float32(value)) == 0:
+            _finite(
+                name,
+                value,
+                0,
+                FLOAT32_CONTROL_LIMIT,
+                exclusive_min=name == "log_offset",
+            )
+            if value and float(np.float32(value)) == 0:
                 raise ValueError(f"{name} must remain positive in float32")
         _integer(
-            "shadow_threshold", self.shadow_threshold, -_MAX_SHADOW_CONTROL,
+            "shadow_threshold",
+            self.shadow_threshold,
+            -_MAX_SHADOW_CONTROL,
             _MAX_SHADOW_CONTROL,
         )
         _integer("shadow_softness", self.shadow_softness, 0, _MAX_SHADOW_CONTROL)
@@ -182,13 +191,19 @@ class FilterParams:
     black_level: float = 0
     white_level: float = 100
     vibrance: float = 0
+    brightness: float = 0
+    contrast: float = 0
+    curve_0: float = 0
+    curve_25: float = 25
+    curve_50: float = 50
+    curve_75: float = 75
+    curve_100: float = 100
 
     def __post_init__(self):
         for name, value in asdict(self).items():
             if name == "output_gamma":
                 continue
-            # A negative gradient offset can make fractional powers undefined.
-            minimum = 0 if name in ("alpha", "noise") else -FLOAT32_CONTROL_LIMIT
+            minimum = 0 if name == "alpha" else -FLOAT32_CONTROL_LIMIT
             _finite(name, value, minimum, FLOAT32_CONTROL_LIMIT)
         if self.alpha == 0:
             raise ValueError("alpha must be greater than zero")
@@ -198,7 +213,9 @@ class FilterParams:
             raise ValueError(
                 "alpha must remain positive in float32 after division by 100"
             )
-        _finite("output_gamma", self.output_gamma, 0, math.inf, exclusive_min=True)
+        _finite(
+            "output_gamma", self.output_gamma, 0, sys.float_info.max, exclusive_min=True
+        )
         if not math.isfinite(1.0 / self.output_gamma):
             raise ValueError("output_gamma must have a finite reciprocal")
 
@@ -322,7 +339,9 @@ class VideoConfig:
         if not isinstance(self.calibration_cache, bool):
             raise ValueError("video calibration_cache must be a boolean")
         if self.gpu_iterations is not None:
-            _integer("video gpu_iterations", self.gpu_iterations, 1, MAX_SOLVER_ITERATIONS)
+            _integer(
+                "video gpu_iterations", self.gpu_iterations, 1, MAX_SOLVER_ITERATIONS
+            )
         _finite("video lighting_scale", self.lighting_scale, 0, 1, exclusive_min=True)
         _integer("video decode_prefetch", self.decode_prefetch, 0, 16)
         if not isinstance(self.pinned_frames, bool):
@@ -331,7 +350,7 @@ class VideoConfig:
             raise ValueError("video gpu_buffer_reuse must be a boolean")
         if not isinstance(self.gpu_cleanup_graph, bool):
             raise ValueError("video gpu_cleanup_graph must be a boolean")
-        _integer("video solver_halo", self.solver_halo, 0, WORKING_MAX_EDGE)
+        _integer("video solver_halo", self.solver_halo, 0, 2**31 - 1)
         _integer("video pipeline_depth", self.pipeline_depth, 0, 8)
         _choice("video validation_mode", self.validation_mode, ("scan", "stream"))
         _choice("video encoder", self.encoder, ("libx264", "h264_nvenc"))
@@ -359,8 +378,15 @@ class VideoConfig:
             raise ValueError("Video deblock must be off, weak4 or weak8")
         if self.deband not in ("off", "gentle"):
             raise ValueError("Video deband must be off or gentle")
-        _finite("video denoise", self.denoise, -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT)
-        _finite("video flat_cleanup", self.flat_cleanup, -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT)
+        _finite(
+            "video denoise", self.denoise, -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT
+        )
+        _finite(
+            "video flat_cleanup",
+            self.flat_cleanup,
+            -FLOAT32_CONTROL_LIMIT,
+            FLOAT32_CONTROL_LIMIT,
+        )
         _choice(
             "video flat_cleanup_mode",
             self.flat_cleanup_mode,
@@ -372,7 +398,9 @@ class VideoConfig:
             -FLOAT32_CONTROL_LIMIT,
             FLOAT32_CONTROL_LIMIT,
         )
-        _finite("video flat_cleanup_sigma", self.flat_cleanup_sigma, 0, MAX_CLEANUP_SIGMA)
+        _finite(
+            "video flat_cleanup_sigma", self.flat_cleanup_sigma, 0, MAX_CLEANUP_SIGMA
+        )
         _finite("video pre_noise_rms", self.pre_noise_rms, 0, FLOAT32_CONTROL_LIMIT)
         _choice("video pre_noise_kind", self.pre_noise_kind, ("highpass", "fbm"))
         if not isinstance(self.pre_noise_masked, bool):

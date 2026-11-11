@@ -92,7 +92,8 @@ def test_small_image_extension():
 
 
 @pytest.mark.parametrize(
-    "parameters", [{"alpha": 0}, {"beta": 101}, {"noise": -1}, {"fade": float("nan")}]
+    "parameters",
+    [{"alpha": 0}, {"beta": 1e100}, {"noise": -1e100}, {"fade": float("nan")}],
 )
 def test_invalid_parameters(parameters):
     with pytest.raises(ValueError):

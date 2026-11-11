@@ -159,7 +159,7 @@ class ConfigurationPanel {
           });
         }
         const isBasic = section === 'parameters' && index < 7;
-        const control = {section, key, input, range, reset, type, max, step, settings, expand: isBasic ? null : setExpanded};
+        const control = {section, key, input, range, reset, type, settings, expand: isBasic ? null : setExpanded};
         this.controls.push(control);
         reset.addEventListener('click', () => {
           this.config[section][key] = structuredClone(this.baseline[section][key]);

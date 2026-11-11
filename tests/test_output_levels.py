@@ -17,18 +17,18 @@ from luma_fattal.pipeline import process_frames
 
 
 @pytest.mark.parametrize("field", ["black_level", "white_level"])
-@pytest.mark.parametrize(
-    "value", [-1, 100.1, True, "50", None, float("nan"), float("inf")]
-)
+@pytest.mark.parametrize("value", [1e100, True, "50", None, float("nan"), float("inf")])
 def test_invalid_output_levels_are_rejected(field, value):
     with pytest.raises(ValueError, match=field):
         FilterParams(**{field: value})
 
 
-@pytest.mark.parametrize("black,white", [(0, 0), (100, 100), (80, 20), (50, 50)])
-def test_black_level_must_be_below_white(black, white):
-    with pytest.raises(ValueError, match="black_level must be below white_level"):
-        FilterParams(black_level=black, white_level=white)
+def test_inverted_output_levels_clip_to_byte_range():
+    pixels = np.array([[[0, 128, 255]]], np.uint8)
+    config = Config(parameters=FilterParams(black_level=120, white_level=-20))
+    with pytest.warns(RuntimeWarning, match="identity extension"):
+        output = apply_filter(pixels, config=config)
+    np.testing.assert_array_equal(output, [[[255, 127, 0]]])
 
 
 @pytest.mark.parametrize("suffix", ["yaml", "toml", "json"])

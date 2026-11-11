@@ -16,7 +16,7 @@ from luma_fattal.core import _recombine
 from luma_fattal.numerics import luminance_u8
 
 
-@pytest.mark.parametrize("value", [-1, 256, True, 1.5, "6", float("nan")])
+@pytest.mark.parametrize("value", [-1, 2**31, True, 1.5, "6", float("nan")])
 def test_shadow_softness_requires_an_integer_luminance_width(value):
     with pytest.raises(ValueError, match="shadow_softness"):
         NumericsConfig(shadow_softness=value)

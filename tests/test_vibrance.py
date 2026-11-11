@@ -18,9 +18,7 @@ from luma_fattal.pipeline import process_frames
 WEIGHTS = np.array([4899, 9617, 1868], np.float64) / 16384
 
 
-@pytest.mark.parametrize(
-    "value", [-1, 100.1, True, "50", None, float("nan"), float("inf")]
-)
+@pytest.mark.parametrize("value", [1e100, True, "50", None, float("nan"), float("inf")])
 def test_invalid_vibrance_is_rejected(value):
     with pytest.raises(ValueError, match="vibrance"):
         FilterParams(vibrance=value)

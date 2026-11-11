@@ -82,7 +82,7 @@ def test_repeated_frame_is_stable():
 
 
 @pytest.mark.parametrize(
-    "arguments", [(-0.1, 1, 1), (0.5, 1.1, 1), (0.5, 1, 0), (0.5, 1, float("nan"))]
+    "arguments", [(1e100, 1, 1), (0.5, 1e100, 1), (0.5, 1, -1), (0.5, 1, float("nan"))]
 )
 def test_invalid_settings_fail(arguments):
     with pytest.raises(ValueError):
@@ -133,9 +133,8 @@ def test_inherited_config_overrides_nested_fields_and_checks_cycles(tmp_path):
     [
         {"flat_cleanup_mode": "unknown"},
         {"flat_cleanup_coarse_strength": True},
-        {"flat_cleanup_coarse_strength": 1.1},
-        {"flat_cleanup_sigma": 0},
-        {"flat_cleanup_sigma": 17},
+        {"flat_cleanup_sigma": -1},
+        {"flat_cleanup_sigma": 129},
         {"flat_cleanup_sigma": float("nan")},
     ],
 )

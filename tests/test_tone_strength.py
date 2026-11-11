@@ -20,9 +20,7 @@ from luma_fattal.core import _recombine
 from luma_fattal.pipeline import process_frames
 
 
-@pytest.mark.parametrize(
-    "value", [-1, 100.1, True, "50", None, float("nan"), float("inf")]
-)
+@pytest.mark.parametrize("value", [1e100, True, "50", None, float("nan"), float("inf")])
 def test_invalid_tone_strength_is_rejected(value):
     with pytest.raises(ValueError, match="tone_strength"):
         FilterParams(tone_strength=value)

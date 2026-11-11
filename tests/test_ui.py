@@ -103,7 +103,14 @@ assert.equal(numerical.children[0].children[0].getAttribute('aria-expanded'), 't
 const config = JSON.parse(process.argv[2]);
 panel.load(config);
 const alpha = panel.controls.find(control => control.key === 'alpha');
-config.parameters.alpha = 10;
+assert.equal(alpha.range.max, 500);
+assert.equal(alpha.input.max, undefined);
+alpha.input.value = '1500.25';
+alpha.input.valueAsNumber = 1500.25;
+alpha.input.input();
+assert.equal(config.parameters.alpha, 1500.25);
+assert.equal(alpha.input.value, '1500.25');
+assert.equal(alpha.range.max, 500);
 alpha.reset.click();
 assert.equal(config.parameters.alpha, 1);
 assert.equal(Number(alpha.input.value), 1);
@@ -188,8 +195,8 @@ def test_workbench_rejects_invalid_config_and_retains_source(tmp_path):
     app.uploads["test"] = dict(path=tmp_path / "source.mp4", duration=1)
     try:
         invalid = Config().to_dict()
-        invalid["parameters"]["black_level"] = 100
-        with pytest.raises(ValueError, match="black_level"):
+        invalid["parameters"]["alpha"] = 0
+        with pytest.raises(ValueError, match="alpha"):
             app.submit("preview", dict(upload="test", config=invalid))
         assert not app.busy
         assert not app.jobs

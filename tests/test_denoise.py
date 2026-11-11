@@ -182,7 +182,7 @@ def test_denoising_precedes_cleanup_and_intentional_noise():
 
 
 @pytest.mark.parametrize(
-    "value", [-1, 1.1, True, "auto", None, float("nan"), float("inf")]
+    "value", [1e100, True, "auto", None, float("nan"), float("inf")]
 )
 def test_invalid_strengths_are_rejected(value):
     with pytest.raises(ValueError):

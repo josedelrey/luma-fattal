@@ -279,7 +279,7 @@ def main(argv: list[str] | None = None) -> None:
         "--lighting-scale",
         type=float,
         default=None,
-        help="Resolution fraction of the GPU lighting correction grid, 0.25 to 1",
+        help="Resolution fraction of the GPU lighting correction grid, greater than 0 and at most 1",
     )
     video.add_argument(
         "--decode-prefetch",
@@ -309,7 +309,7 @@ def main(argv: list[str] | None = None) -> None:
         "--solver-halo",
         type=int,
         default=None,
-        help="GPU boundary dependency rows, 32 to 96",
+        help="GPU boundary dependency rows, nonnegative",
     )
     video.add_argument(
         "--pipeline-depth",
@@ -369,13 +369,13 @@ def main(argv: list[str] | None = None) -> None:
         "--denoise",
         type=float,
         default=None,
-        help="Adaptive source denoising before Fattal, 0 to 1, default 0",
+        help="Adaptive source denoising before Fattal, default 0",
     )
     video.add_argument(
         "--flat-cleanup",
         type=float,
         default=None,
-        help="Source-guided cleanup strength in smooth areas, 0 to 1, default 0",
+        help="Source-guided cleanup strength in smooth areas, default 0",
     )
     video.add_argument(
         "--flat-cleanup-mode",
@@ -387,19 +387,19 @@ def main(argv: list[str] | None = None) -> None:
         "--flat-cleanup-coarse-strength",
         type=float,
         default=None,
-        help="Broad correction strength for multiscale cleanup, 0 to 1",
+        help="Broad correction strength for multiscale cleanup",
     )
     video.add_argument(
         "--flat-cleanup-sigma",
         type=float,
         default=None,
-        help="Broad correction radius in effect working pixels, 0.01 to 16",
+        help="Broad correction radius in effect working pixels, 0 to 128",
     )
     video.add_argument(
         "--pre-noise-rms",
         type=float,
         default=None,
-        help="Noise RMS before Fattal in source 0-255 units, 0 to 4, default 0",
+        help="Noise RMS before Fattal in source 0-255 units, default 0",
     )
     video.add_argument(
         "--pre-noise-kind",
@@ -483,14 +483,14 @@ def main(argv: list[str] | None = None) -> None:
                 help={
                     "output_gamma": f"Positive output gamma, x^(1/gamma), default {default:g}",
                     "tone_strength": "Blend source and filtered brightness before color "
-                    "reconstruction, 0 to 100, default 100",
+                    "reconstruction, default 100",
                     "highlight_compression": "Compress bright RGB peaks before clipping, "
-                    "0 to 100, default 0",
-                    "black_level": "Output black level as a percentage, 0 to 100, default 0",
-                    "white_level": "Output white level as a percentage, 0 to 100, default 100",
+                    "default 0",
+                    "black_level": "Output black level as a percentage, default 0",
+                    "white_level": "Output white level as a percentage, default 100",
                     "vibrance": "Boost muted colors more than saturated colors, "
-                    "0 to 100, default 0",
-                }.get(name, f"Parameter scale 0..100, default {default:g}"),
+                    "default 0",
+                }.get(name, f"Effect parameter, default {default:g}"),
             )
         for name, value_type, description in (
             ("iterations", int, "Poisson solver iterations, at least 1"),
@@ -501,15 +501,15 @@ def main(argv: list[str] | None = None) -> None:
             ),
             ("pyramid_min_size", int, "Minimum pyramid dimension, at least 2"),
             ("normalization_low", float, "Lower normalization quantile, 0 to below 1"),
-            ("normalization_high", float, "Upper normalization quantile, 0 to below 1"),
-            ("normalization_floor", float, "Positive normalization floor, at most 1"),
-            ("gradient_threshold", float, "Positive gradient threshold, at most 1"),
+            ("normalization_high", float, "Upper normalization quantile, 0 to 1"),
+            ("normalization_floor", float, "Nonnegative normalization floor"),
+            ("gradient_threshold", float, "Nonnegative gradient threshold"),
             (
                 "log_offset",
                 float,
-                "Positive luminance offset before logarithms, at most 1",
+                "Positive luminance offset before logarithms",
             ),
-            ("shadow_threshold", int, "Shadow preservation cutoff, 0 to 255"),
+            ("shadow_threshold", int, "Shadow preservation cutoff"),
         ):
             command.add_argument(
                 "--" + name.replace("_", "-"),

@@ -46,7 +46,7 @@ def _fast_pow64_values(
     for index in range(source.size):
         high = np.int64(source[index] >> np.uint64(32))
         word = exponent * (high - _BIAS) + _BIAS
-        if word <= -1 or word >= 0x7FF00000:
+        if abs(exponent) > 1 and (word <= -1 or word >= 0x7FF00000):
             powers[index] = np.power(values[index], exponent)
         else:
             output[index] = np.uint64(np.trunc(word)) << np.uint64(32)

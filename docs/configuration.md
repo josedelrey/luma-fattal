@@ -116,19 +116,25 @@ The run record includes the resolved settings and fingerprints of inherited file
 
 ## Effect controls
 
+The alpha slider tops out at `500`. Type a value in the numeric field to go
+beyond a slider's range. Typed values use the same validation as configuration
+files and CLI overrides. Effect settings other than gamma must fit within the
+float32 working range with headroom for pixel math. Extreme alpha, beta, or
+noise combinations can exceed the solver's numeric range on some images.
+
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
-| `parameters.alpha` | `1` | Greater than `0`, at most `1000`. Scales the reference gradient magnitude used for attenuation. Must remain positive in float32 after division by 100. |
-| `parameters.beta` | `80` | `0–100`. Controls how attenuation varies with gradient strength. At `100`, attenuation is neutral, but reconstruction and normalization still run. Lower values increase the difference in treatment between weak and strong gradients. |
-| `parameters.saturation` | `100` | `0–100`. Strength of source channel-to-brightness ratios in color reconstruction. At `0`, the filtered component is grayscale. |
-| `parameters.noise` | `0` | `0–100`. Offset added to gradient magnitudes in the attenuation calculation. It changes low-gradient behavior without generating noise pixels. |
-| `parameters.fade` | `0` | `0–100`. Blend toward the original after filtering and enlargement. `0` applies the full result. `100` bypasses the effect, image orientation/color preparation, and resizing. Export encoding and video input preparation still apply. |
+| `parameters.alpha` | `1` | Greater than `0`. Scales the reference gradient magnitude used for attenuation. Must remain positive in float32 after division by 100. |
+| `parameters.beta` | `80` | Signed. Controls how attenuation varies with gradient strength. At `100`, attenuation is neutral, but reconstruction and normalization still run. Lower values increase the difference in treatment between weak and strong gradients. |
+| `parameters.saturation` | `100` | Signed. Strength of source channel-to-brightness ratios in color reconstruction. At `0`, the filtered component is grayscale. |
+| `parameters.noise` | `0` | Signed. Offset added to gradient magnitudes in the attenuation calculation. It changes low-gradient behavior without generating noise pixels. Active gradients must stay positive after the offset. |
+| `parameters.fade` | `0` | Signed. Blend toward the original after filtering and enlargement. Values outside `0–100` extrapolate the blend. `0` applies the full result. `100` bypasses the effect, image orientation/color preparation, and resizing. Export encoding and video input preparation still apply. |
 | `parameters.output_gamma` | `1.0` | Positive number with a finite reciprocal. Applies `x^(1/gamma)` to clipped, normalized RGB. Above `1` brightens, below `1` darkens. |
-| `parameters.tone_strength` | `100` | `0–100`. Blend original and reconstructed brightness before color reconstruction. At `0`, source brightness is retained while other color and source treatments can still apply. |
-| `parameters.highlight_compression` | `0` | `0–100`. Roll off RGB peaks above 75% of white while preserving channel ratios. `0` disables compression. At `100`, finite nonnegative peaks are bounded. Partial strength can still leave clipping. |
-| `parameters.black_level` | `0` | `0–100`, strictly below `white_level`. Output black endpoint as a percentage of white. Raising it lifts blacks. |
-| `parameters.white_level` | `100` | `0–100`, strictly above `black_level`. Output white endpoint. Lowering it dims highlights. |
-| `parameters.vibrance` | `0` | `0–100`. Boost muted colors with a gain limited to keep channels in gamut. Grays and fully saturated colors remain unchanged at this stage. |
+| `parameters.tone_strength` | `100` | Signed. Blend or extrapolate original and reconstructed brightness before color reconstruction. At `0`, source brightness is retained while other color and source treatments can still apply. |
+| `parameters.highlight_compression` | `0` | Signed. Positive values roll off RGB peaks above 75% of white while preserving channel ratios. `0` disables compression. At `100`, finite nonnegative peaks are bounded. Negative values boost peaks. |
+| `parameters.black_level` | `0` | Signed. Output black endpoint as a percentage of white. Values above the white endpoint invert the output range. |
+| `parameters.white_level` | `100` | Signed. Output white endpoint as a percentage of white. Output levels clip to the byte range. |
+| `parameters.vibrance` | `0` | Signed. Positive values boost muted colors with a gain limited to keep channels in gamut. Negative values mute colors. Grays and fully saturated colors remain unchanged at this stage. |
 
 For gradients above `numerics.gradient_threshold`, attenuation at each scale is
 `((gradient + noise / 100) / ((alpha / 100) * mean_gradient))^(beta / 100 - 1)`.
@@ -194,18 +200,18 @@ or in-memory array outputs.
 
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
-| `numerics.iterations` | `80` | Integer ≥ `1`. Poisson solver iteration count. More iterations increase computation and change convergence. |
+| `numerics.iterations` | `80` | Integer `1–10000`. Poisson solver iteration count. More iterations increase computation and change convergence. |
 | `numerics.relaxation` | `1.9` | Greater than `0`, below `2`. Solver update factor. Float32 weights `relaxation` and `1 - relaxation` must remain strictly inside `(0, 2)` and `(-1, 1)`, respectively. Values too close to the endpoints are rejected. |
 | `numerics.pyramid_min_size` | `32` | Integer ≥ `2`. Controls the coarsest pyramid scale. Smaller values permit more coarse scales. |
-| `numerics.normalization_low` | `0.001` | `0 ≤ low < high < 1`. Lower quantile of nonzero reconstructed brightness used for normalization. Default selects approximately the 0.1st percentile. |
-| `numerics.normalization_high` | `0.995` | `low < high < 1`. Upper normalization quantile. Default selects approximately the 99.5th percentile. |
-| `numerics.normalization_floor` | `0.0001` | Greater than `0`, at most `1`, positive in float32. Fallback for nonpositive normalized brightness and all-zero normalization input. |
-| `numerics.gradient_threshold` | `0.0001` | Greater than `0`, at most `1`, positive in float32. Gradients at or below this magnitude retain neutral attenuation at that scale. |
-| `numerics.log_offset` | `0.01` | Greater than `0`, at most `1`, positive in float32. Offset added before the luminance logarithm and subtracted after exponentiation. Avoids log-of-zero and changes dark-region behavior. |
-| `numerics.shadow_threshold` | `6` | Integer `0–255`. Original-source luminance cutoff for preserving source RGB before output-level mapping. |
+| `numerics.normalization_low` | `0.001` | `0 ≤ low < high ≤ 1`. Lower quantile of nonzero reconstructed brightness used for normalization. Default selects approximately the 0.1st percentile. |
+| `numerics.normalization_high` | `0.995` | `low < high ≤ 1`. Upper normalization quantile. Default selects approximately the 99.5th percentile. |
+| `numerics.normalization_floor` | `0.0001` | Nonnegative and representable in float32. Fallback for nonpositive normalized brightness and all-zero normalization input. |
+| `numerics.gradient_threshold` | `0.0001` | Nonnegative and representable in float32. Gradients at or below this magnitude retain neutral attenuation at that scale. |
+| `numerics.log_offset` | `0.01` | Greater than `0` and representable in float32. Offset added before the luminance logarithm and subtracted after exponentiation. Avoids log-of-zero and changes dark-region behavior. |
+| `numerics.shadow_threshold` | `6` | Signed integer within the solver’s indexing range. Original-source luminance cutoff for preserving source RGB before output-level mapping. |
 | `numerics.detail_level` | `0` | Integer ≥ `0`. Number of finest attenuation scales to omit. If all are omitted, attenuation is neutral, but reconstruction and normalization still run. |
 | `numerics.power_mode` | `approximate` | `approximate` uses reference power approximations. `standard` uses NumPy float64 powers for attenuation and color reconstruction, narrowing attenuation to float32. |
-| `numerics.shadow_softness` | `0` | Integer `0–255`. Half-width of the smooth transition around `shadow_threshold`, in source luminance levels. `0` keeps a hard cutoff. Transition endpoints are clamped to `0–255`. |
+| `numerics.shadow_softness` | `0` | Nonnegative integer within the solver’s indexing range. Half-width of the smooth transition around `shadow_threshold`, in source luminance levels. `0` keeps a hard cutoff. Transition endpoints are clamped to `0–255`. |
 | `numerics.luminance_mode` | `rounded` | `rounded` rounds source luminance to integer levels before the logarithm. `fractional` retains fractional luminance. Neither recovers detail lost in an 8-bit source. |
 
 ## Video settings
@@ -221,12 +227,12 @@ requirements, input preparation, and examples. Output is silent SDR H.264 MP4.
 | `video.filter_backend` | `cpu` | `cpu` uses reference processing. `auto` benchmarks the complete CUDA frame pipeline, including transfers and setup cost, and checks RGB agreement with the CPU reference. It selects CUDA when the measured speedup justifies setup cost. Otherwise, or on GPU failure, it uses the CPU. Bundled YAML presets select `auto`. Independent of `video.encoder`. |
 | `video.calibration_cache` | `false` | Reuse compatible CUDA calibration across runs. A cache hit still compares the first GPU frame with the CPU reference. The cache is stored under `XDG_CACHE_HOME/luma-fattal` or the user's default cache directory. |
 | `video.gpu_iterations` | `null` | `null` uses `numerics.iterations` on both backends. A positive integer overrides the GPU solver iteration count. CPU processing uses `numerics.iterations`. |
-| `video.lighting_scale` | `1.0` | Fraction `0.25–1`. Below `1`, the GPU estimates the remaining lighting correction on a smaller grid and applies it at full resolution. Applies only to GPU processing. |
+| `video.lighting_scale` | `1.0` | Fraction greater than `0` and at most `1`. Below `1`, the GPU estimates the remaining lighting correction on a smaller grid and applies it at full resolution. Applies only to GPU processing. |
 | `video.decode_prefetch` | `0` | Integer `0–16`. Simple decoded-frame prefetch when `pipeline_depth` is `0`. Fast presets keep it off and use reusable pipeline slots instead. |
 | `video.pinned_frames` | `false` | Decode RGB frames into pinned host memory for GPU upload. Falls back to ordinary buffers if pinning is unavailable. Fast presets enable it. |
 | `video.gpu_buffer_reuse` | `false` | Reuse GPU fields and keep working cleanup history on the device. Asynchronous host checkpoints complete with each output frame so CPU fallback retains its history. Fast presets enable it. |
 | `video.gpu_cleanup_graph` | `false` | With buffer reuse, capture compatible cleanup operations in a CUDA graph. Failed capture uses ordinary CUDA operations and records diagnostics. Fast presets enable it. |
-| `video.solver_halo` | `96` | Integer `32–96`. Right-edge dependency rows retained by the GPU solver. Fast presets use `64` to reduce repeated boundary work. |
+| `video.solver_halo` | `96` | Nonnegative int32. Right-edge dependency rows retained by the GPU solver. Fast presets use `64` to reduce repeated boundary work. |
 | `video.pipeline_depth` | `0` | Integer `0–8`. `0` uses serial frame I/O. A positive value allocates that many reusable input/output slots and overlaps decoding, filtering, hashing, and encoding. Fast presets use `3`. |
 | `video.validation_mode` | `scan` | `scan` validates with a separate preflight. `stream` audits original decoded frame timestamps, dimensions, color, and aspect ratio during the main decode. Inputs with differing nominal and average rates or unsupported pixel formats use the preflight. Streaming supports planar YUV420/422/444 at 8, 10, or 12 bits. Validation failure publishes no output. Fast presets select `stream`. |
 | `video.crf` | `18` | Integer `0–51`, used only by `libx264`. Lower values generally give higher quality and larger files. `0` requests lossless encoding, but input preparation and pixel-format conversions still apply. |
@@ -255,7 +261,7 @@ grain and detail. Intentional source noise is added after denoising when enabled
 
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
-| `video.denoise` | `0.0` | `0–1`. Adaptive spatial denoising strength. `0` bypasses denoising in all presets by default. |
+| `video.denoise` | `0.0` | Signed. Adaptive spatial denoising strength. Values outside `0–1` extrapolate before clipping. `0` bypasses denoising in all presets by default. |
 
 ### Smooth-area cleanup
 
@@ -265,10 +271,10 @@ Fade. Cleanup can change smooth skin and grain.
 
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
-| `video.flat_cleanup` | `0.0` | `0–1`. Cleanup strength. `0` disables cleanup in either mode, including broad correction. In multiscale mode, positive values control fine correction. |
+| `video.flat_cleanup` | `0.0` | Signed. Cleanup strength. Values outside `0–1` extrapolate the correction. `0` disables cleanup in either mode, including broad correction. In multiscale mode, nonzero values control fine correction. |
 | `video.flat_cleanup_mode` | `standard` | `standard` applies guided RGB/luminance correction. `multiscale` splits that correction into fine and broad components. |
-| `video.flat_cleanup_coarse_strength` | `1.0` | `0–1`. Broad correction strength, used only when cleanup is enabled in multiscale mode. |
-| `video.flat_cleanup_sigma` | `1.2` | `0.01–16`. Gaussian standard deviation in working pixels for separating broad and fine correction. Used only in multiscale mode. |
+| `video.flat_cleanup_coarse_strength` | `1.0` | Signed. Broad correction strength, used only when cleanup is enabled in multiscale mode. |
+| `video.flat_cleanup_sigma` | `1.2` | `0–128`. Gaussian standard deviation in working pixels for separating broad and fine correction. Used only in multiscale mode. |
 
 ### Source noise
 
@@ -278,7 +284,7 @@ Original pixels still control shadow protection and Fade.
 
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
-| `video.pre_noise_rms` | `0.0` | `0–4`, in source 0–255 units. Noise RMS before masking and range limits. `0` disables noise. |
+| `video.pre_noise_rms` | `0.0` | Nonnegative, in source 0–255 units. Noise RMS before masking and range limits. `0` disables noise. |
 | `video.pre_noise_kind` | `highpass` | `highpass` produces fine high-pass noise. `fbm` produces correlated noise from multiple spatial scales. |
 | `video.pre_noise_masked` | `true` | Boolean. Restrict noise to the source's smooth-region mask, measured after denoising when enabled. Disable to apply it across the frame, subject to range limits. |
 | `video.pre_noise_seed` | `20261017` | Integer ≥ `0`. Seed for the deterministic noise field. The field stays fixed in working-frame coordinates without motion compensation. |

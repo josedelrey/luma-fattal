@@ -35,9 +35,7 @@ def test_prepared_fields_preserve_history_and_composition():
         assert staged.resets == ordinary.resets
 
 
-@pytest.mark.parametrize(
-    "strength", [True, -0.1, 1.01, float("nan"), float("inf"), "0.2"]
-)
+@pytest.mark.parametrize("strength", [True, 1e100, float("nan"), float("inf"), "0.2"])
 def test_cleanup_rejects_invalid_strength(strength):
     with pytest.raises(ValueError):
         SourceCleanup(strength)

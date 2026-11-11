@@ -48,7 +48,7 @@ def test_yaml_round_trip_preserves_nulls_and_numeric_controls(tmp_path, suffix):
         "numerics:\n  pyramid_min_size: 1",
         "numerics:\n  gradient_threshold: 1e-100",
         "numerics:\n  log_offset: 0",
-        "numerics:\n  shadow_threshold: 256",
+        "numerics:\n  shadow_threshold: 2147483648",
         '!!python/object/apply:os.system ["echo unsafe"]',
         "1: value",
         "parameters:\n  1: value",
@@ -310,10 +310,10 @@ def test_all_processing_commands_resolve_numeric_cli_overrides(
         ("pyramid_min_size", "1"),
         ("normalization_low", "0.999"),
         ("normalization_high", "0"),
-        ("normalization_floor", "0"),
+        ("normalization_floor", "-1"),
         ("gradient_threshold", "1e-100"),
         ("log_offset", "nan"),
-        ("shadow_threshold", "256"),
+        ("shadow_threshold", "2147483648"),
     ],
 )
 def test_invalid_numeric_cli_overrides_fail_before_processing(

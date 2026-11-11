@@ -158,6 +158,10 @@ def _phi(
                 with np.errstate(under="ignore"):
                     denominator = np.float32(alpha * average)
                 numerator = gradient[mask] + noise
+                if noise < 0 and np.any(numerator <= 0):
+                    raise ValueError(
+                        "Noise offset makes an active gradient nonpositive"
+                    )
                 if denominator == 0 or (
                     float(numerator.max()) / float(denominator)
                     > float(np.finfo(np.float32).max)
@@ -384,6 +388,24 @@ def _boost_vibrance(rgb: np.ndarray, strength: float) -> np.ndarray:
 
 
 @njit(cache=True)
+def _adjust_tones(rgb, brightness, contrast, points):
+    """Apply brightness, contrast, and a piecewise linear RGB curve."""
+    result = np.empty_like(rgb)
+    for y in range(rgb.shape[0]):
+        for x in range(rgb.shape[1]):
+            for channel in range(3):
+                value = rgb[y, x, channel]
+                if not np.isfinite(value):
+                    value = 255.0 if np.isnan(value) or value > 0 else 0.0
+                value = min(max((value - 127.5) * (1.0 + contrast / 100.0) + 127.5 + brightness * 2.55, 0.0), 255.0)
+                position = value / 63.75
+                index = min(int(position), 3)
+                value = (points[index] + (points[index + 1] - points[index]) * (position - index)) * 2.55
+                result[y, x, channel] = min(max(value, 0.0), 255.0)
+    return result
+
+
+@njit(cache=True)
 def _quantize_output_levels(
     rgb,
     filtered,
@@ -424,7 +446,9 @@ def _quantize_output_levels(
                     elif candidate < 0:
                         candidate = 0.0
                     value += weight * (candidate - value)
-                output[y, x, channel] = np.uint8(min(max(black + span * value + 0.5, 0), 255))
+                output[y, x, channel] = np.uint8(
+                    min(max(black + span * value + 0.5, 0), 255)
+                )
     return output
 
 
@@ -444,6 +468,9 @@ def _recombine(
     black_level: float = 0,
     white_level: float = 100,
     vibrance: float = 0,
+    brightness: float = 0,
+    contrast: float = 0,
+    curve: tuple[float, ...] = (0, 25, 50, 75, 100),
 ) -> np.ndarray:
     if tone_strength != 100:
         source_luminance = luminance if shadow_luminance is None else shadow_luminance
@@ -474,6 +501,8 @@ def _recombine(
         result = np.power(unit, 1.0 / output_gamma) * 255
     if vibrance:
         result = _boost_vibrance(result, vibrance)
+    if brightness != 0 or contrast != 0 or curve != (0, 25, 50, 75, 100):
+        result = _adjust_tones(result, brightness, contrast, curve)
     if black_level != 0 or white_level != 100:
         reference = luminance if shadow_luminance is None else shadow_luminance
         return _quantize_output_levels(
@@ -571,16 +600,23 @@ def _solve_tone_map(luminance, maximum, variant, params, numerics, solver):
         False,
     )
     pyramid = _pyramid(log_source, numerics.pyramid_min_size)
-    phi = _phi(
-        pyramid,
-        variant,
-        params,
-        numerics.gradient_threshold,
-        numerics.detail_level,
-        numerics.power_mode,
-    )
+    try:
+        with np.errstate(over="raise", invalid="raise"):
+            phi = _phi(
+                pyramid,
+                variant,
+                params,
+                numerics.gradient_threshold,
+                numerics.detail_level,
+                numerics.power_mode,
+            )
+            rhs = _divergence(log_source, phi)
+    except FloatingPointError as error:
+        raise ValueError(
+            "Gradient attenuation exceeds the solver's numeric range for this image"
+        ) from error
     solution = (_sor if solver is None else solver)(
-        _divergence(log_source, phi),
+        rhs,
         numerics.iterations,
         numerics.relaxation,
     )
@@ -672,6 +708,9 @@ def apply_core(
                     black_level=params.black_level,
                     white_level=params.white_level,
                     vibrance=params.vibrance,
+                    brightness=params.brightness,
+                    contrast=params.contrast,
+                    curve=(params.curve_0, params.curve_25, params.curve_50, params.curve_75, params.curve_100),
                 )
             elif levels_active:
                 filtered = _quantize_output_levels(

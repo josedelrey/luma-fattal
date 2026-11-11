@@ -16,7 +16,7 @@ __device__ double power(double v, double e, int standard) {
     if (standard) return pow(v, e);
     long long high = ((unsigned long long)__double_as_longlong(v)) >> 32;
     double estimate = e * (high - 1072632447LL) + 1072632447LL;
-    if (estimate <= -1 || estimate >= 2146435072.0) return pow(v, e);
+    if (fabs(e) > 1 && (estimate <= -1 || estimate >= 2146435072.0)) return pow(v, e);
     long long word = (long long)trunc(estimate);
     return __longlong_as_double((unsigned long long)word << 32);
 }
@@ -133,7 +133,9 @@ extern "C" __global__ void normalize_full(const float* src, float* out,
 extern "C" __global__ void recombine(const unsigned char* rgb, const float* colors,
     const float* lum, const float* reference, const float* mapped, unsigned char* out,
     int n, float saturation, int standard, double gamma, double tone, double highlight,
-    double black, double white, double vibrance, int threshold, int softness, float fade) {
+    double black, double white, double vibrance, double brightness_adjust, double contrast,
+    double curve0, double curve25, double curve50, double curve75, double curve100,
+    int threshold, int softness, float fade) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     float m=mapped[i];
@@ -170,6 +172,15 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const float* colo
                 gain=fmax(0.0,gain);
                 for (int k=0;k<3;++k) c[k]=clip(brightness+gain*(c[k]-brightness));
             }
+        }
+    }
+    if (brightness_adjust != 0 || contrast != 0 || curve0 != 0 || curve25 != 25 || curve50 != 50 || curve75 != 75 || curve100 != 100) {
+        double points[5]={curve0,curve25,curve50,curve75,curve100};
+        for (int k=0;k<3;++k) {
+            double value=clip((c[k]-127.5)*(1.0+contrast/100.0)+127.5+brightness_adjust*2.55);
+            double position=value/63.75;
+            int index=min((int)position,3);
+            c[k]=clip((points[index]+(points[index+1]-points[index])*(position-index))*2.55);
         }
     }
     double shadow=softness ? (4899.0*rgb[i*3]+9617.0*rgb[i*3+1]+1868.0*rgb[i*3+2])/16384.0
@@ -445,6 +456,12 @@ class CudaCore:
                 )
                 if variant != 1:
                     phi = cp.empty_like(source)
+                noise = np.float32(params.noise) / np.float32(100)
+                threshold = np.float32(numerics.gradient_threshold)
+                if noise < 0 and bool(cp.any((grad > threshold) & (grad + noise <= 0))):
+                    raise GPUUnavailable(
+                        "Noise offset makes an active gradient nonpositive"
+                    )
                 self.launch(
                     "attenuation",
                     source.shape,
@@ -456,8 +473,8 @@ class CudaCore:
                     np.float32(
                         np.float32(params.beta) / np.float32(100) - np.float32(1)
                     ),
-                    np.float32(params.noise) / np.float32(100),
-                    np.float32(numerics.gradient_threshold),
+                    noise,
+                    threshold,
                     np.int32(variant == 1),
                     np.int32(numerics.power_mode == "standard"),
                 )
@@ -1013,6 +1030,13 @@ class CudaCore:
             np.float64(params.black_level),
             np.float64(params.white_level),
             np.float64(params.vibrance),
+            np.float64(params.brightness),
+            np.float64(params.contrast),
+            np.float64(params.curve_0),
+            np.float64(params.curve_25),
+            np.float64(params.curve_50),
+            np.float64(params.curve_75),
+            np.float64(params.curve_100),
             np.int32(numerics.shadow_threshold),
             np.int32(numerics.shadow_softness),
             np.float32(params.fade) / np.float32(100),
