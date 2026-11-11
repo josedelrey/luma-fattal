@@ -75,6 +75,7 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = value; }
   getAttribute(name) { return this.attributes[name]; }
   addEventListener(name, fn) { this[name] = fn; }
+  setCustomValidity() {}
   closest() { return outer; }
   reportValidity() { this.reported = true; }
 }
@@ -99,8 +100,19 @@ assert.equal(outer.open, true);
 assert.equal(invalid.input.reported, true);
 const numerical = advanced.children[2];
 assert.equal(numerical.children[0].children[0].getAttribute('aria-expanded'), 'true');
+const config = JSON.parse(process.argv[2]);
+panel.load(config);
+const alpha = panel.controls.find(control => control.key === 'alpha');
+config.parameters.alpha = 10;
+alpha.reset.click();
+assert.equal(config.parameters.alpha, 1);
+assert.equal(Number(alpha.input.value), 1);
+assert.equal(Number(alpha.range.value), 1);
+panel.setDisabled(true);
+assert.equal(alpha.reset.disabled, true);
 """,
             str(script),
+            json.dumps(Config().to_dict()),
         ],
         check=True,
         capture_output=True,

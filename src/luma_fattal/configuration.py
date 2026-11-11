@@ -160,7 +160,7 @@ class NumericsConfig:
 
 @dataclass(frozen=True)
 class FilterParams:
-    """Effect controls on a 0..100 scale, with a positive output gamma."""
+    """Effect controls with a positive alpha and output gamma."""
 
     alpha: float = 1
     beta: float = 80
@@ -178,13 +178,14 @@ class FilterParams:
         for name, value in asdict(self).items():
             if name == "output_gamma":
                 continue
+            maximum = 1000 if name == "alpha" else 100
             if (
                 isinstance(value, bool)
                 or not isinstance(value, Real)
                 or not math.isfinite(value)
-                or not 0 <= float(value) <= 100
+                or not 0 <= float(value) <= maximum
             ):
-                raise ValueError(f"{name} must be finite and between 0 and 100")
+                raise ValueError(f"{name} must be finite and between 0 and {maximum}")
         if self.alpha == 0:
             raise ValueError("alpha must be greater than zero")
         with np.errstate(under="ignore"):

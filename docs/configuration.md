@@ -118,7 +118,7 @@ The run record includes the resolved settings and fingerprints of inherited file
 
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
-| `parameters.alpha` | `1` | Greater than `0`, at most `100`. Scales the reference gradient magnitude used for attenuation. Must remain positive in float32 after division by 100. |
+| `parameters.alpha` | `1` | Greater than `0`, at most `1000`. Scales the reference gradient magnitude used for attenuation. Must remain positive in float32 after division by 100. |
 | `parameters.beta` | `80` | `0–100`. Controls how attenuation varies with gradient strength. At `100`, attenuation is neutral, but reconstruction and normalization still run. Lower values increase the difference in treatment between weak and strong gradients. |
 | `parameters.saturation` | `100` | `0–100`. Strength of source channel-to-brightness ratios in color reconstruction. At `0`, the filtered component is grayscale. |
 | `parameters.noise` | `0` | `0–100`. Offset added to gradient magnitudes in the attenuation calculation. It changes low-gradient behavior without generating noise pixels. |

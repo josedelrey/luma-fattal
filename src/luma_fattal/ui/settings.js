@@ -3,7 +3,7 @@
 // This list defines the panel independently of the selected recipe.
 const settingGroups = [
   ['parameters', 'Effect', [
-    ['alpha', 'Alpha / gradient scale', 0, 100, 0.01, {exclusiveMin: true}],
+    ['alpha', 'Alpha / gradient scale', 0, 1000, 0.01, {exclusiveMin: true}],
     ['beta', 'Beta / detail response', 0, 100, 0.1],
     ['saturation', 'Saturation', 0, 100, 1],
     ['tone_strength', 'Tone strength', 0, 100, 1],
@@ -139,6 +139,13 @@ class ConfigurationPanel {
           if (settings.placeholder) input.placeholder = settings.placeholder;
         }
         row.append(text, input);
+        const reset = document.createElement('button');
+        reset.type = 'button';
+        reset.className = 'setting-reset';
+        reset.textContent = '↺';
+        reset.title = `Reset ${label} to preset`;
+        reset.setAttribute('aria-label', reset.title);
+        row.append(reset);
         let range;
         if (row.className === 'slider') {
           range = document.createElement('input');
@@ -152,8 +159,14 @@ class ConfigurationPanel {
           });
         }
         const isBasic = section === 'parameters' && index < 7;
-        const control = {section, key, input, range, type, max, step, settings, expand: isBasic ? null : setExpanded};
+        const control = {section, key, input, range, reset, type, max, step, settings, expand: isBasic ? null : setExpanded};
         this.controls.push(control);
+        reset.addEventListener('click', () => {
+          this.config[section][key] = structuredClone(this.baseline[section][key]);
+          this.sync(control);
+          this.validate();
+          this.onChange();
+        });
         range?.addEventListener('change', () => this.edit(control, true));
         input.addEventListener(Array.isArray(type) || type === 'boolean' ? 'change' : 'input', () => this.edit(control));
         (isBasic ? basic : group).append(row);
@@ -165,6 +178,7 @@ class ConfigurationPanel {
 
   load(config) {
     this.config = config;
+    this.baseline = structuredClone(config);
     for (const control of this.controls) this.sync(control);
     this.validate();
   }
@@ -239,8 +253,9 @@ class ConfigurationPanel {
   }
 
   setDisabled(value) {
-    for (const {input, range} of this.controls) {
+    for (const {input, range, reset} of this.controls) {
       input.disabled = value;
+      reset.disabled = value;
       if (range) range.disabled = value;
     }
   }

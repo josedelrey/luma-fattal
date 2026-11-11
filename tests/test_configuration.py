@@ -149,9 +149,14 @@ def test_alpha_that_underflows_during_scaling_is_rejected(alpha):
         FilterParams(alpha=alpha)
 
 
-@pytest.mark.parametrize("alpha", [1e-20, 0.01, 1, 100])
+@pytest.mark.parametrize("alpha", [1e-20, 0.01, 1, 100, 1000])
 def test_representable_positive_alpha_is_accepted(alpha):
     assert FilterParams(alpha=alpha).alpha == alpha
+
+
+def test_alpha_above_maximum_is_rejected():
+    with pytest.raises(ValueError, match="alpha must be finite and between 0 and 1000"):
+        FilterParams(alpha=1001)
 
 
 @pytest.mark.parametrize("suffix", ["yaml", "json", "toml"])
