@@ -80,15 +80,19 @@ so values from a previously selected preset do not carry over. No processing
 behavior depends on the preset filename.
 
 The GUI keeps the same controls for every preset. Seven common effect controls
-are visible initially. **More settings** contains additional effect, numerical, source treatment,
-encoding, and GPU performance controls. Processing settings are retained in
-configuration files and can be changed through the CLI or Python API. Controls stay available when their mode or backend is inactive.
+are visible initially. **More settings** contains additional effect and numerical
+controls, along with **Video source**, encoding, and GPU performance controls.
+Processing settings, the numerical fields `gradient_threshold`, `log_offset`,
+`detail_level`, `power_mode`, and `luminance_mode`, and the video fields
+`pre_noise_seed`, `frame_rate`, `input_color`, and `input_range` are retained in
+configuration files and can be changed through the CLI or Python API. Visible
+controls stay available when their mode or backend is inactive.
 Image input and image export settings are also editable and saved, although they
 do not affect video processing. Schema version `1` is fixed, and video requires
 one filter rather than `both`. `extends` selects inherited values and is resolved
 before they reach the panel.
 
-Loading a preset only sets control values. **Reset** restores the loaded values.
+Loading a preset applies its full configuration. **Reset** restores the loaded values.
 **Save…** beside the filter saves the current configuration without rendering.
 **Save config** in the completed output panel saves the configuration used for
 that render. Both produce a complete JSON file that can be reopened in the GUI

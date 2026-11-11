@@ -73,15 +73,28 @@ def test_gui_controls_cover_editable_configuration_fields():
         ).stdout
     )
     defaults = Config().to_dict()
+    config_only_fields = {
+        "numerics": {
+            "gradient_threshold",
+            "log_offset",
+            "detail_level",
+            "power_mode",
+            "luminance_mode",
+        },
+        "video": {"pre_noise_seed", "frame_rate", "input_color", "input_range"},
+    }
     expected = {
         (section, key)
         for section, values in defaults.items()
         if isinstance(values, dict) and section != "processing"
         for key in values
+        if key not in config_only_fields.get(section, ())
     }
     actual = [(section, item[0]) for section, _, items in definitions for item in items]
     assert len(actual) == len(set(actual))
     assert set(actual) == expected
+    first_video_group = next(title for section, title, _ in definitions if section == "video")
+    assert first_video_group == "Video source"
     for section, _, items in definitions:
         for key, _, control, *rest in items:
             if isinstance(control, list):
@@ -136,6 +149,11 @@ assert.equal(numerical.children[0].children[0].getAttribute('aria-expanded'), 't
 const config = JSON.parse(process.argv[2]);
 config.processing.working_resampler = 'bicubic';
 config.processing.transparency = 'straight';
+const numerics = {gradient_threshold: 0.002, log_offset: 10, detail_level: 2,
+  power_mode: 'standard', luminance_mode: 'fractional'};
+Object.assign(config.numerics, numerics);
+const video = {pre_noise_seed: 42, frame_rate: '30000/1001', input_color: 'bt709', input_range: 'full'};
+Object.assign(config.video, video);
 panel.load(config);
 const alpha = panel.controls.find(control => control.key === 'alpha');
 assert.equal(alpha.range.max, 500);
@@ -146,6 +164,8 @@ alpha.input.input();
 assert.equal(config.parameters.alpha, 1500.25);
 assert.equal(config.processing.working_resampler, 'bicubic');
 assert.equal(config.processing.transparency, 'straight');
+for (const [key, value] of Object.entries(numerics)) assert.equal(config.numerics[key], value);
+for (const [key, value] of Object.entries(video)) assert.equal(config.video[key], value);
 assert.equal(alpha.input.value, '1500.25');
 assert.equal(alpha.range.max, 500);
 alpha.reset.click();

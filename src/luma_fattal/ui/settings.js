@@ -48,15 +48,10 @@ const settingGroups = [
     ['normalization_low', 'Normalization low', 0, 1, 0.001, {exclusiveMax: true}],
     ['normalization_high', 'Normalization high', 0, 1, 0.001, {exclusiveMax: true}],
     ['normalization_floor', 'Normalization floor', 0, 1, 0.0001, {exclusiveMin: true}],
-    ['gradient_threshold', 'Gradient threshold', 0, 1, 0.0001, {exclusiveMin: true}],
-    ['log_offset', 'Luminance log offset', 0, 1, 0.001, {exclusiveMin: true}],
     ['shadow_threshold', 'Shadow threshold', 0, 255, 1],
     ['shadow_softness', 'Shadow softness', 0, 255, 1],
-    ['detail_level', 'Omitted detail levels', 0, null, 1],
-    ['power_mode', 'Power function', ['approximate', 'standard']],
-    ['luminance_mode', 'Luminance', ['rounded', 'fractional']],
   ]],
-  ['video', 'Video source and treatment', [
+  ['video', 'Video source', [
     ['deblock', 'Source deblocking', ['off', 'weak4', 'weak8']],
     ['deband', 'Source debanding', ['off', 'gentle']],
     ['denoise', 'Source denoise', 0, 1, 0.05],
@@ -67,10 +62,6 @@ const settingGroups = [
     ['pre_noise_rms', 'Source noise RMS', 0, 4, 0.05],
     ['pre_noise_kind', 'Source noise kind', ['highpass', 'fbm']],
     ['pre_noise_masked', 'Mask source noise', 'boolean'],
-    ['pre_noise_seed', 'Source noise seed', 0, null, 1],
-    ['frame_rate', 'Output frame rate', 'text', {placeholder: 'auto or 30000/1001'}],
-    ['input_color', 'Source color', ['auto', 'bt709', 'bt601-pal', 'bt601-ntsc', 'srgb', 'bt2020-pq', 'bt2020-hlg']],
-    ['input_range', 'Source range', ['auto', 'limited', 'full']],
   ]],
   ['video', 'Video encoding', [
     ['encoder', 'Encoder', ['libx264', 'h264_nvenc']],
@@ -329,13 +320,11 @@ class ConfigurationPanel {
         }
       }
     }
-    const check = (section, key, valid, message) => {
-      if (!valid) this.controls.find(item => item.section === section && item.key === key).input.setCustomValidity(message);
-    };
-    const {numerics, video} = this.config;
-    check('numerics', 'normalization_low', numerics.normalization_low < numerics.normalization_high, 'Low quantile must be below high quantile.');
-    check('video', 'frame_rate', video.frame_rate === 'auto' || /^(?:\d+(?:\.\d+)?|\d+\/\d+)$/.test(video.frame_rate) &&
-      video.frame_rate.split('/').every(part => Number(part) > 0), 'Enter auto or a positive frame rate, such as 30000/1001.');
+    const {numerics} = this.config;
+    if (!(numerics.normalization_low < numerics.normalization_high)) {
+      const low = this.controls.find(item => item.section === 'numerics' && item.key === 'normalization_low');
+      low.input.setCustomValidity('Low quantile must be below high quantile.');
+    }
   }
 
   valid(report = false) {
