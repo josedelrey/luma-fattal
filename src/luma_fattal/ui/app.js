@@ -20,7 +20,7 @@ for (const [surface, filename] of Object.entries({body: 'viscera', controls: 'pa
 document.documentElement.style.setProperty('--monitor-texture', `url('${secured('/assets/panel-078-red.png')}')`);
 let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, revision = 0, previewRevision = -1, timer, resultConfig, pendingImport;
 let previewRun, pendingSubmission = Promise.resolve(), importing = false;
-let processJob, stopRequested = false;
+let processing = false, processJob, stopRequested = false;
 const player = $('player');
 const fileDialogs = window.desktopFiles;
 if (window.desktopWindow) {
@@ -54,20 +54,26 @@ async function api(path, options = {}) {
   return response.json();
 }
 function formatTime(seconds) { if (!Number.isFinite(seconds)) return '00:00'; return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`; }
+function updateJobControls() {
+  for (const id of ['rescan', 'process']) $(id).disabled = busy || processing || !upload;
+  $('refresh').disabled = busy || !upload;
+  for (const id of ['open-video', 'screen-load']) $(id).disabled = busy || processing;
+}
 function setBusy(value) {
   busy = value;
   if (value) {
     clearTimeout(timer);
     previewRun = undefined;
   }
-  $('rescan').disabled = value || !upload;
-  for (const id of ['process', 'refresh']) $(id).disabled = value || !upload;
-  for (const id of ['open-video', 'screen-load']) $(id).disabled = value;
+  updateJobControls();
   for (const id of ['presets', 'import-preset', 'filter', 'reset', 'save-preset']) $(id).disabled = !config;
   settingsPanel.setDisabled(!config);
   if (!value) schedulePreview();
 }
 function setProcessing(value) {
+  processing = value;
+  if (value && previewRun) previewRun.showProgress = false;
+  updateJobControls();
   document.querySelector('.process-slot').classList.toggle('is-processing', value);
   $('process-metrics').hidden = !value;
   if (value) { $('process-speed').textContent = 'Preparing…'; $('process-eta').textContent = 'ETA —'; $('stop-process').disabled = false; $('stop-process').textContent = 'Stop ■'; }
@@ -84,6 +90,7 @@ function schedulePreview(delay = 350) {
 }
 function changed(sliderCommit = false) {
   revision++;
+  $('preview-state').removeAttribute('title');
   $('preview-state').textContent = upload ? 'Settings changed. Preview is out of date.' : 'Five evenly spaced frames:';
   schedulePreview(sliderCommit ? 120 : 350);
 }
@@ -165,25 +172,27 @@ function showVideo(processed) {
   $('original-tab').classList.toggle('active', !processed); $('result-tab').classList.toggle('active', processed);
   $('original-tab').setAttribute('aria-pressed', !processed); $('result-tab').setAttribute('aria-pressed', processed);
 }
+function updateJobProgress(job) {
+  updateProcessing(job);
+  const progress = $('progress');
+  if (job.state === 'done') progress.value = 100;
+  else if (job.total) progress.value = Math.min(job.total_estimated ? 99 : 100, 100 * job.completed / job.total);
+  else progress.removeAttribute('value');
+  const label = job.kind === 'analyze' ? 'ANALYZING' : job.kind === 'preview' ? 'PREVIEW' : 'PROCESSING';
+  if (job.state === 'cancelling') status('Stopping processing…');
+  else status(`${label} / ${job.completed}${job.total ? ` OF ${job.total_estimated ? '~' : ''}${job.total}` : ''} FRAMES`);
+}
 async function poll(identifier, onUpdate, current) {
   while (current()) {
     const job = await api(`/api/jobs/${identifier}`);
     if (!current() || job.state === 'superseded') return;
-    onUpdate?.(job);
-    updateProcessing(job);
-    const progress = $('progress');
-    if (job.total) { progress.value = Math.min(job.total_estimated ? 99 : 100, 100 * job.completed / job.total); }
-    else progress.removeAttribute('value');
-    status(`${job.kind === 'analyze' ? 'ANALYZING' : job.kind === 'preview' ? 'PREVIEW' : 'PROCESSING'} / ${job.completed}${job.total ? ` OF ${job.total_estimated ? '~' : ''}${job.total}` : ''} FRAMES`);
+    (onUpdate || updateJobProgress)(job);
     if (job.state === 'error') throw new Error(job.error);
-    if (job.state === 'cancelled') return job;
-    if (job.state === 'cancelling') status('Stopping processing…');
-    if (job.state === 'done') { progress.value = 100; return job; }
+    if (job.state === 'cancelled' || job.state === 'done') return job;
     await new Promise(resolve => setTimeout(resolve, onUpdate ? 100 : 600));
   }
 }
 async function start(kind, onUpdate, current = () => true, onSubmitted) {
-  $('progress').style.visibility = '';
   const body = JSON.stringify({upload: upload.upload, config});
   // Keep submissions ordered even if an older preview is still waiting for its job ID.
   const submission = pendingSubmission.then(() => current() && api(`/api/${kind}`, {
@@ -197,24 +206,33 @@ async function start(kind, onUpdate, current = () => true, onSubmitted) {
 async function preview() {
   if (busy || !upload || previewRevision === revision || previewRun?.revision === revision || !settingsPanel.valid()) return;
   clearTimeout(timer);
-  const run = {revision};
+  const run = {revision, showProgress: !processing};
   previewRun = run;
   const current = () => previewRun === run && revision === run.revision;
   $('preview-state').textContent = 'Generating previews…';
-  status('PREPARING PREVIEW / first use may compile numerical kernels');
+  $('preview-state').removeAttribute('title');
+  if (run.showProgress) {
+    $('progress').style.visibility = '';
+    status('PREPARING PREVIEW / first use may compile numerical kernels');
+  }
   try {
     placeholders();
-    const job = await start('preview', updatePreviewFrames, current);
+    const job = await start('preview', job => {
+      updatePreviewFrames(job);
+      $('preview-state').textContent = `Generating previews… ${job.completed} of ${job.total}`;
+      if (run.showProgress) updateJobProgress(job);
+    }, current);
     if (!current() || !job) return;
     previewRevision = run.revision;
     $('preview-state').textContent = 'Current settings / five independent frames';
-    status('Preview ready. Click a frame to enlarge.');
+    if (run.showProgress) status('Preview ready. Click a frame to enlarge.');
   } catch (error) {
     if (!current()) return;
     previewError = true;
     if ($('lightbox').open) updateLightbox();
-    status(error.message, true);
+    if (run.showProgress) status(error.message, true);
     $('preview-state').textContent = 'PREVIEW FAILED / adjust settings and retry';
+    $('preview-state').title = error.message;
   } finally {
     if (previewRun === run) previewRun = undefined;
   }
@@ -233,15 +251,15 @@ async function loadVideo(file, nextUpload) {
   if (upload && $('auto-preview').checked) preview();
 }
 $('open-video').onclick = $('screen-load').onclick = async () => {
+  if (busy || processing) return;
   if (!fileDialogs) return $('video-file').click();
-  if (busy) return;
   setBusy(true);
   try { const selected = await fileDialogs.open('video'); if (selected) await loadVideo({name: selected.name}, selected.upload); }
   catch (error) { status(error.message, true); }
   finally { setBusy(false); }
 };
 $('video-file').onchange = async event => {
-  const file = event.target.files[0]; if (!file || busy) return;
+  const file = event.target.files[0]; if (!file || busy || processing) return;
   await loadVideo(file); event.target.value = '';
 };
 $('presets').onchange = () => { pendingImport = undefined; loadConfig(presets[$('presets').value]); };
@@ -288,8 +306,9 @@ $('stop-process').onclick = async () => {
   try { await requestStop(); } catch (error) { stopRequested = false; $('stop-process').disabled = false; $('stop-process').textContent = 'Stop ■'; status(error.message, true); }
 };
 $('process').onclick = async () => {
-  if (busy || !upload || !settingsPanel.valid(true)) return;
-  setBusy(true); setProcessing(true); $('export-panel').hidden = true; status('VALIDATING SOURCE / preparing encoder and filter');
+  if (busy || processing || !upload || !settingsPanel.valid(true)) return;
+  setProcessing(true); $('export-panel').hidden = true; status('VALIDATING SOURCE / preparing encoder and filter');
+  $('progress').style.visibility = ''; $('progress').removeAttribute('value');
   const snapshot = structuredClone(config);
   try {
     stopRequested = false; processJob = undefined;
@@ -301,7 +320,7 @@ $('process').onclick = async () => {
     $('export-info').textContent = `RENDER COMPLETE / ${job.encoder} / SILENT MP4`;
     showVideo(true); $('progress').style.visibility = 'hidden'; status('Processing complete. Play or save the video.');
   } catch (error) { status(error.message, true); }
-  finally { processJob = undefined; setProcessing(false); setBusy(false); }
+  finally { processJob = undefined; setProcessing(false); }
 };
 $('close-export').onclick = () => { $('export-panel').hidden = true; };
 async function saveConfig(value) {

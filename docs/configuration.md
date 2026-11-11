@@ -80,9 +80,9 @@ so values from a previously selected preset do not carry over. No processing
 behavior depends on the preset filename.
 
 The GUI keeps the same controls for every preset. Seven common effect controls
-are visible initially. **More settings** contains every remaining setting,
-including resampling, numerical controls, source treatment, encoding, and GPU
-performance. Controls stay available when their mode or backend is inactive.
+are visible initially. **More settings** contains additional effect, numerical, source treatment,
+encoding, and GPU performance controls. Processing settings are retained in
+configuration files and can be changed through the CLI or Python API. Controls stay available when their mode or backend is inactive.
 Image input and image export settings are also editable and saved, although they
 do not affect video processing. Schema version `1` is fixed, and video requires
 one filter rather than `both`. `extends` selects inherited values and is resolved

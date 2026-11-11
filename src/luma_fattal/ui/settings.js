@@ -41,11 +41,6 @@ const settingGroups = [
     ['curve_75', 'Curve / highlights', 0, 100, 1],
     ['curve_100', 'Curve / whites', 0, 100, 1],
   ]],
-  ['processing', 'Processing', [
-    ['working_resampler', 'Working resampler', ['nearest', 'bilinear', 'bicubic']],
-    ['transparency', 'Transparency', ['reject', 'straight']],
-    ['blend_mode', 'Blend mode', ['normal']],
-  ]],
   ['numerics', 'Numerical controls', [
     ['iterations', 'Solver iterations', 1, null, 1],
     ['relaxation', 'Solver relaxation', 0, 2, 0.01, {exclusiveMin: true, exclusiveMax: true}],

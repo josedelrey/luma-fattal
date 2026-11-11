@@ -14,6 +14,7 @@ import threading
 import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from http import HTTPStatus
@@ -196,6 +197,12 @@ class _PreviewCuda:
     def __init__(self):
         self.core: CudaCore | None = None
         self.shape = None
+        self.lock = threading.Lock()
+        self.exporting = False
+
+    @property
+    def available(self):
+        return not self.exporting and self.core is not None
 
     @staticmethod
     def settings(config: Config):
@@ -218,7 +225,8 @@ class _PreviewCuda:
             probe = np.random.default_rng(0).integers(0, 256, (64, 64, 3), np.uint8)
             core(probe, self.settings(Config()), SourceCleanup(0.75))
             self.clear_history(core)
-            self.core = core
+            with self.lock:
+                self.core = core
         except GPUUnavailable:
             pass
 
@@ -229,32 +237,57 @@ class _PreviewCuda:
         core.host_rings.clear()
         core.pending_history.clear()
 
-    def filter(self, frame: np.ndarray, config: Config, treatment, *, tone_map=None):
-        core = self.core
-        if core is None:
-            raise GPUUnavailable("CUDA preview is unavailable")
-        if self.shape != frame.shape:
-            for cache in (
-                core.buffers,
-                core.axes,
-                core.resize_axes,
-                core.mask_axes,
-                core.noise_fields,
-            ):
-                cache.clear()
-            self.shape = frame.shape
+    @contextmanager
+    def for_export(self, config: Config):
+        if config.video.filter_backend != "auto":
+            yield None
+            return
+        with self.lock:
+            self.exporting = True
+            core = self.core
         try:
-            result = core(frame, self.settings(config), treatment, tone_map=tone_map)
-        except GPUUnavailable:
-            self.core = None
-            raise
-        self.clear_history(core)
-        # Keep only the current solver graph and noise field across edits.
-        while len(core.solver.graphs) > 1:
-            del core.solver.graphs[next(iter(core.solver.graphs))]
-        while len(core.noise_fields) > 1:
-            del core.noise_fields[next(iter(core.noise_fields))]
-        return result
+            if core is not None:
+                core.solver.parallel_edge = True
+            yield core
+        finally:
+            with self.lock:
+                if core is not None:
+                    core.solver.parallel_edge = False
+                    self.clear_history(core)
+                    core.cleanup_graphs.clear()
+                    core.cleanup_graph_failures.clear()
+                    self.shape = None
+                self.exporting = False
+
+    def filter(self, frame: np.ndarray, config: Config, treatment, *, tone_map=None):
+        with self.lock:
+            core = self.core
+            if self.exporting or core is None:
+                raise GPUUnavailable("CUDA preview is unavailable")
+            if self.shape != frame.shape:
+                for cache in (
+                    core.buffers,
+                    core.axes,
+                    core.resize_axes,
+                    core.mask_axes,
+                    core.noise_fields,
+                ):
+                    cache.clear()
+                self.shape = frame.shape
+            try:
+                result = core(
+                    frame, self.settings(config), treatment, tone_map=tone_map
+                )
+            except GPUUnavailable:
+                self.core = None
+                raise
+            self.clear_history(core)
+            # Keep only the current solver graph and noise field across edits.
+            while len(core.solver.graphs) > 1:
+                del core.solver.graphs[next(iter(core.solver.graphs))]
+            while len(core.noise_fields) > 1:
+                del core.noise_fields[next(iter(core.noise_fields))]
+            return result
 
 
 def preview_frame(
@@ -276,11 +309,7 @@ def _filter_preview(
 ):
     if config.parameters.fade == 100:
         return Image.fromarray(frame)
-    if (
-        cuda is not None
-        and cuda.core is not None
-        and config.video.filter_backend == "auto"
-    ):
+    if cuda is not None and cuda.available and config.video.filter_backend == "auto":
         try:
             return Image.fromarray(
                 cuda.filter(
@@ -371,14 +400,21 @@ class Workbench:
         self.uploads: dict[str, dict] = {}
         self.lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=1)
+        self.preview_executor = ThreadPoolExecutor(max_workers=1)
         self.active_job: str | None = None
+        self.active_preview: str | None = None
         self.preview_samples: _PreviewSamples | None = None
         self.preview_bitmaps: dict[str, bytes] = {}
         self.preview_cuda = _PreviewCuda()
 
     @property
     def busy(self):
-        return self.active_job is not None
+        with self.lock:
+            return self.active_job is not None or self.active_preview is not None
+
+    def shutdown(self):
+        self.preview_executor.shutdown()
+        self.executor.shutdown()
 
     def submit(self, kind: str, data: dict) -> str:
         config = Config.from_dict(data["config"])
@@ -386,15 +422,23 @@ class Workbench:
             raise ValueError("Choose one Fattal filter for video")
         upload = self.uploads[data["upload"]]
         with self.lock:
-            if self.active_job is not None:
-                active = self.jobs[self.active_job]
-                if active["kind"] != "preview":
-                    raise ValueError("Another operation is still running")
-                active["state"] = "superseded"
+            if self.active_job is not None and (
+                kind != "preview" or self.jobs[self.active_job]["kind"] != "process"
+            ):
+                raise ValueError("Another operation is still running")
             identifier = uuid4().hex
-            self.active_job = identifier
             if kind == "preview":
+                if self.active_preview is not None:
+                    self.jobs[self.active_preview]["state"] = "superseded"
+                self.active_preview = identifier
                 self.preview_bitmaps.clear()
+                executor = self.preview_executor
+            else:
+                self.active_job = identifier
+                if kind == "analyze" and self.active_preview is not None:
+                    self.jobs[self.active_preview]["state"] = "superseded"
+                    self.active_preview = None
+                executor = self.executor
             self.job_started[identifier] = time.monotonic()
             self.jobs[identifier] = dict(
                 state="running",
@@ -402,12 +446,12 @@ class Workbench:
                 total=16 if kind == "analyze" else 5 if kind == "preview" else None,
                 kind=kind,
             )
-            self.executor.submit(self.run, identifier, kind, upload, config)
+            executor.submit(self.run, identifier, kind, upload, config)
         return identifier
 
     def is_active(self, identifier: str):
         with self.lock:
-            return identifier == self.active_job
+            return identifier in (self.active_job, self.active_preview)
 
     def cancel(self, identifier: str):
         with self.lock:
@@ -422,7 +466,7 @@ class Workbench:
 
     def update(self, identifier: str, **values):
         with self.lock:
-            if identifier != self.active_job:
+            if identifier not in (self.active_job, self.active_preview):
                 return
             job = self.jobs[identifier]
             job.update(values)
@@ -447,7 +491,10 @@ class Workbench:
                     eta=remaining / fps if fps and remaining is not None else None,
                 )
             if job["state"] in ("done", "error", "cancelled"):
-                self.active_job = None
+                if job["kind"] == "preview":
+                    self.active_preview = None
+                else:
+                    self.active_job = None
 
     def run_preview(self, identifier: str, folder: Path, upload: dict, config: Config):
         source = upload["path"]
@@ -464,8 +511,7 @@ class Workbench:
         ]
         cuda = (
             self.preview_cuda
-            if config.video.filter_backend == "auto"
-            and self.preview_cuda.core is not None
+            if config.video.filter_backend == "auto" and self.preview_cuda.available
             else None
         )
         self.update(identifier, frames=frames)
@@ -482,7 +528,7 @@ class Workbench:
                 payload = buffer.getvalue()
                 url = f"/media/{identifier}/full-{index}.bmp"
                 with self.lock:
-                    if self.active_job != identifier:
+                    if self.active_preview != identifier:
                         return
                     self.preview_bitmaps[url] = payload
                 remaining_bytes -= len(payload)
@@ -624,14 +670,7 @@ class Workbench:
                         total_estimated=total is None and estimate is not None,
                     )
 
-                cuda = (
-                    self.preview_cuda.core
-                    if config.video.filter_backend == "auto"
-                    else None
-                )
-                if cuda is not None:
-                    cuda.solver.parallel_edge = True
-                try:
+                with self.preview_cuda.for_export(config) as cuda:
                     self.check_cancelled(identifier)
                     cuda_options: dict[str, Any] = (
                         {} if cuda is None else {"_cuda_core": cuda}
@@ -644,13 +683,6 @@ class Workbench:
                         **cuda_options,
                     )
                     self.check_cancelled(identifier)
-                finally:
-                    if cuda is not None:
-                        cuda.solver.parallel_edge = False
-                        self.preview_cuda.clear_history(cuda)
-                        cuda.cleanup_graphs.clear()
-                        cuda.cleanup_graph_failures.clear()
-                        self.preview_cuda.shape = None
                 with self.lock:
                     if self.jobs[identifier]["state"] == "cancelling":
                         raise _ProcessingCancelled()
@@ -951,7 +983,7 @@ def main():
         pass
     finally:
         server.server_close()
-        app.executor.shutdown(wait=True)
+        app.shutdown()
 
 
 if __name__ == "__main__":

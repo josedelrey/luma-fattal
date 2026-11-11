@@ -1050,7 +1050,14 @@ h1, h2, h3, strong, b { font-weight: normal; }
 .desktop .logo { padding: 0 8px; }
 .desktop .logo h1 { width: 440px; max-width: none; }
 .desktop .logo img { max-height: 78px; width: auto; max-width: 100%; }
-.desktop main { height: calc(100% - 72px); grid-template-rows: minmax(0, 1fr) 238px auto; gap: 16px; align-items: stretch; }
+.desktop main {
+  --preview-height: 238px;
+  --panel-gap: 16px;
+  height: calc(100% - 72px);
+  grid-template-rows: minmax(0, 1fr) var(--preview-height) auto;
+  gap: var(--panel-gap);
+  align-items: stretch;
+}
 .desktop .controls .filter-row { margin: 7px 0; }
 .desktop .controls .slider { margin: 3px 0 5px; }
 .desktop .slider input[type=number] { height: 18px; line-height: 12px; }
@@ -1096,24 +1103,34 @@ h1, h2, h3, strong, b { font-weight: normal; }
   overflow-y: auto;
 }
 .desktop .workbench:has(.controls details[open]) main {
-  height: calc(100% - 72px);
+  container-type: size;
   min-height: 0;
-  grid-template-rows: minmax(0, 1fr) 0;
+  /* Stretch both columns to the full height of the expanded settings. */
+  grid-template-rows: max-content;
 }
 .desktop .workbench:has(.controls details[open]) .video-column,
 .desktop .workbench:has(.controls details[open]) .config-column {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  height: 100%;
+  gap: var(--panel-gap);
 }
-.desktop .workbench:has(.controls details[open]) .monitor { flex: 1 1 0; min-height: 0; }
+.desktop .workbench:has(.controls details[open]) .monitor {
+  flex: none;
+  height: calc(100cqh - 2 * var(--panel-gap) - var(--preview-height));
+  min-height: 0;
+}
 .desktop .workbench:has(.controls details[open]) .controls,
 .desktop .workbench:has(.controls details[open]) .previews,
 .desktop .workbench:has(.controls details[open]) .signal-lab,
 .desktop .workbench:has(.controls details[open]) .export { flex: none; }
 .desktop .workbench:has(.controls details[open]) .previews,
-.desktop .workbench:has(.controls details[open]) .signal-lab { height: 238px; }
+.desktop .workbench:has(.controls details[open]) .signal-lab { height: var(--preview-height); }
+.desktop .workbench:has(.controls details[open]) .previews {
+  /* Keep the preview at its initial bottom inset throughout the scroll. */
+  position: sticky;
+  top: calc(100% - var(--preview-height));
+  z-index: 1;
+}
 .desktop .workbench:has(.controls details[open]) .config-column::after {
   content: '';
   flex: none;

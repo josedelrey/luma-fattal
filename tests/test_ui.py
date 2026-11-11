@@ -51,10 +51,10 @@ def test_cancel_export_waits_for_cleanup_and_discards_output(tmp_path, monkeypat
         assert not (app.directory / identifier).exists()
     finally:
         resume.set()
-        app.executor.shutdown()
+        app.shutdown()
 
 
-def test_gui_controls_cover_every_configuration_field():
+def test_gui_controls_cover_editable_configuration_fields():
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node.js is needed to inspect GUI control definitions")
@@ -76,7 +76,7 @@ def test_gui_controls_cover_every_configuration_field():
     expected = {
         (section, key)
         for section, values in defaults.items()
-        if isinstance(values, dict)
+        if isinstance(values, dict) and section != "processing"
         for key in values
     }
     actual = [(section, item[0]) for section, _, items in definitions for item in items]
@@ -131,9 +131,11 @@ invalid.input.validity.valid = false;
 assert.equal(panel.valid(true), false);
 assert.equal(outer.open, true);
 assert.equal(invalid.input.reported, true);
-const numerical = advanced.children[2];
+const numerical = advanced.children[1];
 assert.equal(numerical.children[0].children[0].getAttribute('aria-expanded'), 'true');
 const config = JSON.parse(process.argv[2]);
+config.processing.working_resampler = 'bicubic';
+config.processing.transparency = 'straight';
 panel.load(config);
 const alpha = panel.controls.find(control => control.key === 'alpha');
 assert.equal(alpha.range.max, 500);
@@ -142,6 +144,8 @@ alpha.input.value = '1500.25';
 alpha.input.valueAsNumber = 1500.25;
 alpha.input.input();
 assert.equal(config.parameters.alpha, 1500.25);
+assert.equal(config.processing.working_resampler, 'bicubic');
+assert.equal(config.processing.transparency, 'straight');
 assert.equal(alpha.input.value, '1500.25');
 assert.equal(alpha.range.max, 500);
 alpha.reset.click();
@@ -220,7 +224,7 @@ def test_workbench_preview_render_and_progress(tmp_path, tools):
                 record = json.loads(output.with_suffix(".meta.json").read_text())
                 assert job["completed"] == record["frame_count"]
     finally:
-        app.executor.shutdown()
+        app.shutdown()
 
 
 def test_workbench_rejects_invalid_config_and_retains_source(tmp_path):
@@ -234,7 +238,7 @@ def test_workbench_rejects_invalid_config_and_retains_source(tmp_path):
         assert not app.busy
         assert not app.jobs
     finally:
-        app.executor.shutdown()
+        app.shutdown()
 
 
 def test_http_auth_import_ranges_and_path_boundaries(tmp_path, monkeypatch):
@@ -375,7 +379,7 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path, monkeypatch):
         assert b"200" in head and b"image/bmp" in head
         assert body == buffer.getvalue()
     finally:
-        app.executor.shutdown()
+        app.shutdown()
 
 
 def test_signal_metrics_measure_constant_and_changing_pixels():
@@ -426,7 +430,7 @@ def test_clip_analysis_is_bounded_and_uses_real_source_samples(tmp_path, tools):
         assert all(sum(sample["histogram"]) == pytest.approx(100) for sample in samples)
         json.dumps(analysis, allow_nan=False)
     finally:
-        app.executor.shutdown()
+        app.shutdown()
 
 
 def test_processing_rate_and_eta_use_elapsed_job_time(tmp_path, monkeypatch):
@@ -449,7 +453,7 @@ def test_processing_rate_and_eta_use_elapsed_job_time(tmp_path, monkeypatch):
         app.update("render", completed=1000)
         assert app.jobs["render"]["eta"] == 0.0
     finally:
-        app.executor.shutdown()
+        app.shutdown()
 
 
 @pytest.mark.parametrize("frame_rate,expected", [("auto", 240), ("30", 300)])
@@ -490,12 +494,13 @@ def test_streaming_export_estimates_progress_total(
         assert snapshots[2]["total"] == 250
         assert not snapshots[2]["total_estimated"]
     finally:
-        app.executor.shutdown()
+        app.shutdown()
 
 
 @pytest.mark.parametrize("fails", [False, True])
-def test_export_borrows_and_restores_warmed_preview_cuda(tmp_path, monkeypatch, fails):
+def test_preview_runs_while_export_borrows_cuda(tmp_path, monkeypatch, fails):
     from dataclasses import replace
+    from threading import Event
     from types import SimpleNamespace
 
     from luma_fattal.ui import server
@@ -515,27 +520,57 @@ def test_export_borrows_and_restores_warmed_preview_cuda(tmp_path, monkeypatch, 
     )
     monkeypatch.setattr(app.preview_cuda, "core", cuda)
     app.preview_cuda.shape = (24, 32, 3)
+    entered, resume = Event(), Event()
+    config = Config()
+    config = replace(config, video=replace(config.video, filter_backend="auto"))
+    edited = replace(config, parameters=replace(config.parameters, beta=60))
+    monkeypatch.setattr(server, "_probe", lambda *_: {})
+    monkeypatch.setattr(server, "_geometry", lambda *_: ((32, 24), 0, 1))
+    monkeypatch.setattr(
+        server, "decoded_sample", lambda *_, **__: np.zeros((24, 32, 3), np.uint8)
+    )
+
+    def cpu(frame, variant, params, *args, **kwargs):
+        assert params == edited.parameters
+        return np.full_like(frame, 42)
 
     def process(source, destination, *, config, on_progress, _cuda_core):
         assert _cuda_core is cuda
         assert cuda.solver.parallel_edge
+        assert config.parameters != edited.parameters
+        entered.set()
+        assert resume.wait(10)
+        assert config.parameters != edited.parameters
         if fails:
             raise ValueError("controlled export failure")
         return {"encoding": {"encoder": "libx264"}}
 
     monkeypatch.setattr(server, "process_video", process)
-    config = Config()
-    config = replace(config, video=replace(config.video, filter_backend="auto"))
+    monkeypatch.setattr(server, "process_pixels", cpu)
     try:
         identifier = app.submit("process", dict(upload="test", config=config.to_dict()))
+        assert entered.wait(10)
+        assert not app.preview_cuda.available
+        preview = app.submit("preview", dict(upload="test", config=edited.to_dict()))
+        app.preview_executor.submit(lambda: None).result(timeout=10)
+        job = app.jobs[preview]
+        assert job["state"] == "done", job
+        assert job["completed"] == 5
+        with Image.open(BytesIO(app.preview_bitmaps[job["frames"][0]["url"]])) as image:
+            assert image.getpixel((0, 0)) == (42, 42, 42)
+        assert app.jobs[identifier]["state"] == "running"
+        assert app.busy
+        resume.set()
         app.executor.submit(lambda: None).result(timeout=10)
         assert app.jobs[identifier]["state"] == ("error" if fails else "done")
+        assert app.preview_cuda.available
         assert not cuda.solver.parallel_edge
         assert not cuda.history
         assert not cuda.cleanup_graphs
         assert app.preview_cuda.shape is None
     finally:
-        app.executor.shutdown()
+        resume.set()
+        app.shutdown()
 
 
 def test_preview_overlaps_io_and_publishes_in_order(tmp_path, monkeypatch):
@@ -596,7 +631,7 @@ def test_preview_overlaps_io_and_publishes_in_order(tmp_path, monkeypatch):
             assert image.getpixel((0, 0)) == (13, 27, 42)
     finally:
         resume.set()
-        app.executor.shutdown()
+        app.shutdown()
     job = app.jobs[identifier]
     assert job["state"] == "done"
     assert job["completed"] == job["total"] == 5
@@ -622,7 +657,7 @@ def test_preview_spills_to_disk_when_bitmap_budget_is_full(tmp_path, monkeypatch
             identifier = app.submit(
                 "preview", dict(upload="test", config=config.to_dict())
             )
-            app.executor.submit(lambda: None).result(timeout=10)
+            app.preview_executor.submit(lambda: None).result(timeout=10)
             job = app.jobs[identifier]
             assert job["state"] == "done"
             first, *overflow = job["frames"]
@@ -637,7 +672,7 @@ def test_preview_spills_to_disk_when_bitmap_budget_is_full(tmp_path, monkeypatch
                     np.testing.assert_array_equal(image, pixels)
             previous_url = first["url"]
     finally:
-        app.executor.shutdown()
+        app.shutdown()
 
 
 def test_warm_cpu_preview_prioritizes_first_frame_and_supersedes_parallel_work(
@@ -685,7 +720,7 @@ def test_warm_cpu_preview_prioritizes_first_frame_and_supersedes_parallel_work(
     monkeypatch.setattr(server, "_filter_preview", render)
     try:
         initial = submit(FilterParams(fade=100))
-        app.executor.submit(lambda: None).result(timeout=10)
+        app.preview_executor.submit(lambda: None).result(timeout=10)
         assert app.jobs[initial]["state"] == "done"
         edited = submit(FilterParams(beta=70))
         assert first_started.wait(10)
@@ -697,7 +732,7 @@ def test_warm_cpu_preview_prioritizes_first_frame_and_supersedes_parallel_work(
         assert "url" in app.jobs[edited]["frames"][0]
         latest = submit(FilterParams(beta=60))
         filters_release.set()
-        app.executor.submit(lambda: None).result(timeout=10)
+        app.preview_executor.submit(lambda: None).result(timeout=10)
         assert app.jobs[edited]["state"] == "superseded"
         assert app.jobs[edited]["completed"] == 1
         assert app.jobs[latest]["state"] == "done"
@@ -707,7 +742,7 @@ def test_warm_cpu_preview_prioritizes_first_frame_and_supersedes_parallel_work(
     finally:
         first_release.set()
         filters_release.set()
-        app.executor.shutdown()
+        app.shutdown()
 
 
 def test_preview_replacement_skips_stale_frames_and_queued_jobs(tmp_path, monkeypatch):
@@ -750,7 +785,7 @@ def test_preview_replacement_skips_stale_frames_and_queued_jobs(tmp_path, monkey
         assert app.jobs[latest]["state"] == "running"
     finally:
         resume.set()
-        app.executor.shutdown()
+        app.shutdown()
 
     assert calls == [80] + [60] * 5
     assert app.jobs[first]["completed"] == 0
@@ -786,7 +821,7 @@ def test_preview_reuses_decoded_pixels_until_source_or_decode_settings_change(
 
     def preview(upload, config):
         identifier = app.submit("preview", dict(upload=upload, config=config.to_dict()))
-        app.executor.submit(lambda: None).result(timeout=10)
+        app.preview_executor.submit(lambda: None).result(timeout=10)
         assert app.jobs[identifier]["state"] == "done", app.jobs[identifier]
 
     monkeypatch.setattr(server, "decoded_sample", decode)
@@ -813,7 +848,7 @@ def test_preview_reuses_decoded_pixels_until_source_or_decode_settings_change(
             source == app.uploads["second"]["path"] for source, *_ in decodes[10:]
         )
     finally:
-        app.executor.shutdown()
+        app.shutdown()
 
 
 def test_preview_cache_respects_byte_budget(tmp_path, monkeypatch):
@@ -873,7 +908,7 @@ def test_preview_caches_tone_maps_and_prepared_colors(
         before = len(solves)
         before_cleanup = len(cleanups)
         identifier = app.submit("preview", dict(upload=upload, config=config.to_dict()))
-        app.executor.submit(lambda: None).result(timeout=10)
+        app.preview_executor.submit(lambda: None).result(timeout=10)
         job = app.jobs[identifier]
         assert job["state"] == "done", job
         assert len(solves) - before == expected_solves
@@ -917,7 +952,7 @@ def test_preview_caches_tone_maps_and_prepared_colors(
         preview(decode_edit, 5)
         preview(decode_edit, 5, upload="second")
     finally:
-        app.executor.shutdown()
+        app.shutdown()
 
 
 def test_preview_uses_cpu_during_warmup_and_reuses_cuda_afterward(

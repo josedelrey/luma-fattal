@@ -153,6 +153,7 @@ async function openWindow() {
     const panelWidth = rect => rect[2] - rect[0]
     const stableExpandedPanels = ['monitor', 'previews', 'spectrum'].every(name =>
       Math.abs(panelHeight(expanded[name]) - panelHeight(state.panels[name])) < 1) &&
+      Math.abs(expanded.previews[1] - previews[1]) < 1 &&
       Math.abs(panelWidth(expanded.monitor) - panelWidth(expanded.previews)) < 1 &&
       Math.abs(panelWidth(expanded.controls) - panelWidth(expanded.spectrum)) < 1 &&
       Math.abs(expanded.spectrum[1] - expanded.controls[3] - 16) < 1
@@ -289,8 +290,25 @@ async function openWindow() {
               rect.width / scale, rect.height / scale];
           }));
           if (expanded) {
-            workbench.scrollTop = workbench.scrollHeight;
-            if (!workbench.scrollTop) throw new Error('Expanded settings did not scroll');
+            const preview = document.querySelector('.previews');
+            const initial = preview.getBoundingClientRect();
+            const monitor = document.querySelector('.monitor');
+            const monitorTop = monitor.getBoundingClientRect().top;
+            for (const offset of [1, 200, workbench.scrollHeight, 0]) {
+              workbench.scrollTop = offset;
+              const current = preview.getBoundingClientRect();
+              if (['top', 'right', 'bottom', 'left'].some(edge =>
+                Math.abs(current[edge] - initial[edge]) > 1)) {
+                throw new Error('Filter preview moved while scrolling at offset ' + offset);
+              }
+              if (offset > 1 && (!workbench.scrollTop || monitor.getBoundingClientRect().top >= monitorTop))
+                throw new Error('Expanded settings did not scroll');
+              const auto = document.querySelector('#auto-preview');
+              const checkbox = auto.getBoundingClientRect();
+              if (document.elementFromPoint(checkbox.left + checkbox.width / 2,
+                  checkbox.top + checkbox.height / 2) !== auto)
+                throw new Error('Pinned preview checkbox missed its hit area');
+            }
           }
         }
         advanced.open = false; exported.hidden = true; workbench.scrollTop = 0;

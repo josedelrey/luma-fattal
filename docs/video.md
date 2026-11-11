@@ -242,18 +242,21 @@ The desktop shell starts and stops its own local server automatically.
    loaded preset values.
 4. Inspect the samples at 10%, 30%, 50%, 70%, and 90% of the clip. Click a sample
    to open the full-size filtered image. Escape closes it.
-5. Process video, then switch between Original and Processed playback. Save
-   the MP4, run metadata, and the exact render configuration from the output panel.
+5. Process video. Auto preview and Refresh remain available while it renders.
+   Settings edits apply to the previews and your next render. The current render
+   keeps its starting settings. When it finishes, switch between Original and
+   Processed playback or save the MP4, run metadata, and render configuration.
 
 Full preview samples appear in order as they finish. Previews use the video
 adapter's geometry, color conversion, source treatments, and normal filter
 resolution. Auto backend mode can reuse CUDA after background initialization.
-The CPU handles previews while CUDA is warming up or unavailable. When decoded
-samples are already cached, the CPU filters the first frame before assigning
-the rest to up to three workers. Temporal cleanup history, cadence conversion,
+The CPU handles previews while CUDA is warming up, unavailable, or reserved
+for an Auto render. When decoded samples are already cached, the CPU filters
+the first frame before assigning the rest to up to three workers.
+Temporal cleanup history, cadence conversion,
 and export-specific GPU settings can affect the rendered video.
 Short clips may repeat their last available frame. Full previews can take longer
-for large inputs. A video render uses the settings in effect when it starts.
+for large inputs. Preview and render speeds can drop when both run together.
 
 Uploads and outputs stay under `outputs/ui/<session>/` by default. The app
 serves the current previews from memory and uses lossless PNG files for any
