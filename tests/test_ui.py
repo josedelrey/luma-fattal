@@ -441,6 +441,51 @@ def test_streaming_export_estimates_progress_total(
         app.executor.shutdown()
 
 
+@pytest.mark.parametrize("fails", [False, True])
+def test_export_borrows_and_restores_warmed_preview_cuda(tmp_path, monkeypatch, fails):
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from luma_fattal.ui import server
+
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["test"] = dict(
+        path=tmp_path / "source.mp4", duration=10, stream={"avg_frame_rate": "24/1"}
+    )
+    cuda = SimpleNamespace(
+        solver=SimpleNamespace(parallel_edge=False),
+        history={"old": 1},
+        device_masks={},
+        host_rings={},
+        pending_history=[],
+        cleanup_graphs={"export": 1},
+        cleanup_graph_failures={},
+    )
+    monkeypatch.setattr(app.preview_cuda, "core", cuda)
+    app.preview_cuda.shape = (24, 32, 3)
+
+    def process(source, destination, *, config, on_progress, _cuda_core):
+        assert _cuda_core is cuda
+        assert cuda.solver.parallel_edge
+        if fails:
+            raise ValueError("controlled export failure")
+        return {"encoding": {"encoder": "libx264"}}
+
+    monkeypatch.setattr(server, "process_video", process)
+    config = Config()
+    config = replace(config, video=replace(config.video, filter_backend="auto"))
+    try:
+        identifier = app.submit("process", dict(upload="test", config=config.to_dict()))
+        app.executor.submit(lambda: None).result(timeout=10)
+        assert app.jobs[identifier]["state"] == ("error" if fails else "done")
+        assert not cuda.solver.parallel_edge
+        assert not cuda.history
+        assert not cuda.cleanup_graphs
+        assert app.preview_cuda.shape is None
+    finally:
+        app.executor.shutdown()
+
+
 def test_preview_overlaps_io_and_publishes_in_order(tmp_path, monkeypatch):
     import threading
 

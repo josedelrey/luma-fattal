@@ -77,8 +77,12 @@ class PooledVideoIO:
             )
             slot = [source, output, encoded]
             self.free.put(slot)
-        self.reader = Thread(target=self._decode, name="luma-fattal-decode", daemon=True)
-        self.writer = Thread(target=self._encode, name="luma-fattal-encode", daemon=True)
+        self.reader = Thread(
+            target=self._decode, name="luma-fattal-decode", daemon=True
+        )
+        self.writer = Thread(
+            target=self._encode, name="luma-fattal-encode", daemon=True
+        )
 
     def _array(self, shape):
         if self.pinned:
@@ -165,6 +169,12 @@ class PooledVideoIO:
         self._check()
         slot = self.current
         assert slot is not None
+        self.submit_slot(slot, frame, digest)
+        self.current = None
+
+    def submit_slot(self, slot, frame, digest):
+        """Return a particular in-flight slot to the encoder."""
+        self._check()
         if frame is not slot[1]:
             np.copyto(slot[1], frame)
         encoded = slot[2]
@@ -175,7 +185,6 @@ class PooledVideoIO:
             encoded[h:] = encoded[h - 1 : h]
         self.digest = digest
         self._put(self.output, slot)
-        self.current = None
 
     def finish(self):
         self._put(self.output, self.sentinel)

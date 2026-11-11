@@ -370,11 +370,13 @@ def test_nvenc_hardware_output_matches_cpu_filtering(tmp_path, tools, set_size_l
     assert not list(tmp_path.glob(".luma-fattal-*"))
 
 
+@pytest.mark.parametrize("pipeline_depth", [0, 3])
 def test_gpu_filtering_fallback_preserves_source_treatments_and_records_selection(
     tmp_path,
     tools,
     monkeypatch,
     capsys,
+    pipeline_depth,
 ):
     from dataclasses import replace
 
@@ -394,6 +396,7 @@ def test_gpu_filtering_fallback_preserves_source_treatments_and_records_selectio
             flat_cleanup=0.25,
             pre_noise_rms=0.2,
             denoise=0.5,
+            pipeline_depth=pipeline_depth,
         ),
     )
     automatic = process_video(
@@ -1001,6 +1004,84 @@ def test_progress_reports_frames_without_changing_video(
     assert plain["output_sha256"] == shown["output_sha256"]
     assert events == [(count, 5) for count in range(1, 6)]
     assert "Filtering frames" in capsys.readouterr().err
+
+
+def test_parallel_cpu_filter_orders_temporal_cleanup(monkeypatch):
+    from threading import Event
+
+    from luma_fattal import video
+
+    second_started = Event()
+    history = []
+
+    def treatment(rgb, luminance):
+        history.append(int(rgb[0, 0, 0]))
+        return rgb, luminance
+
+    def process(frames, *, config, source_cleanup):
+        frame = next(frames)
+        index = int(frame[0, 0, 0])
+        if index == 0:
+            assert second_started.wait(10)
+        elif index == 1:
+            second_started.set()
+        source_cleanup(frame, np.zeros(frame.shape[:2], np.float32))
+        yield frame
+
+    monkeypatch.setattr(video, "process_frames", process)
+    frames = [np.full((2, 2, 3), index, np.uint8) for index in range(5)]
+    results = list(
+        video._parallel_cpu_frames(iter(frames), Config(), treatment, None, 3)
+    )
+    assert history == list(range(5))
+    assert [int(frame[0, 0, 0]) for frame, _ in results] == list(range(5))
+
+
+def test_parallel_cpu_filter_propagates_cleanup_failure(monkeypatch):
+    from luma_fattal import video
+
+    def treatment(rgb, luminance):
+        if rgb[0, 0, 0] == 1:
+            raise ValueError("controlled cleanup failure")
+        return rgb, luminance
+
+    def process(frames, *, config, source_cleanup):
+        frame = next(frames)
+        source_cleanup(frame, np.zeros(frame.shape[:2], np.float32))
+        yield frame
+
+    monkeypatch.setattr(video, "process_frames", process)
+    frames = [np.full((2, 2, 3), index, np.uint8) for index in range(5)]
+    with pytest.raises(ValueError, match="controlled cleanup failure"):
+        list(video._parallel_cpu_frames(iter(frames), Config(), treatment, None, 3))
+
+
+def test_auto_backend_parallelizes_after_cpu_fallback(monkeypatch):
+    from luma_fattal import video
+
+    def process(frames, *, config):
+        yield next(frames)
+
+    class Processor:
+        backend = "cpu"
+        key = (2, 2, 3)
+
+        def __init__(self):
+            self.record = {"cpu_frames": 0}
+
+        def __call__(self, frame):
+            self.record["cpu_frames"] += 1
+            return frame
+
+    monkeypatch.setattr(video, "process_frames", process)
+    processor = Processor()
+    frames = [np.full((2, 2, 3), index, np.uint8) for index in range(5)]
+    results = list(
+        video._adaptive_video_frames(iter(frames), Config(), None, None, processor, 3)
+    )
+    assert [int(frame[0, 0, 0]) for frame, _, _ in results] == list(range(5))
+    assert [parallel for _, _, parallel in results] == [False, True, True, True, True]
+    assert processor.record["cpu_frames"] == 5
 
 
 @pytest.mark.parametrize("variant", [1, 2])

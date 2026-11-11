@@ -60,6 +60,28 @@ def test_pool_preserves_frame_order_and_padding_with_partial_io():
     assert not pool.reader.is_alive() and not pool.writer.is_alive()
 
 
+def test_pool_retains_multiple_input_slots_until_their_outputs_are_submitted():
+    source = np.arange(6 * 2 * 3 * 3, dtype=np.uint8).reshape(6, 2, 3, 3)
+    decoder, encoder = (
+        Process(stdout=ShortPipe(source.tobytes())),
+        Process(stdin=ShortPipe()),
+    )
+    digest = hashlib.sha256()
+    with PooledVideoIO(decoder, encoder, (2, 3, 3), (2, 3, 3), (2, 3, 3), 3) as pool:
+        pending = []
+        for frame in pool.frames():
+            pending.append((pool.current, frame))
+            if len(pending) == 3:
+                slot, original = pending.pop(0)
+                pool.submit_slot(slot, 255 - original, digest)
+        for slot, original in pending:
+            pool.submit_slot(slot, 255 - original, digest)
+        pool.finish()
+    assert encoder.stdin is not None
+    assert encoder.stdin.getvalue() == (255 - source).tobytes()
+    assert digest.hexdigest() == hashlib.sha256((255 - source).tobytes()).hexdigest()
+
+
 def test_pool_propagates_decoder_failure_and_stops_workers():
     decoder = Process(stdout=ShortPipe(bytes(19)))
     encoder = Process(stdin=ShortPipe())

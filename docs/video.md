@@ -147,6 +147,11 @@ inputs during decoding. Inputs with differing nominal and average frame rates
 or unsupported pixel formats retain the separate validation pass. Both policies
 validate source metadata before publishing output.
 
+CPU filtering uses up to three workers when the frame pipeline has enough
+buffer capacity. Source treatments with temporal history run in frame order,
+and filtered frames are encoded in their original order. The desktop can reuse
+its warmed CUDA core for export while retaining the normal calibration checks.
+
 Cached calibration measures CPU/GPU processing and checks the first frame
 for visual agreement. Device, driver, configuration, geometry, or implementation
 changes invalidate the cache. GPU failures or sustained slow processing switch

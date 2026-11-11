@@ -20,7 +20,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
-from typing import NotRequired, TypedDict, cast
+from typing import Any, NotRequired, TypedDict, cast
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
@@ -602,12 +602,31 @@ class Workbench:
                         total_estimated=total is None and estimate is not None,
                     )
 
-                record = process_video(
-                    upload["path"],
-                    folder / "processed.mp4",
-                    config=config,
-                    on_progress=report_progress,
+                cuda = (
+                    self.preview_cuda.core
+                    if config.video.filter_backend == "auto"
+                    else None
                 )
+                if cuda is not None:
+                    cuda.solver.parallel_edge = True
+                try:
+                    cuda_options: dict[str, Any] = (
+                        {} if cuda is None else {"_cuda_core": cuda}
+                    )
+                    record = process_video(
+                        upload["path"],
+                        folder / "processed.mp4",
+                        config=config,
+                        on_progress=report_progress,
+                        **cuda_options,
+                    )
+                finally:
+                    if cuda is not None:
+                        cuda.solver.parallel_edge = False
+                        self.preview_cuda.clear_history(cuda)
+                        cuda.cleanup_graphs.clear()
+                        cuda.cleanup_graph_failures.clear()
+                        self.preview_cuda.shape = None
                 self.update(
                     identifier,
                     state="done",

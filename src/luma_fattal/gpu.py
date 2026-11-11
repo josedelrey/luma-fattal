@@ -551,11 +551,13 @@ def _restore_treatment(snapshot):
 class AdaptiveFrameProcessor:
     """Choose synchronized whole-frame CUDA processing with transactional fallback."""
 
-    def __init__(self, config, source_cleanup=None, *, expected_frames=None):
+    def __init__(
+        self, config, source_cleanup=None, *, expected_frames=None, cuda_core=None
+    ):
         self.config = config
         self.source_cleanup = source_cleanup
         self.expected_frames = expected_frames
-        self.cuda: CudaCore | None = None
+        self.cuda: CudaCore | None = cuda_core
         self.disabled = False
         self.key = None
         self.backend = "cpu"
@@ -710,6 +712,10 @@ class AdaptiveFrameProcessor:
                 from .gpu_core import CudaCore
 
                 self.cuda = CudaCore()
+                self.record.update(
+                    device=self.cuda.name, cupy_version=self.cuda.version
+                )
+            else:
                 self.record.update(
                     device=self.cuda.name, cupy_version=self.cuda.version
                 )

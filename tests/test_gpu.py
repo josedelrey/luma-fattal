@@ -594,6 +594,22 @@ def fake_frame_hardware(
     return instances
 
 
+def test_frame_selection_reuses_warmed_cuda_core(monkeypatch):
+    from luma_fattal import gpu_core
+
+    instances = fake_frame_hardware(monkeypatch)
+    warmed = gpu_core.CudaCore()
+    processor = gpu.AdaptiveFrameProcessor(
+        Config(), expected_frames=64, cuda_core=warmed
+    )
+    frame = np.full((256, 256, 3), 70, np.uint8)
+    np.testing.assert_array_equal(processor(frame), frame)
+    assert instances == [warmed]
+    assert getattr(warmed, "calls") > 0
+    assert processor.record["backend"] == "cuda"
+    assert processor.record["device"] == warmed.name
+
+
 @pytest.mark.parametrize(
     "seconds,expected", [(0.01, "cuda"), (0.09, "cpu"), (0.2, "cpu")]
 )

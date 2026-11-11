@@ -11,12 +11,15 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import deque
 from collections.abc import Callable
-from contextlib import contextmanager, nullcontext
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing, contextmanager, nullcontext
 from dataclasses import asdict, replace
 from fractions import Fraction
 from importlib.metadata import version
 from pathlib import Path
+from threading import Condition
 from typing import Any
 
 import numpy as np
@@ -643,6 +646,92 @@ def _prefetched_frames(frames, capacity):
         worker.join(timeout=0.5)
 
 
+def _parallel_cpu_frames(frames, config, treatment, pool, workers):
+    """Filter bounded frame slots concurrently while ordering treatment state."""
+    condition = Condition()
+    next_treatment = 0
+    failure = None
+
+    def fail(error):
+        nonlocal failure
+        with condition:
+            if failure is None:
+                failure = error
+            condition.notify_all()
+
+    def render(index, frame):
+        nonlocal next_treatment
+        called = False
+
+        def ordered_treatment(rgb, luminance):
+            nonlocal next_treatment, called
+            with condition:
+                condition.wait_for(
+                    lambda: index == next_treatment or failure is not None
+                )
+                if failure is not None:
+                    raise failure
+                called = True
+                result = treatment(rgb, luminance)
+                next_treatment += 1
+                condition.notify_all()
+                return result
+
+        try:
+            options = {} if treatment is None else {"source_cleanup": ordered_treatment}
+            results = process_frames(iter([frame]), config=config, **options)
+            result = next(results)
+            if next(results, None) is not None:
+                raise ValueError("Video filter returned extra frames")
+            if treatment is not None and not called:
+                with condition:
+                    condition.wait_for(
+                        lambda: index == next_treatment or failure is not None
+                    )
+                    if failure is not None:
+                        raise failure
+                    next_treatment += 1
+                    condition.notify_all()
+            return result
+        except Exception as error:
+            fail(error)
+            raise
+
+    capacity = min(workers, pool.free.maxsize) if pool is not None else workers
+    pending = deque()
+    with ThreadPoolExecutor(
+        max_workers=capacity, thread_name_prefix="video-filter"
+    ) as executor:
+        try:
+            for index, frame in enumerate(frames):
+                slot = pool.current if pool is not None else None
+                pending.append((executor.submit(render, index, frame), slot))
+                if len(pending) >= capacity:
+                    future, slot = pending.popleft()
+                    yield future.result(), slot
+            while pending:
+                future, slot = pending.popleft()
+                yield future.result(), slot
+        finally:
+            fail(RuntimeError("Video filtering stopped"))
+            for future, _ in pending:
+                future.cancel()
+
+
+def _adaptive_video_frames(frames, config, treatment, pool, processor, workers):
+    """Keep calibrated CUDA serial and parallelize a CPU fallback in order."""
+    for source in frames:
+        frame = processor(source)
+        yield frame, None, False
+        if processor.backend == "cpu" and processor.key is not None:
+            for result, slot in _parallel_cpu_frames(
+                frames, config, treatment, pool, workers
+            ):
+                processor.record["cpu_frames"] += 1
+                yield result, slot, True
+            return
+
+
 def _encoder_options(settings):
     if settings.encoder == "h264_nvenc":
         return [
@@ -783,6 +872,7 @@ def process_video(
     on_progress: Callable[[int, int | None], None] | None = None,
     ffmpeg: str | Path = "ffmpeg",
     ffprobe: str | Path = "ffprobe",
+    _cuda_core=None,
 ) -> dict:
     """Prepare and filter video into silent, square-pixel SDR H.264 MP4.
 
@@ -890,7 +980,7 @@ def process_video(
         from .gpu import AdaptiveFrameProcessor
 
         filter_solver = AdaptiveFrameProcessor(
-            config, source_treatment, expected_frames=expected
+            config, source_treatment, expected_frames=expected, cuda_core=_cuda_core
         )
         cleanup_options = {"frame_processor": filter_solver}
     with tempfile.TemporaryDirectory(
@@ -962,32 +1052,76 @@ def process_video(
                     try:
                         if pool is not None:
                             frames = pool.frames()
-                        for frame in process_frames(
-                            frames, config=config, **cleanup_options
-                        ):
-                            if (frame.shape[1], frame.shape[0]) != prepared:
-                                raise ValueError(
-                                    "Processed video frame dimensions changed"
+                        # Bound concurrently retained input and output frames.
+                        frame_bytes = 3 * (
+                            normalized[0] * normalized[1] + prepared[0] * prepared[1]
+                        )
+                        workers = min(
+                            3,
+                            os.cpu_count() or 1,
+                            max(1, 256 * 1024**2 // frame_bytes),
+                        )
+                        parallel = (
+                            settings.filter_backend == "cpu"
+                            and config.parameters.fade < 100
+                            and workers > 1
+                            and (pool is None or settings.pipeline_depth > 1)
+                        )
+                        adaptive = (
+                            filter_solver is not None
+                            and config.parameters.fade < 100
+                            and workers > 1
+                            and (pool is None or settings.pipeline_depth > 1)
+                        )
+                        if adaptive:
+                            filtered = _adaptive_video_frames(
+                                frames,
+                                config,
+                                source_treatment,
+                                pool,
+                                filter_solver,
+                                workers,
+                            )
+                        elif parallel:
+                            filtered = _parallel_cpu_frames(
+                                frames, config, source_treatment, pool, workers
+                            )
+                            filtered = ((frame, slot, True) for frame, slot in filtered)
+                        else:
+                            filtered = (
+                                (frame, None, False)
+                                for frame in process_frames(
+                                    frames, config=config, **cleanup_options
                                 )
-                            if pool is not None:
-                                pool.submit(frame, processed_hash)
-                            else:
-                                if (width, height) != prepared:
-                                    frame = np.pad(
-                                        frame,
-                                        (
-                                            (0, height - prepared[1]),
-                                            (0, width - prepared[0]),
-                                            (0, 0),
-                                        ),
-                                        mode="edge",
+                            )
+                        with closing(filtered):
+                            for frame, slot, is_parallel in filtered:
+                                if (frame.shape[1], frame.shape[0]) != prepared:
+                                    raise ValueError(
+                                        "Processed video frame dimensions changed"
                                     )
-                                write_frame(encoder.stdin, frame)
-                                processed_hash.update(frame.data.cast("B"))
-                            count += 1
-                            bar.update(1)
-                            if on_progress is not None:
-                                on_progress(count, expected)
+                                if pool is not None:
+                                    if is_parallel:
+                                        pool.submit_slot(slot, frame, processed_hash)
+                                    else:
+                                        pool.submit(frame, processed_hash)
+                                else:
+                                    if (width, height) != prepared:
+                                        frame = np.pad(
+                                            frame,
+                                            (
+                                                (0, height - prepared[1]),
+                                                (0, width - prepared[0]),
+                                                (0, 0),
+                                            ),
+                                            mode="edge",
+                                        )
+                                    write_frame(encoder.stdin, frame)
+                                    processed_hash.update(frame.data.cast("B"))
+                                count += 1
+                                bar.update(1)
+                                if on_progress is not None:
+                                    on_progress(count, expected)
                         if pool is not None:
                             pool.finish()
                         else:
