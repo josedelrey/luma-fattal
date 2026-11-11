@@ -134,7 +134,10 @@ noise combinations can exceed the solver's numeric range on some images.
 | `parameters.highlight_compression` | `0` | Signed. Positive values roll off RGB peaks above 75% of white while preserving channel ratios. `0` disables compression. At `100`, finite nonnegative peaks are bounded. Negative values boost peaks. |
 | `parameters.black_level` | `0` | Signed. Output black endpoint as a percentage of white. Values above the white endpoint invert the output range. |
 | `parameters.white_level` | `100` | Signed. Output white endpoint as a percentage of white. Output levels clip to the byte range. |
-| `parameters.vibrance` | `0` | Signed. Positive values boost muted colors with a gain limited to keep channels in gamut. Negative values mute colors. Grays and fully saturated colors remain unchanged at this stage. |
+| `parameters.vibrance` | `0` | Signed. Positive values boost muted colors with a gain limited to keep channels in gamut. Negative values mute colors. The slider spans -100 to 500. Grays and fully saturated colors remain unchanged at this stage. |
+| `parameters.brightness` | `0` | Signed percentage of white added after vibrance. |
+| `parameters.contrast` | `0` | Signed adjustment around mid-gray. At -100 the result is mid-gray. |
+| `parameters.curve_0`, `curve_25`, `curve_50`, `curve_75`, `curve_100` | `0`, `25`, `50`, `75`, `100` | Output percentages at five evenly spaced input levels. The RGB curve smoothly interpolates between the points after brightness and contrast. Drag points in the GUI or use the arrow keys. |
 
 For gradients above `numerics.gradient_threshold`, attenuation at each scale is
 `((gradient + noise / 100) / ((alpha / 100) * mean_gradient))^(beta / 100 - 1)`.

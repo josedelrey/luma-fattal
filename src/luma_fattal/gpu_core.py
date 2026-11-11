@@ -180,7 +180,14 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const float* colo
             double value=clip((c[k]-127.5)*(1.0+contrast/100.0)+127.5+brightness_adjust*2.55);
             double position=value/63.75;
             int index=min((int)position,3);
-            c[k]=clip((points[index]+(points[index+1]-points[index])*(position-index))*2.55);
+            double left=points[index+1]-points[index];
+            double before=index>0 ? points[index]-points[index-1] : left;
+            double after=index<3 ? points[index+2]-points[index+1] : left;
+            double m0=before*left>0 ? 2*before*left/(before+left) : 0;
+            double m1=left*after>0 ? 2*left*after/(left+after) : 0;
+            double t=position-index, t2=t*t, t3=t2*t;
+            c[k]=clip(((2*t3-3*t2+1)*points[index]+(t3-2*t2+t)*m0
+                +(-2*t3+3*t2)*points[index+1]+(t3-t2)*m1)*2.55);
         }
     }
     double shadow=softness ? (4899.0*rgb[i*3]+9617.0*rgb[i*3+1]+1868.0*rgb[i*3+2])/16384.0

@@ -61,7 +61,7 @@
           <div class="preset-row"><select id="presets" aria-label="Bundled preset"></select><button id="import-preset" title="Open a YAML, TOML or JSON config">Open…</button><input id="preset-file" type="file" accept=".yaml,.yml,.toml,.json" hidden></div>
           <div class="filter-row"><label for="filter">Filter:</label><select id="filter"><option value="fattal1">FATTAL 1</option><option value="fattal2">FATTAL 2</option></select><button id="save-preset" title="Save the current configuration">Save…</button><button id="reset" title="Restore the selected recipe">Reset</button></div>
           <div id="parameters"></div>
-          <details><summary><span>More settings</span></summary><p class="fineprint">All controls stay available for every preset. Some apply only to the selected mode or backend. Blank limits use the size budget. Blank GPU iterations use solver iterations.</p><div id="advanced"></div><p class="fineprint">Configuration schema: 1</p></details>
+          <details><summary><span>More settings</span></summary><div id="advanced"></div><p class="fineprint">Configuration schema: 1</p></details>
           <div class="process-footer">
           <div class="process-slot"><button id="process" class="process" disabled>Process video <span>▶▶</span></button><div id="process-metrics" class="process-metrics" role="status" aria-live="polite" hidden><span id="process-speed">Preparing…</span><span id="process-eta">ETA —</span></div></div>
           <div class="job-status"><span id="status" role="status" aria-live="polite">READY. LOAD YOUR SOURCE.</span><progress id="progress" max="100" value="0"></progress></div>

@@ -389,7 +389,7 @@ def _boost_vibrance(rgb: np.ndarray, strength: float) -> np.ndarray:
 
 @njit(cache=True)
 def _adjust_tones(rgb, brightness, contrast, points):
-    """Apply brightness, contrast, and a piecewise linear RGB curve."""
+    """Apply brightness, contrast, and a shape-preserving cubic RGB curve."""
     result = np.empty_like(rgb)
     for y in range(rgb.shape[0]):
         for x in range(rgb.shape[1]):
@@ -397,10 +397,29 @@ def _adjust_tones(rgb, brightness, contrast, points):
                 value = rgb[y, x, channel]
                 if not np.isfinite(value):
                     value = 255.0 if np.isnan(value) or value > 0 else 0.0
-                value = min(max((value - 127.5) * (1.0 + contrast / 100.0) + 127.5 + brightness * 2.55, 0.0), 255.0)
+                value = min(
+                    max(
+                        (value - 127.5) * (1.0 + contrast / 100.0)
+                        + 127.5
+                        + brightness * 2.55,
+                        0.0,
+                    ),
+                    255.0,
+                )
                 position = value / 63.75
                 index = min(int(position), 3)
-                value = (points[index] + (points[index + 1] - points[index]) * (position - index)) * 2.55
+                left = points[index + 1] - points[index]
+                before = points[index] - points[index - 1] if index > 0 else left
+                after = points[index + 2] - points[index + 1] if index < 3 else left
+                m0 = 2 * before * left / (before + left) if before * left > 0 else 0.0
+                m1 = 2 * left * after / (left + after) if left * after > 0 else 0.0
+                t = position - index
+                value = (
+                    (2 * t**3 - 3 * t**2 + 1) * points[index]
+                    + (t**3 - 2 * t**2 + t) * m0
+                    + (-2 * t**3 + 3 * t**2) * points[index + 1]
+                    + (t**3 - t**2) * m1
+                ) * 2.55
                 result[y, x, channel] = min(max(value, 0.0), 255.0)
     return result
 
@@ -710,7 +729,13 @@ def apply_core(
                     vibrance=params.vibrance,
                     brightness=params.brightness,
                     contrast=params.contrast,
-                    curve=(params.curve_0, params.curve_25, params.curve_50, params.curve_75, params.curve_100),
+                    curve=(
+                        params.curve_0,
+                        params.curve_25,
+                        params.curve_50,
+                        params.curve_75,
+                        params.curve_100,
+                    ),
                 )
             elif levels_active:
                 filtered = _quantize_output_levels(

@@ -1,5 +1,17 @@
 'use strict';
 
+function curveValue(points, position) {
+  const index = Math.min(Math.floor(position), 3);
+  const left = points[index + 1] - points[index];
+  const before = index > 0 ? points[index] - points[index - 1] : left;
+  const after = index < 3 ? points[index + 2] - points[index + 1] : left;
+  const m0 = before * left > 0 ? 2 * before * left / (before + left) : 0;
+  const m1 = left * after > 0 ? 2 * left * after / (left + after) : 0;
+  const t = position - index, t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * points[index] + (t3 - 2 * t2 + t) * m0 +
+    (-2 * t3 + 3 * t2) * points[index + 1] + (t3 - t2) * m1;
+}
+
 // This list defines the panel independently of the selected recipe.
 const settingGroups = [
   ['parameters', 'Effect', [
@@ -13,7 +25,14 @@ const settingGroups = [
     ['highlight_compression', 'Highlight compression', 0, 100, 1],
     ['black_level', 'Black level', 0, 100, 1],
     ['white_level', 'White level', 0, 100, 1],
-    ['vibrance', 'Vibrance', 0, 100, 1],
+    ['vibrance', 'Vibrance', -100, 500, 1],
+    ['brightness', 'Brightness', -100, 100, 1],
+    ['contrast', 'Contrast', -100, 100, 1],
+    ['curve_0', 'Curve / blacks', 0, 100, 1],
+    ['curve_25', 'Curve / shadows', 0, 100, 1],
+    ['curve_50', 'Curve / midtones', 0, 100, 1],
+    ['curve_75', 'Curve / highlights', 0, 100, 1],
+    ['curve_100', 'Curve / whites', 0, 100, 1],
   ]],
   ['processing', 'Processing', [
     ['working_resampler', 'Working resampler', ['nearest', 'bilinear', 'bicubic']],
@@ -107,6 +126,59 @@ class ConfigurationPanel {
       legend.append(toggle);
       group.append(legend);
       advanced.append(group);
+      if (section === 'parameters') {
+        const curve = document.createElement('canvas');
+        curve.className = 'tone-curve';
+        curve.width = 256;
+        curve.height = 160;
+        curve.setAttribute('aria-label', 'Tone curve. Left and right select a point. Up and down adjust it.');
+        curve.tabIndex = 0;
+        curve.title = 'Drag a point to adjust the tone curve';
+        let selectedPoint = 0;
+        const move = event => {
+          const bounds = curve.getBoundingClientRect();
+          const value = Math.max(0, Math.min(100, Math.round((1 - (event.clientY - bounds.top) / bounds.height) * 100)));
+          const control = this.controls.find(item => item.key === `curve_${selectedPoint * 25}`);
+          if (!control) return;
+          control.input.value = String(value);
+          this.edit(control, true);
+        };
+        curve.addEventListener('pointerdown', event => {
+          if (this.disabled) return;
+          const bounds = curve.getBoundingClientRect();
+          selectedPoint = Math.max(0, Math.min(4, Math.round((event.clientX - bounds.left) / bounds.width * 4)));
+          curve.setPointerCapture(event.pointerId);
+          move(event);
+        });
+        curve.addEventListener('pointermove', event => { if (curve.hasPointerCapture(event.pointerId)) move(event); });
+        curve.addEventListener('keydown', event => {
+          if (this.disabled || !this.config) return;
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            selectedPoint = Math.max(0, Math.min(4, selectedPoint + (event.key === 'ArrowRight' ? 1 : -1)));
+          } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            const control = this.controls.find(item => item.key === `curve_${selectedPoint * 25}`);
+            control.input.value = String(Math.max(0, Math.min(100, Number(control.input.value) + (event.key === 'ArrowUp' ? 1 : -1))));
+            this.edit(control, true);
+          } else return;
+          event.preventDefault();
+          curve.setAttribute('aria-label', `Tone curve point ${selectedPoint + 1} of 5, value ${this.config.parameters[`curve_${selectedPoint * 25}`]}. Left and right select a point. Up and down adjust it.`);
+        });
+        const resetCurve = document.createElement('button');
+        resetCurve.type = 'button';
+        resetCurve.textContent = 'Reset curve';
+        resetCurve.addEventListener('click', () => {
+          for (const control of this.controls.filter(item => item.key.startsWith('curve_'))) {
+            this.config.parameters[control.key] = this.baseline.parameters[control.key];
+            this.sync(control);
+          }
+          this.drawCurve();
+          this.onChange();
+        });
+        this.curveReset = resetCurve;
+        this.curve = curve;
+        group.append(curve, resetCurve);
+        rows.push(curve, resetCurve);
+      }
       for (const [index, definition] of definitions.entries()) {
         const [key, label, type, max, step, options = {}] = definition;
         const numeric = typeof type === 'number';
@@ -165,12 +237,15 @@ class ConfigurationPanel {
           this.config[section][key] = structuredClone(this.baseline[section][key]);
           this.sync(control);
           this.validate();
+          this.drawCurve();
           this.onChange();
         });
         range?.addEventListener('change', () => this.edit(control, true));
         input.addEventListener(Array.isArray(type) || type === 'boolean' ? 'change' : 'input', () => this.edit(control));
-        (isBasic ? basic : group).append(row);
-        if (!isBasic) rows.push(row);
+        if (!key.startsWith('curve_')) {
+          (isBasic ? basic : group).append(row);
+          if (!isBasic) rows.push(row);
+        }
       }
       setExpanded(section === 'parameters');
     }
@@ -181,6 +256,30 @@ class ConfigurationPanel {
     this.baseline = structuredClone(config);
     for (const control of this.controls) this.sync(control);
     this.validate();
+    this.drawCurve();
+  }
+
+  drawCurve() {
+    if (!this.curve?.getContext || !this.config) return;
+    const ctx = this.curve.getContext('2d');
+    const width = this.curve.width, height = this.curve.height;
+    ctx.fillStyle = '#080000'; ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = '#4d0808'; ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      ctx.beginPath(); ctx.moveTo(i * width / 4, 0); ctx.lineTo(i * width / 4, height); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, i * height / 4); ctx.lineTo(width, i * height / 4); ctx.stroke();
+    }
+    const values = [0, 25, 50, 75, 100].map(x => this.config.parameters[`curve_${x}`]);
+    const points = values.map((value, i) => [i / 4 * (width - 8) + 4, (1 - Math.max(0, Math.min(100, value)) / 100) * (height - 8) + 4]);
+    ctx.strokeStyle = '#ff3030'; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 256; i++) {
+      const x = i / 256 * (width - 8) + 4;
+      const value = Math.max(0, Math.min(100, curveValue(values, i / 64)));
+      const y = (1 - value / 100) * (height - 8) + 4;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke(); ctx.fillStyle = '#ffb0a0';
+    points.forEach(([x, y]) => ctx.fillRect(x - 3, y - 3, 6, 6));
   }
 
   sync({section, key, input, range, type}) {
@@ -203,6 +302,7 @@ class ConfigurationPanel {
     this.config[section][key] = value;
     if (control.range && Number.isFinite(value)) control.range.value = value;
     this.validate();
+    this.drawCurve();
     this.onChange(sliderCommit);
   }
 
@@ -237,6 +337,8 @@ class ConfigurationPanel {
   }
 
   setDisabled(value) {
+    this.disabled = value;
+    if (this.curveReset) this.curveReset.disabled = value;
     for (const {input, range, reset} of this.controls) {
       input.disabled = value;
       reset.disabled = value;
@@ -245,4 +347,4 @@ class ConfigurationPanel {
   }
 }
 
-if (typeof module !== 'undefined') module.exports = {settingGroups, ConfigurationPanel};
+if (typeof module !== 'undefined') module.exports = {settingGroups, ConfigurationPanel, curveValue};
