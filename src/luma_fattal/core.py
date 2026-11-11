@@ -388,7 +388,7 @@ def _boost_vibrance(rgb: np.ndarray, strength: float) -> np.ndarray:
 
 
 @njit(cache=True)
-def _adjust_tones(rgb, brightness, contrast, points):
+def _adjust_tones(rgb, brightness, contrast, points, wet=100.0):
     """Apply brightness, contrast, and a shape-preserving cubic RGB curve."""
     result = np.empty_like(rgb)
     for y in range(rgb.shape[0]):
@@ -406,6 +406,7 @@ def _adjust_tones(rgb, brightness, contrast, points):
                     ),
                     255.0,
                 )
+                base = value
                 position = value / 63.75
                 index = min(int(position), 3)
                 left = points[index + 1] - points[index]
@@ -420,6 +421,7 @@ def _adjust_tones(rgb, brightness, contrast, points):
                     + (-2 * t**3 + 3 * t**2) * points[index + 1]
                     + (t**3 - t**2) * m1
                 ) * 2.55
+                value = base + (value - base) * wet / 100.0
                 result[y, x, channel] = min(max(value, 0.0), 255.0)
     return result
 
@@ -490,6 +492,7 @@ def _recombine(
     brightness: float = 0,
     contrast: float = 0,
     curve: tuple[float, ...] = (0, 25, 50, 75, 100),
+    curve_wet: float = 100,
 ) -> np.ndarray:
     if tone_strength != 100:
         source_luminance = luminance if shadow_luminance is None else shadow_luminance
@@ -520,8 +523,12 @@ def _recombine(
         result = np.power(unit, 1.0 / output_gamma) * 255
     if vibrance:
         result = _boost_vibrance(result, vibrance)
-    if brightness != 0 or contrast != 0 or curve != (0, 25, 50, 75, 100):
-        result = _adjust_tones(result, brightness, contrast, curve)
+    if (
+        brightness != 0
+        or contrast != 0
+        or (curve_wet != 0 and curve != (0, 25, 50, 75, 100))
+    ):
+        result = _adjust_tones(result, brightness, contrast, curve, curve_wet)
     if black_level != 0 or white_level != 100:
         reference = luminance if shadow_luminance is None else shadow_luminance
         return _quantize_output_levels(
@@ -660,8 +667,27 @@ def apply_core(
     """Apply the effect to decoded pixels with no file or resizing policies."""
     result = array.copy()
     if params.fade != 100:
-        rgb = np.ascontiguousarray(array[..., :3])
-        filtered = None
+        original_rgb = np.ascontiguousarray(array[..., :3])
+        rgb = original_rgb
+        pre_curve = (
+            params.pre_curve_0,
+            params.pre_curve_25,
+            params.pre_curve_50,
+            params.pre_curve_75,
+            params.pre_curve_100,
+        )
+        if params.pre_curve_wet != 0 and pre_curve != (0, 25, 50, 75, 100):
+            rgb = np.floor(
+                _adjust_tones(
+                    original_rgb.astype(np.float64),
+                    0,
+                    0,
+                    pre_curve,
+                    params.pre_curve_wet,
+                )
+                + 0.5
+            ).astype(np.uint8)
+        filtered = rgb if rgb is not original_rgb else None
         levels_active = params.black_level != 0 or params.white_level != 100
         if min(array.shape[:2]) < 2:
             warnings.warn(
@@ -728,6 +754,7 @@ def apply_core(
                     white_level=params.white_level,
                     vibrance=params.vibrance,
                     brightness=params.brightness,
+                    curve_wet=params.post_curve_wet,
                     contrast=params.contrast,
                     curve=(
                         params.curve_0,
@@ -752,7 +779,7 @@ def apply_core(
             amount = np.float32(params.fade) / np.float32(100)
             mixed = (
                 filtered.astype(np.float32) * (np.float32(1) - amount)
-                + rgb.astype(np.float32) * amount
+                + original_rgb.astype(np.float32) * amount
             )
             result[..., :3] = np.clip(np.ceil(mixed - np.float32(0.5)), 0, 255).astype(
                 np.uint8

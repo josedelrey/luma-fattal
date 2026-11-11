@@ -28,6 +28,13 @@ const settingGroups = [
     ['vibrance', 'Vibrance', -100, 500, 1],
     ['brightness', 'Brightness', -100, 100, 1],
     ['contrast', 'Contrast', -100, 100, 1],
+    ['pre_curve_wet', 'Pre curve dry / wet', 0, 100, 1],
+    ['post_curve_wet', 'Post curve dry / wet', 0, 100, 1],
+    ['pre_curve_0', 'Pre curve / blacks', 0, 100, 1],
+    ['pre_curve_25', 'Pre curve / shadows', 0, 100, 1],
+    ['pre_curve_50', 'Pre curve / midtones', 0, 100, 1],
+    ['pre_curve_75', 'Pre curve / highlights', 0, 100, 1],
+    ['pre_curve_100', 'Pre curve / whites', 0, 100, 1],
     ['curve_0', 'Curve / blacks', 0, 100, 1],
     ['curve_25', 'Curve / shadows', 0, 100, 1],
     ['curve_50', 'Curve / midtones', 0, 100, 1],
@@ -109,6 +116,7 @@ class ConfigurationPanel {
   constructor(basic, advanced, onChange) {
     this.onChange = onChange;
     this.controls = [];
+    this.curves = [];
     for (const [section, title, definitions] of settingGroups) {
       const group = document.createElement('fieldset');
       group.className = 'settings-group';
@@ -126,7 +134,11 @@ class ConfigurationPanel {
       legend.append(toggle);
       group.append(legend);
       advanced.append(group);
-      if (section === 'parameters') {
+      if (section === 'parameters') for (const [prefix, name] of [['pre_curve_', 'Pre'], ['curve_', 'Post']]) {
+        const wrapper = document.createElement('div');
+        const heading = document.createElement('div');
+        heading.textContent = `${name} curve`;
+        wrapper.append(heading);
         const curve = document.createElement('canvas');
         curve.className = 'tone-curve';
         curve.width = 256;
@@ -138,7 +150,7 @@ class ConfigurationPanel {
         const move = event => {
           const bounds = curve.getBoundingClientRect();
           const value = Math.max(0, Math.min(100, Math.round((1 - (event.clientY - bounds.top) / bounds.height) * 100)));
-          const control = this.controls.find(item => item.key === `curve_${selectedPoint * 25}`);
+          const control = this.controls.find(item => item.key === `${prefix}${selectedPoint * 25}`);
           if (!control) return;
           control.input.value = String(value);
           this.edit(control, true);
@@ -156,28 +168,28 @@ class ConfigurationPanel {
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             selectedPoint = Math.max(0, Math.min(4, selectedPoint + (event.key === 'ArrowRight' ? 1 : -1)));
           } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-            const control = this.controls.find(item => item.key === `curve_${selectedPoint * 25}`);
+            const control = this.controls.find(item => item.key === `${prefix}${selectedPoint * 25}`);
             control.input.value = String(Math.max(0, Math.min(100, Number(control.input.value) + (event.key === 'ArrowUp' ? 1 : -1))));
             this.edit(control, true);
           } else return;
           event.preventDefault();
-          curve.setAttribute('aria-label', `Tone curve point ${selectedPoint + 1} of 5, value ${this.config.parameters[`curve_${selectedPoint * 25}`]}. Left and right select a point. Up and down adjust it.`);
+          curve.setAttribute('aria-label', `Tone curve point ${selectedPoint + 1} of 5, value ${this.config.parameters[`${prefix}${selectedPoint * 25}`]}. Left and right select a point. Up and down adjust it.`);
         });
         const resetCurve = document.createElement('button');
         resetCurve.type = 'button';
-        resetCurve.textContent = 'Reset curve';
+        resetCurve.textContent = `Reset ${name.toLowerCase()} curve`;
         resetCurve.addEventListener('click', () => {
-          for (const control of this.controls.filter(item => item.key.startsWith('curve_'))) {
+          for (const control of this.controls.filter(item => item.key.startsWith(prefix) && /^\d+$/.test(item.key.slice(prefix.length)))) {
             this.config.parameters[control.key] = this.baseline.parameters[control.key];
             this.sync(control);
           }
           this.drawCurve();
           this.onChange();
         });
-        this.curveReset = resetCurve;
-        this.curve = curve;
-        group.append(curve, resetCurve);
-        rows.push(curve, resetCurve);
+        this.curves.push({prefix, curve, resetCurve, wrapper});
+        wrapper.append(curve);
+        group.append(wrapper);
+        rows.push(wrapper);
       }
       for (const [index, definition] of definitions.entries()) {
         const [key, label, type, max, step, options = {}] = definition;
@@ -242,7 +254,10 @@ class ConfigurationPanel {
         });
         range?.addEventListener('change', () => this.edit(control, true));
         input.addEventListener(Array.isArray(type) || type === 'boolean' ? 'change' : 'input', () => this.edit(control));
-        if (!key.startsWith('curve_')) {
+        if (key === 'pre_curve_wet' || key === 'post_curve_wet') {
+          const curve = this.curves[key === 'pre_curve_wet' ? 0 : 1];
+          curve.wrapper.append(row, curve.resetCurve);
+        } else if (!/^(?:pre_)?curve_\d+$/.test(key)) {
           (isBasic ? basic : group).append(row);
           if (!isBasic) rows.push(row);
         }
@@ -260,16 +275,18 @@ class ConfigurationPanel {
   }
 
   drawCurve() {
-    if (!this.curve?.getContext || !this.config) return;
-    const ctx = this.curve.getContext('2d');
-    const width = this.curve.width, height = this.curve.height;
+    if (!this.config) return;
+    for (const {curve, prefix} of this.curves) {
+    if (!curve.getContext) continue;
+    const ctx = curve.getContext('2d');
+    const width = curve.width, height = curve.height;
     ctx.fillStyle = '#080000'; ctx.fillRect(0, 0, width, height);
     ctx.strokeStyle = '#4d0808'; ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       ctx.beginPath(); ctx.moveTo(i * width / 4, 0); ctx.lineTo(i * width / 4, height); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, i * height / 4); ctx.lineTo(width, i * height / 4); ctx.stroke();
     }
-    const values = [0, 25, 50, 75, 100].map(x => this.config.parameters[`curve_${x}`]);
+    const values = [0, 25, 50, 75, 100].map(x => this.config.parameters[`${prefix}${x}`]);
     const points = values.map((value, i) => [i / 4 * (width - 8) + 4, (1 - Math.max(0, Math.min(100, value)) / 100) * (height - 8) + 4]);
     ctx.strokeStyle = '#ff3030'; ctx.lineWidth = 2; ctx.beginPath();
     for (let i = 0; i <= 256; i++) {
@@ -280,6 +297,7 @@ class ConfigurationPanel {
     }
     ctx.stroke(); ctx.fillStyle = '#ffb0a0';
     points.forEach(([x, y]) => ctx.fillRect(x - 3, y - 3, 6, 6));
+    }
   }
 
   sync({section, key, input, range, type}) {
@@ -338,7 +356,7 @@ class ConfigurationPanel {
 
   setDisabled(value) {
     this.disabled = value;
-    if (this.curveReset) this.curveReset.disabled = value;
+    for (const {resetCurve} of this.curves) resetCurve.disabled = value;
     for (const {input, range, reset} of this.controls) {
       input.disabled = value;
       reset.disabled = value;

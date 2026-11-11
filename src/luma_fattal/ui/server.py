@@ -52,6 +52,10 @@ PREVIEW_BITMAP_BYTES = 128 * 1024 * 1024
 PREVIEW_COLOR_BYTES = 96 * 1024 * 1024
 
 
+class _ProcessingCancelled(Exception):
+    pass
+
+
 class _PreviewFrame(TypedDict):
     time: float
     width: int
@@ -147,6 +151,12 @@ class _PreviewSamples:
             params.alpha,
             params.beta,
             params.noise,
+            params.pre_curve_0,
+            params.pre_curve_25,
+            params.pre_curve_50,
+            params.pre_curve_75,
+            params.pre_curve_100,
+            params.pre_curve_wet,
             video.denoise,
             video.flat_cleanup,
             video.flat_cleanup_mode,
@@ -399,6 +409,17 @@ class Workbench:
         with self.lock:
             return identifier == self.active_job
 
+    def cancel(self, identifier: str):
+        with self.lock:
+            job = self.jobs.get(identifier)
+            if identifier == self.active_job and job and job["kind"] == "process":
+                job["state"] = "cancelling"
+
+    def check_cancelled(self, identifier: str):
+        with self.lock:
+            if self.jobs[identifier]["state"] == "cancelling":
+                raise _ProcessingCancelled()
+
     def update(self, identifier: str, **values):
         with self.lock:
             if identifier != self.active_job:
@@ -425,7 +446,7 @@ class Workbench:
                     fps=fps,
                     eta=remaining / fps if fps and remaining is not None else None,
                 )
-            if job["state"] in ("done", "error"):
+            if job["state"] in ("done", "error", "cancelled"):
                 self.active_job = None
 
     def run_preview(self, identifier: str, folder: Path, upload: dict, config: Config):
@@ -595,6 +616,7 @@ class Workbench:
                     pass
 
                 def report_progress(count, total):
+                    self.check_cancelled(identifier)
                     self.update(
                         identifier,
                         completed=count,
@@ -610,6 +632,7 @@ class Workbench:
                 if cuda is not None:
                     cuda.solver.parallel_edge = True
                 try:
+                    self.check_cancelled(identifier)
                     cuda_options: dict[str, Any] = (
                         {} if cuda is None else {"_cuda_core": cuda}
                     )
@@ -620,6 +643,7 @@ class Workbench:
                         on_progress=report_progress,
                         **cuda_options,
                     )
+                    self.check_cancelled(identifier)
                 finally:
                     if cuda is not None:
                         cuda.solver.parallel_edge = False
@@ -627,15 +651,27 @@ class Workbench:
                         cuda.cleanup_graphs.clear()
                         cuda.cleanup_graph_failures.clear()
                         self.preview_cuda.shape = None
-                self.update(
-                    identifier,
-                    state="done",
-                    url=f"/media/{identifier}/processed.mp4",
-                    metadata=f"/media/{identifier}/processed.meta.json",
-                    encoder=record["encoding"]["encoder"],
-                )
+                with self.lock:
+                    if self.jobs[identifier]["state"] == "cancelling":
+                        raise _ProcessingCancelled()
+                    self.jobs[identifier].update(
+                        state="done",
+                        url=f"/media/{identifier}/processed.mp4",
+                        metadata=f"/media/{identifier}/processed.meta.json",
+                        encoder=record["encoding"]["encoder"],
+                    )
+                    self.active_job = None
+        except _ProcessingCancelled:
+            shutil.rmtree(folder, ignore_errors=True)
+            self.update(identifier, state="cancelled")
         except Exception as error:
-            self.update(identifier, state="error", error=str(error))
+            with self.lock:
+                cancelling = self.jobs[identifier]["state"] == "cancelling"
+            if cancelling:
+                shutil.rmtree(folder, ignore_errors=True)
+                self.update(identifier, state="cancelled")
+            else:
+                self.update(identifier, state="error", error=str(error))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -865,6 +901,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path in ("/api/preview", "/api/process", "/api/analyze"):
                 data = json.loads(self.rfile.read(length))
                 self.send_json(dict(job=app.submit(path.rsplit("/", 1)[-1], data)))
+            elif path.startswith("/api/cancel/"):
+                app.cancel(path.rsplit("/", 1)[-1])
+                self.send_json(dict(ok=True))
             else:
                 self.send_error(404)
         except (

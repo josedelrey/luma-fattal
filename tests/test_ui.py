@@ -21,6 +21,39 @@ from luma_fattal.ui.server import (
 from luma_fattal.video import _decode_command, _geometry, _probe, _resolve_color
 
 
+def test_cancel_export_waits_for_cleanup_and_discards_output(tmp_path, monkeypatch):
+    import threading
+
+    from luma_fattal.ui import server
+
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["test"] = dict(path=tmp_path / "source.mp4", duration=1)
+    entered, resume = threading.Event(), threading.Event()
+
+    def process(source, destination, *, config, on_progress):
+        destination.write_text("partial")
+        entered.set()
+        assert resume.wait(10)
+        on_progress(1, 2)
+        raise AssertionError("cancelled processing continued")
+
+    monkeypatch.setattr(server, "process_video", process)
+    try:
+        identifier = app.submit("process", dict(upload="test", config=Config().to_dict()))
+        assert entered.wait(10)
+        app.cancel(identifier)
+        assert app.jobs[identifier]["state"] == "cancelling"
+        assert app.busy
+        resume.set()
+        app.executor.submit(lambda: None).result(timeout=10)
+        assert app.jobs[identifier]["state"] == "cancelled"
+        assert not app.busy
+        assert not (app.directory / identifier).exists()
+    finally:
+        resume.set()
+        app.executor.shutdown()
+
+
 def test_gui_controls_cover_every_configuration_field():
     node = shutil.which("node")
     if node is None:

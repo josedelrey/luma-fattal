@@ -605,6 +605,7 @@ progress {
   white-space: nowrap;
 }
 .process-metrics[hidden] { display: none; }
+.process-metrics #stop-process { flex: none; padding: 2px 8px; white-space: nowrap; }
 .export-body {
   display: flex;
   align-items: center;

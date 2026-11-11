@@ -130,11 +130,31 @@ extern "C" __global__ void normalize_full(const float* src, float* out,
     float v=(src[i]-sorted[low])/(sorted[high]-sorted[low]);
     out[i]=isnan(v)?__int_as_float(0x7fc00000):v>0?v:floor_value;
 }
-extern "C" __global__ void recombine(const unsigned char* rgb, const float* colors,
+__device__ double curve_eval(double value, const double* points) {
+    double position=value/63.75;
+    int index=min((int)position,3);
+    double left=points[index+1]-points[index];
+    double before=index>0 ? points[index]-points[index-1] : left;
+    double after=index<3 ? points[index+2]-points[index+1] : left;
+    double m0=before*left>0 ? 2*before*left/(before+left) : 0;
+    double m1=left*after>0 ? 2*left*after/(left+after) : 0;
+    double t=position-index, t2=t*t, t3=t2*t;
+    return ((2*t3-3*t2+1)*points[index]+(t3-2*t2+t)*m0
+        +(-2*t3+3*t2)*points[index+1]+(t3-t2)*m1)*2.55;
+}
+extern "C" __global__ void pre_curve(const unsigned char* src, unsigned char* out, int n,
+    double p0, double p1, double p2, double p3, double p4, double wet) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x;
+    if (i>=n) return;
+    double points[5]={p0,p1,p2,p3,p4};
+    double v=src[i];
+    out[i]=(unsigned char)floor(clip(v+(curve_eval(v,points)-v)*wet/100.0)+0.5);
+}
+extern "C" __global__ void recombine(const unsigned char* rgb, const unsigned char* original_rgb, const float* colors,
     const float* lum, const float* reference, const float* mapped, unsigned char* out,
     int n, float saturation, int standard, double gamma, double tone, double highlight,
     double black, double white, double vibrance, double brightness_adjust, double contrast,
-    double curve0, double curve25, double curve50, double curve75, double curve100,
+    double curve0, double curve25, double curve50, double curve75, double curve100, double curve_wet,
     int threshold, int softness, float fade) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
@@ -174,20 +194,11 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const float* colo
             }
         }
     }
-    if (brightness_adjust != 0 || contrast != 0 || curve0 != 0 || curve25 != 25 || curve50 != 50 || curve75 != 75 || curve100 != 100) {
+    if (brightness_adjust != 0 || contrast != 0 || (curve_wet != 0 && (curve0 != 0 || curve25 != 25 || curve50 != 50 || curve75 != 75 || curve100 != 100))) {
         double points[5]={curve0,curve25,curve50,curve75,curve100};
         for (int k=0;k<3;++k) {
             double value=clip((c[k]-127.5)*(1.0+contrast/100.0)+127.5+brightness_adjust*2.55);
-            double position=value/63.75;
-            int index=min((int)position,3);
-            double left=points[index+1]-points[index];
-            double before=index>0 ? points[index]-points[index-1] : left;
-            double after=index<3 ? points[index+2]-points[index+1] : left;
-            double m0=before*left>0 ? 2*before*left/(before+left) : 0;
-            double m1=left*after>0 ? 2*left*after/(left+after) : 0;
-            double t=position-index, t2=t*t, t3=t2*t;
-            c[k]=clip(((2*t3-3*t2+1)*points[index]+(t3-2*t2+t)*m0
-                +(-2*t3+3*t2)*points[index+1]+(t3-t2)*m1)*2.55);
+            c[k]=clip(value+(curve_eval(value,points)-value)*curve_wet/100.0);
         }
     }
     double shadow=softness ? (4899.0*rgb[i*3]+9617.0*rgb[i*3+1]+1868.0*rgb[i*3+2])/16384.0
@@ -209,7 +220,7 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const float* colo
         } else {
             v=shadow<=threshold ? original : clip(v+0.5);
         }
-        float mixed=(float)((unsigned char)v)*(1.0f-fade)+(float)rgb[i*3+k]*fade;
+        float mixed=(float)((unsigned char)v)*(1.0f-fade)+(float)original_rgb[i*3+k]*fade;
         out[i*3+k]=(unsigned char)fmaxf(fminf(ceilf(mixed-0.5f),255.0f),0.0f);
     }
 }
@@ -317,6 +328,7 @@ class CudaCore:
                 "divergence",
                 "exponential",
                 "normalize",
+                "pre_curve",
                 "recombine",
                 "reduce_u8",
                 "reduce_f32",
@@ -981,6 +993,25 @@ class CudaCore:
             from .core import apply_core
 
             return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
+        original_rgb = rgb
+        pre_points = (
+            params.pre_curve_0,
+            params.pre_curve_25,
+            params.pre_curve_50,
+            params.pre_curve_75,
+            params.pre_curve_100,
+        )
+        if params.pre_curve_wet != 0 and pre_points != (0, 25, 50, 75, 100):
+            rgb = self.buffer("pre_curve_rgb", rgb.shape, cp.uint8)
+            self.launch(
+                "pre_curve",
+                rgb.shape,
+                original_rgb,
+                rgb,
+                np.int32(rgb.size),
+                *(np.float64(value) for value in pre_points),
+                np.float64(params.pre_curve_wet),
+            )
         h, w = rgb.shape[:2]
         mapped = None if tone_map is None else tone_map.value
         inputs = None if tone_map is None else tone_map.color_inputs
@@ -1004,7 +1035,9 @@ class CudaCore:
             if float(maximum) <= 0:
                 from .core import apply_core
 
-                return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
+                return cp.asarray(
+                    apply_core(original_rgb.get(), variant, params, numerics)
+                )
             if mapped is None:
                 mapped = self.solve_tone_map(
                     lum, maximum, variant, params, numerics, lighting_scale
@@ -1023,6 +1056,7 @@ class CudaCore:
             "recombine",
             lum.shape,
             rgb,
+            original_rgb,
             colors,
             lum,
             reference,
@@ -1044,6 +1078,7 @@ class CudaCore:
             np.float64(params.curve_50),
             np.float64(params.curve_75),
             np.float64(params.curve_100),
+            np.float64(params.post_curve_wet),
             np.int32(numerics.shadow_threshold),
             np.int32(numerics.shadow_softness),
             np.float32(params.fade) / np.float32(100),

@@ -137,7 +137,11 @@ noise combinations can exceed the solver's numeric range on some images.
 | `parameters.vibrance` | `0` | Signed. Positive values boost muted colors with a gain limited to keep channels in gamut. Negative values mute colors. The slider spans -100 to 500. Grays and fully saturated colors remain unchanged at this stage. |
 | `parameters.brightness` | `0` | Signed percentage of white added after vibrance. |
 | `parameters.contrast` | `0` | Signed adjustment around mid-gray. At -100 the result is mid-gray. |
-| `parameters.curve_0`, `curve_25`, `curve_50`, `curve_75`, `curve_100` | `0`, `25`, `50`, `75`, `100` | Output percentages at five evenly spaced input levels. The RGB curve smoothly interpolates between the points after brightness and contrast. Drag points in the GUI or use the arrow keys. |
+| `parameters.pre_curve_0`, `pre_curve_25`, `pre_curve_50`, `pre_curve_75`, `pre_curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied to source pixels before luminance and filtering. |
+| `parameters.curve_0`, `curve_25`, `curve_50`, `curve_75`, `curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied after brightness and contrast. These existing keys retain the post curve for compatibility. |
+| `parameters.pre_curve_wet`, `post_curve_wet` | `100` | Curve blend percentage. `0` bypasses the corresponding curve and `100` applies it fully. |
+
+Each curve smoothly interpolates between five evenly spaced input levels. Drag points in the GUI or use the arrow keys. The pre curve operates on working-resolution RGB8 pixels before source cleanup and the solve. Final fade still blends against the original input.
 
 For gradients above `numerics.gradient_threshold`, attenuation at each scale is
 `((gradient + noise / 100) / ((alpha / 100) * mean_gradient))^(beta / 100 - 1)`.

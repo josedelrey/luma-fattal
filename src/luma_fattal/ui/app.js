@@ -20,6 +20,7 @@ for (const [surface, filename] of Object.entries({body: 'viscera', controls: 'pa
 document.documentElement.style.setProperty('--monitor-texture', `url('${secured('/assets/panel-078-red.png')}')`);
 let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, revision = 0, previewRevision = -1, timer, resultConfig, pendingImport;
 let previewRun, pendingSubmission = Promise.resolve(), importing = false;
+let processJob, stopRequested = false;
 const player = $('player');
 const fileDialogs = window.desktopFiles;
 if (window.desktopWindow) {
@@ -69,7 +70,7 @@ function setBusy(value) {
 function setProcessing(value) {
   document.querySelector('.process-slot').classList.toggle('is-processing', value);
   $('process-metrics').hidden = !value;
-  if (value) { $('process-speed').textContent = 'Preparing…'; $('process-eta').textContent = 'ETA —'; }
+  if (value) { $('process-speed').textContent = 'Preparing…'; $('process-eta').textContent = 'ETA —'; $('stop-process').disabled = false; $('stop-process').textContent = 'Stop ■'; }
 }
 function updateProcessing(job) {
   if (job.kind !== 'process' || job.state !== 'running') return;
@@ -175,11 +176,13 @@ async function poll(identifier, onUpdate, current) {
     else progress.removeAttribute('value');
     status(`${job.kind === 'analyze' ? 'ANALYZING' : job.kind === 'preview' ? 'PREVIEW' : 'PROCESSING'} / ${job.completed}${job.total ? ` OF ${job.total_estimated ? '~' : ''}${job.total}` : ''} FRAMES`);
     if (job.state === 'error') throw new Error(job.error);
+    if (job.state === 'cancelled') return job;
+    if (job.state === 'cancelling') status('Stopping processing…');
     if (job.state === 'done') { progress.value = 100; return job; }
     await new Promise(resolve => setTimeout(resolve, onUpdate ? 100 : 600));
   }
 }
-async function start(kind, onUpdate, current = () => true) {
+async function start(kind, onUpdate, current = () => true, onSubmitted) {
   $('progress').style.visibility = '';
   const body = JSON.stringify({upload: upload.upload, config});
   // Keep submissions ordered even if an older preview is still waiting for its job ID.
@@ -188,6 +191,7 @@ async function start(kind, onUpdate, current = () => true) {
   }));
   pendingSubmission = submission.catch(() => {});
   const response = await submission;
+  if (response) await onSubmitted?.(response.job);
   if (response && current()) return poll(response.job, onUpdate, current);
 }
 async function preview() {
@@ -274,18 +278,30 @@ $('preset-file').onchange = async event => {
 };
 $('preset-file').oncancel = () => { pendingImport = undefined; };
 $('refresh').onclick = () => { if (!settingsPanel.valid(true)) return; revision++; preview(); };
+async function requestStop() {
+  if (processJob) await api(`/api/cancel/${processJob}`, {method: 'POST'});
+}
+$('stop-process').onclick = async () => {
+  stopRequested = true;
+  $('stop-process').disabled = true; $('stop-process').textContent = 'Stopping…';
+  status('Stopping processing…');
+  try { await requestStop(); } catch (error) { stopRequested = false; $('stop-process').disabled = false; $('stop-process').textContent = 'Stop ■'; status(error.message, true); }
+};
 $('process').onclick = async () => {
   if (busy || !upload || !settingsPanel.valid(true)) return;
   setBusy(true); setProcessing(true); $('export-panel').hidden = true; status('VALIDATING SOURCE / preparing encoder and filter');
   const snapshot = structuredClone(config);
   try {
-    const job = await start('process'); resultUrl = job.url; resultConfig = snapshot;
+    stopRequested = false; processJob = undefined;
+    const job = await start('process', undefined, undefined, async identifier => { processJob = identifier; if (stopRequested) await requestStop(); });
+    if (job.state === 'cancelled') { $('progress').style.visibility = 'hidden'; status('Processing cancelled.'); return; }
+    resultUrl = job.url; resultConfig = snapshot;
     $('result-tab').disabled = false; $('export-panel').hidden = false;
     $('save-video').href = secured(job.url); $('save-meta').href = secured(job.metadata);
     $('export-info').textContent = `RENDER COMPLETE / ${job.encoder} / SILENT MP4`;
     showVideo(true); $('progress').style.visibility = 'hidden'; status('Processing complete. Play or save the video.');
   } catch (error) { status(error.message, true); }
-  finally { setProcessing(false); setBusy(false); }
+  finally { processJob = undefined; setProcessing(false); setBusy(false); }
 };
 $('close-export').onclick = () => { $('export-panel').hidden = true; };
 async function saveConfig(value) {

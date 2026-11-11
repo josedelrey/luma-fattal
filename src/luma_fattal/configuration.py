@@ -193,6 +193,13 @@ class FilterParams:
     vibrance: float = 0
     brightness: float = 0
     contrast: float = 0
+    pre_curve_0: float = 0
+    pre_curve_25: float = 25
+    pre_curve_50: float = 50
+    pre_curve_75: float = 75
+    pre_curve_100: float = 100
+    pre_curve_wet: float = 100
+    post_curve_wet: float = 100
     curve_0: float = 0
     curve_25: float = 25
     curve_50: float = 50

@@ -130,11 +130,19 @@ const advanced=new Element(), panel=new ConfigurationPanel(new Element(),advance
 const config=JSON.parse(process.argv[2]); panel.load(config);
 assert.ok(!advanced.children[0].children.some(e=>e.dataset.setting?.startsWith('parameters.curve_')));
 const event=key=>({key,preventDefault(){}});
-panel.curve.keydown(event('ArrowRight'));
-panel.curve.keydown(event('ArrowUp'));
-assert.equal(config.parameters.curve_25, 26);
-panel.curveReset.click();
-assert.equal(config.parameters.curve_25, 25);
+assert.equal(panel.curves.length, 2);
+assert.deepEqual(panel.curves.map(c => c.prefix), ['pre_curve_', 'curve_']);
+for (const [index, key] of [[0, 'pre_curve_25'], [1, 'curve_25']]) {
+  const editor = panel.curves[index];
+  assert.equal(editor.wrapper.children[1], editor.curve);
+  assert.equal(editor.wrapper.children[2].dataset.setting, index ? 'parameters.post_curve_wet' : 'parameters.pre_curve_wet');
+  assert.equal(editor.wrapper.children[3], editor.resetCurve);
+  editor.curve.keydown(event('ArrowRight'));
+  editor.curve.keydown(event('ArrowUp'));
+  assert.equal(config.parameters[key], 26);
+  editor.resetCurve.click();
+  assert.equal(config.parameters[key], 25);
+}
 """
     subprocess.run(
         ["node", "-e", js, str(script), json.dumps(Config().to_dict())],
@@ -142,3 +150,59 @@ assert.equal(config.parameters.curve_25, 25);
         text=True,
         check=True,
     )
+
+
+def test_curve_wet_blends_in_curve_space():
+    values = np.array([[[63.75, 127.5, 191.25]]])
+    curve = (0, 40, 65, 90, 100)
+    dry = _adjust_tones(values, 0, 0, curve, 0)
+    full = _adjust_tones(values, 0, 0, curve, 100)
+    half = _adjust_tones(values, 0, 0, curve, 50)
+    np.testing.assert_allclose(dry, values)
+    np.testing.assert_allclose(half, (dry + full) / 2)
+
+
+def test_pre_curve_feeds_filter_and_preserves_original_for_fade():
+    from dataclasses import replace
+
+    from luma_fattal import NumericsConfig
+    from luma_fattal.core import apply_core
+
+    rgb = np.arange(12 * 12 * 3, dtype=np.uint16).reshape(12, 12, 3).astype(np.uint8)
+    captured = []
+
+    def cleanup(pixels, luminance):
+        captured.append(pixels.copy())
+        return pixels.astype(np.float32), luminance
+
+    params = FilterParams(pre_curve_50=80, pre_curve_wet=100, fade=50)
+    numerics = NumericsConfig(iterations=2)
+    apply_core(rgb, 1, params, numerics, source_cleanup=cleanup)
+    expected = np.floor(
+        _adjust_tones(rgb.astype(np.float64), 0, 0, (0, 25, 80, 75, 100)) + 0.5
+    ).astype(np.uint8)
+    np.testing.assert_array_equal(captured[0], expected)
+    captured.clear()
+    apply_core(
+        rgb, 1, replace(params, pre_curve_wet=0), numerics, source_cleanup=cleanup
+    )
+    np.testing.assert_array_equal(captured[0], rgb)
+    np.testing.assert_array_equal(
+        apply_core(rgb, 1, replace(params, fade=100), numerics), rgb
+    )
+
+
+def test_preview_cache_invalidates_for_pre_curve_only():
+    from dataclasses import replace
+
+    from luma_fattal.ui.server import _PreviewSamples
+
+    samples = _PreviewSamples.__new__(_PreviewSamples)
+    samples.tone_key = None
+    samples.tone_maps = {}
+    config = Config()
+    initial = samples.tone_maps_for(config, [1.0])
+    post = replace(config, parameters=replace(config.parameters, curve_50=70))
+    assert samples.tone_maps_for(post, [1.0]) is initial
+    pre = replace(config, parameters=replace(config.parameters, pre_curve_50=70))
+    assert samples.tone_maps_for(pre, [1.0]) is not initial
