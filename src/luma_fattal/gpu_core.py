@@ -15,7 +15,9 @@ _SOURCE = r"""
 __device__ double power(double v, double e, int standard) {
     if (standard) return pow(v, e);
     long long high = ((unsigned long long)__double_as_longlong(v)) >> 32;
-    long long word = (long long)trunc(e * (high - 1072632447LL) + 1072632447LL);
+    double estimate = e * (high - 1072632447LL) + 1072632447LL;
+    if (estimate <= -1 || estimate >= 2146435072.0) return pow(v, e);
+    long long word = (long long)trunc(estimate);
     return __longlong_as_double((unsigned long long)word << 32);
 }
 extern "C" __global__ void luminance(const unsigned char* rgb, float* out, int n, int fractional) {
@@ -135,7 +137,7 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const float* colo
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     float m=mapped[i];
-    if (tone < 100) {
+    if (tone != 100) {
         float target=isnan(m) || (isinf(m) && m>0) ? 1.0f : isinf(m) ? 0.0f : m;
         m = tone == 0 ? reference[i] : reference[i] + (float)((float)tone / 100.0f) * (target-reference[i]);
     }
@@ -147,14 +149,14 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const float* colo
         c[k]=power((double)ratio,(double)saturation,standard)*(double)mscale;
     }
     double peak=fmax(c[0],fmax(c[1],c[2]));
-    if (highlight>0 && isfinite(c[0]) && isfinite(c[1]) && isfinite(c[2]) && peak>191.25) {
+    if (highlight!=0 && isfinite(c[0]) && isfinite(c[1]) && isfinite(c[2]) && peak>191.25) {
         double compressed=191.25+63.75/(1.0+63.75/(peak-191.25));
         double amount=highlight/100.0;
         double target=(1.0-amount)*peak+amount*compressed;
         for (int k=0;k<3;++k) c[k]=(c[k]/peak)*target;
     }
     if (gamma != 1) for (int k=0;k<3;++k) c[k]=pow(clip(c[k])/255.0,1.0/gamma)*255.0;
-    if (vibrance>0) {
+    if (vibrance!=0) {
         for (int k=0;k<3;++k) c[k]=clip(c[k]);
         peak=fmax(c[0],fmax(c[1],c[2]));
         double minimum=fmin(c[0],fmin(c[1],c[2]));
@@ -164,7 +166,10 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const float* colo
             double brightness=(4899.0*c[0]+9617.0*c[1]+1868.0*c[2])/16384.0;
             if (peak>brightness) gain=fmin(gain,(255.0-brightness)/(peak-brightness));
             if (minimum<brightness) gain=fmin(gain,brightness/(brightness-minimum));
-            if (gain>1) for (int k=0;k<3;++k) c[k]=clip(brightness+gain*(c[k]-brightness));
+            if (gain>1 || (vibrance<0 && gain<1)) {
+                gain=fmax(0.0,gain);
+                for (int k=0;k<3;++k) c[k]=clip(brightness+gain*(c[k]-brightness));
+            }
         }
     }
     double shadow=softness ? (4899.0*rgb[i*3]+9617.0*rgb[i*3+1]+1868.0*rgb[i*3+2])/16384.0
@@ -178,7 +183,7 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const float* colo
         if (black != 0 || white != 100) {
             v=original;
             if (weight>0) v += weight*(clip(c[k])-v);
-            v=black*255.0/100.0+(white-black)/100.0*v+0.5;
+            v=clip(black*255.0/100.0+(white-black)/100.0*v+0.5);
         } else if (softness) {
             if (weight==0) v=original;
             else if (weight<1) v=original+weight*(clip(v)-original);
@@ -729,6 +734,9 @@ class CudaCore:
                     luminance = reference + amount * (
                         cp.sum(candidate * cp.asarray(_LUMA), axis=2) - reference
                     )
+                    if not 0 <= treatment.strength <= 1:
+                        color = cp.clip(color, 0, 255)
+                        luminance = cp.clip(luminance, 0, 1)
             treatment.frames += 1
             treatment.seconds += time.perf_counter() - start
             return (
@@ -896,6 +904,8 @@ class CudaCore:
             rhs, numerics.iterations, numerics.relaxation
         )
         if lighting_scale < 1.0:
+            # The correction grid cannot get smaller than two pixels per axis.
+            lighting_scale = max(lighting_scale, 2 / max(h, w))
             low_shape = (
                 max(2, round(h * lighting_scale)),
                 max(2, round(w * lighting_scale)),

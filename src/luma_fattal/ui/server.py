@@ -497,7 +497,7 @@ class Workbench:
         if (
             cuda is None
             and cpu_workers > 1
-            and config.parameters.fade < 100
+            and config.parameters.fade != 100
             and all(timestamp in samples.frames for timestamp in timestamps)
         ):
             # Give the first sample the full CPU before sharing work.

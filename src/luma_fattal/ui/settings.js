@@ -3,7 +3,7 @@
 // This list defines the panel independently of the selected recipe.
 const settingGroups = [
   ['parameters', 'Effect', [
-    ['alpha', 'Alpha / gradient scale', 0, 1000, 0.01, {exclusiveMin: true}],
+    ['alpha', 'Alpha / gradient scale', 0, 500, 0.01, {exclusiveMin: true}],
     ['beta', 'Beta / detail response', 0, 100, 0.1],
     ['saturation', 'Saturation', 0, 100, 1],
     ['tone_strength', 'Tone strength', 0, 100, 1],
@@ -131,8 +131,6 @@ class ConfigurationPanel {
         } else {
           input.type = numeric ? 'number' : type === 'boolean' ? 'checkbox' : 'text';
           if (numeric) {
-            input.min = type;
-            if (max !== null) input.max = max;
             input.step = step === 1 && section !== 'parameters' ? '1' : 'any';
             input.required = !settings.nullable;
           } else input.required = type !== 'rgb' && type !== 'boolean';
@@ -153,6 +151,8 @@ class ConfigurationPanel {
           range.id = `${section}-${key}-range`;
           range.setAttribute('aria-label', `${label} slider`);
           range.step = step;
+          range.min = settings.exclusiveMin ? step : type;
+          range.max = settings.exclusiveMax ? max - step : max ?? settings.sliderMax;
           row.append(range);
           range.addEventListener('input', () => {
             input.value = range.value;
@@ -183,17 +183,12 @@ class ConfigurationPanel {
     this.validate();
   }
 
-  sync({section, key, input, range, type, max, step, settings}) {
+  sync({section, key, input, range, type}) {
     const value = this.config[section][key];
     input.setCustomValidity('');
     if (type === 'boolean') input.checked = value;
     else input.value = Array.isArray(value) ? value.join(', ') : value ?? '';
-    if (range) {
-      // Sliders use practical increments. Numeric fields preserve exact recipe values.
-      range.min = Math.min(settings.exclusiveMin ? step : type, value);
-      range.max = Math.max(settings.exclusiveMax ? max - step : max ?? settings.sliderMax, value);
-      range.value = value;
-    }
+    if (range) range.value = value;
   }
 
   edit(control, sliderCommit = false) {
@@ -206,24 +201,14 @@ class ConfigurationPanel {
       value = value.trim() === '' ? null : value.split(',').map(part => part.trim() === '' ? NaN : Number(part));
     }
     this.config[section][key] = value;
-    if (control.range && Number.isFinite(value)) {
-      const draft = input.value;
-      this.sync(control);
-      input.value = draft;
-    }
+    if (control.range && Number.isFinite(value)) control.range.value = value;
     this.validate();
     this.onChange(sliderCommit);
   }
 
   validate() {
-    for (const {input, type, settings, max} of this.controls) {
+    for (const {input, type} of this.controls) {
       input.setCustomValidity('');
-      if (typeof type === 'number' && input.value !== '') {
-        const value = input.valueAsNumber;
-        if ((settings.exclusiveMin && value <= type) || (settings.exclusiveMax && value >= max)) {
-          input.setCustomValidity('Value must be strictly inside the permitted range.');
-        }
-      }
       if (type === 'rgb' && input.value.trim()) {
         const parts = input.value.split(',');
         if (parts.length !== 3 || parts.some(part => !/^\d+$/.test(part.trim()) || Number(part) > 255)) {
@@ -234,8 +219,7 @@ class ConfigurationPanel {
     const check = (section, key, valid, message) => {
       if (!valid) this.controls.find(item => item.section === section && item.key === key).input.setCustomValidity(message);
     };
-    const {parameters, numerics, video} = this.config;
-    check('parameters', 'black_level', parameters.black_level < parameters.white_level, 'Black level must be below white level.');
+    const {numerics, video} = this.config;
     check('numerics', 'normalization_low', numerics.normalization_low < numerics.normalization_high, 'Low quantile must be below high quantile.');
     check('video', 'frame_rate', video.frame_rate === 'auto' || /^(?:\d+(?:\.\d+)?|\d+\/\d+)$/.test(video.frame_rate) &&
       video.frame_rate.split('/').every(part => Number(part) > 0), 'Enter auto or a positive frame rate, such as 30000/1001.');

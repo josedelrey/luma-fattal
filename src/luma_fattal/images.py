@@ -138,12 +138,12 @@ def process_image(
                 max_edge=config.processing.effective_max_edge,
                 max_input_pixels=config.processing.effective_max_input_pixels,
                 prepared_dimensions=list(result.size),
-                effect_applied=params.fade < 100,
-                working_dimensions=list(work_size) if params.fade < 100 else None,
+                effect_applied=params.fade != 100,
+                working_dimensions=list(work_size) if params.fade != 100 else None,
                 enlargement_stages=[
                     list(size) for size in enlargement_sizes(work_size, result.size)
                 ]
-                if params.fade < 100
+                if params.fade != 100
                 else [],
             ),
             source_dimensions=source_dimensions,

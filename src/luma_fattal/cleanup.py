@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from numbers import Real
 
 import numpy as np
 from numba import njit
@@ -13,6 +12,9 @@ from scipy.ndimage import (
     maximum_filter,
     uniform_filter,
 )
+
+
+from .configuration import FLOAT32_CONTROL_LIMIT, MAX_CLEANUP_SIGMA, _finite
 
 
 def _smoothstep(low, high, values):
@@ -156,20 +158,14 @@ def _compose(rgb, reference_luminance, fields, factor, strength):
 class SourceCleanup:
     """Apply guided correction to flat source regions at working resolution.
 
-    Strength is in [0, 1]. Detection and guided coefficients use an area-reduced
+    Detection and guided coefficients use an area-reduced
     image with longest edge at most 384 pixels. History contains only that small
     RGB guide and mask. RGB frames are never temporally averaged. The mask is
     exposed at reduced resolution for diagnostics, with white selecting cleanup.
     """
 
     def __init__(self, strength):
-        if (
-            isinstance(strength, bool)
-            or not isinstance(strength, Real)
-            or not np.isfinite(float(strength))
-            or not 0 <= float(strength) <= 1
-        ):
-            raise ValueError("Cleanup strength must be finite and between 0 and 1")
+        _finite("Cleanup strength", strength, -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT)
         self.strength = float(strength)
         self.guide = None
         self.mask = None
@@ -182,6 +178,10 @@ class SourceCleanup:
         fields, factor = self.prepare(rgb)
         start = time.perf_counter()
         result = _compose(rgb, reference_luminance, fields, factor, self.strength)
+        if not 0 <= self.strength <= 1:
+            color, luminance = result
+            np.clip(color, 0, 255, out=color)
+            np.clip(luminance, 0, 1, out=luminance)
         self.seconds += time.perf_counter() - start
         return result
 
@@ -299,20 +299,8 @@ class MultiscaleSourceCleanup:
             ("fine_strength", fine_strength),
             ("coarse_strength", coarse_strength),
         ):
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, Real)
-                or not np.isfinite(value)
-                or not 0 <= value <= 1
-            ):
-                raise ValueError(f"{name} must be finite and between 0 and 1")
-        if (
-            isinstance(sigma, bool)
-            or not isinstance(sigma, Real)
-            or not np.isfinite(sigma)
-            or not 0.01 <= sigma <= 16
-        ):
-            raise ValueError("sigma must be finite and between 0.01 and 16")
+            _finite(name, value, -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT)
+        _finite("sigma", sigma, 0, MAX_CLEANUP_SIGMA)
         self.fine_strength = float(fine_strength)
         self.coarse_strength = float(coarse_strength)
         self.sigma = float(sigma)

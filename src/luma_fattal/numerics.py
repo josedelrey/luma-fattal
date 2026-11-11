@@ -41,12 +41,15 @@ def _fast_pow64_values(
 ) -> NDArray[np.float64]:
     """Transform high words in one pass without intermediate full-size arrays."""
     result = np.empty(value.shape, dtype=np.float64)
-    source = value.view(np.uint64).ravel()
-    output = result.view(np.uint64).ravel()
+    values, powers = value.ravel(), result.ravel()
+    source, output = values.view(np.uint64), powers.view(np.uint64)
     for index in range(source.size):
         high = np.int64(source[index] >> np.uint64(32))
-        word = np.int64(np.trunc(exponent * (high - _BIAS) + _BIAS))
-        output[index] = np.uint64(word) << np.uint64(32)
+        word = exponent * (high - _BIAS) + _BIAS
+        if word <= -1 or word >= 0x7FF00000:
+            powers[index] = np.power(values[index], exponent)
+        else:
+            output[index] = np.uint64(np.trunc(word)) << np.uint64(32)
     return result
 
 
@@ -57,7 +60,8 @@ def power64(
     if mode == "approximate":
         return fast_pow64(base, exponent)
     if mode == "standard":
-        return np.power(np.asarray(base, dtype=np.float64), np.float64(exponent))
+        with np.errstate(over="ignore", under="ignore", divide="ignore"):
+            return np.power(np.asarray(base, dtype=np.float64), np.float64(exponent))
     raise ValueError("power_mode must be approximate or standard")
 
 

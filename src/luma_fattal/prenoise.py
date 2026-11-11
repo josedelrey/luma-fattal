@@ -5,12 +5,13 @@ motion compensated. RMS describes the field before masking and range limits.
 """
 
 import time
-from numbers import Real
 
 import numpy as np
 from scipy.ndimage import gaussian_filter, map_coordinates
 
 from luma_fattal.cleanup import SourceCleanup
+
+from .configuration import FLOAT32_CONTROL_LIMIT, _finite
 
 
 def noise_field(shape, kind, seed):
@@ -57,13 +58,7 @@ class SourceNoise:
         *,
         source_cleanup=None,
     ):
-        if (
-            isinstance(rms, bool)
-            or not isinstance(rms, Real)
-            or not np.isfinite(rms)
-            or not 0 <= rms <= 4
-        ):
-            raise ValueError("rms must be finite and between 0 and 4")
+        _finite("rms", rms, 0, FLOAT32_CONTROL_LIMIT)
         if kind not in ("highpass", "fbm"):
             raise ValueError("kind must be highpass or fbm")
         if not isinstance(masked, bool):

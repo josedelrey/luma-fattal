@@ -159,11 +159,15 @@ template<typename T> __device__ void compose_pixel(
         double original = rgb[i * 3 + c];
         double candidate = fmin(fmax(a * guide + b, original - 4.0), original + 4.0);
         candidate = fmin(fmax(candidate, 0.0), 255.0);
-        output[i * 3 + c] = original + amount * (candidate - original);
+        double value = original + amount * (candidate - original);
+        if (strength < 0 || strength > 1) value = fmin(fmax(value, 0.0), 255.0);
+        output[i * 3 + c] = value;
         candidate_luminance += candidate * (c == 0 ? 4899 : c == 1 ? 9617 : 1868);
     }
     double ref = reference[i];
-    output[h * w * 3 + i] = ref + amount * (candidate_luminance / (16384.0 * 255.0) - ref);
+    double value = ref + amount * (candidate_luminance / (16384.0 * 255.0) - ref);
+    if (strength < 0 || strength > 1) value = fmin(fmax(value, 0.0), 1.0);
+    output[h * w * 3 + i] = value;
 }
 
 extern "C" __global__ void compose_u8(

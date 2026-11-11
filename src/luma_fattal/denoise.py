@@ -1,10 +1,12 @@
 """Noise-adaptive spatial denoising before gradient amplification."""
 
 import time
-from numbers import Real
 
 import numpy as np
 from scipy.ndimage import convolve1d, uniform_filter
+
+
+from .configuration import FLOAT32_CONTROL_LIMIT, _finite
 
 
 def _noise_sigma(rgb, backend=np):
@@ -87,13 +89,7 @@ class SourceDenoise:
     """
 
     def __init__(self, strength, *, source_cleanup=None):
-        if (
-            isinstance(strength, bool)
-            or not isinstance(strength, Real)
-            or not np.isfinite(float(strength))
-            or not 0 <= float(strength) <= 1
-        ):
-            raise ValueError("Denoise strength must be finite and between 0 and 1")
+        _finite("Denoise strength", strength, -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT)
         self.strength = float(strength)
         self.cleanup = source_cleanup
         self.frames = 0
@@ -110,6 +106,9 @@ class SourceDenoise:
                 luminance = reference_luminance + amount * (
                     np.sum(candidate * _LUMA, axis=2) - reference_luminance
                 )
+                if not 0 <= self.strength <= 1:
+                    color = np.clip(color, 0, 255)
+                    luminance = np.clip(luminance, 0, 1)
         self.frames += 1
         self.seconds += time.perf_counter() - start
         if self.cleanup is not None:

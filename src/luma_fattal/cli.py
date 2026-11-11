@@ -164,7 +164,7 @@ def _evaluate(args: argparse.Namespace) -> dict:
             if reference.exists():
                 output = args.output / "comparisons" / label / original.stem
                 with Image.open(original) as source_image:
-                    if params.fade < 100:
+                    if params.fade != 100:
                         interpreted = _prepare_pillow_input(source_image, config)
                         pixels = limit_input_pixels(
                             np.asarray(interpreted),

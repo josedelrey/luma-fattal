@@ -935,7 +935,7 @@ def process_video(
     prepared = input_size(
         normalized,
         config.processing.effective_max_input_pixels
-        if config.parameters.fade < 100
+        if config.parameters.fade != 100
         else None,
     )
     width, height = (edge + edge % 2 for edge in prepared)
@@ -1063,13 +1063,13 @@ def process_video(
                         )
                         parallel = (
                             settings.filter_backend == "cpu"
-                            and config.parameters.fade < 100
+                            and config.parameters.fade != 100
                             and workers > 1
                             and (pool is None or settings.pipeline_depth > 1)
                         )
                         adaptive = (
                             filter_solver is not None
-                            and config.parameters.fade < 100
+                            and config.parameters.fade != 100
                             and workers > 1
                             and (pool is None or settings.pipeline_depth > 1)
                         )

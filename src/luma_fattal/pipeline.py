@@ -89,7 +89,7 @@ def apply_filter(
     if params.fade == 100:
         return array.copy()
     if (
-        params.fade < 100
+        params.fade != 100
         and config.processing.transparency == "reject"
         and array.shape[2] == 4
         and np.any(array[..., 3] != 255)

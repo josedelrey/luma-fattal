@@ -336,7 +336,7 @@ def _compress_highlights(rgb: np.ndarray, strength: float) -> np.ndarray:
                 and np.isfinite(rgb[y, x, 1])
                 and np.isfinite(rgb[y, x, 2])
             )
-            if finite and peak > knee and amount > 0:
+            if finite and peak > knee:
                 excess = peak - knee
                 compressed = knee + headroom / (1.0 + headroom / excess)
                 target = (1.0 - amount) * peak + amount * compressed
@@ -374,8 +374,9 @@ def _boost_vibrance(rgb: np.ndarray, strength: float) -> np.ndarray:
                 gain = min(gain, (255.0 - brightness) / (peak - brightness))
             if minimum < brightness:
                 gain = min(gain, brightness / (brightness - minimum))
-            if gain <= 1:
+            if gain == 1 or (amount > 0 and gain < 1):
                 continue
+            gain = max(0.0, gain)
             for channel in range(3):
                 value = brightness + gain * (result[y, x, channel] - brightness)
                 result[y, x, channel] = min(max(value, 0.0), 255.0)
@@ -423,7 +424,7 @@ def _quantize_output_levels(
                     elif candidate < 0:
                         candidate = 0.0
                     value += weight * (candidate - value)
-                output[y, x, channel] = np.uint8(black + span * value + 0.5)
+                output[y, x, channel] = np.uint8(min(max(black + span * value + 0.5, 0), 255))
     return output
 
 
@@ -444,7 +445,7 @@ def _recombine(
     white_level: float = 100,
     vibrance: float = 0,
 ) -> np.ndarray:
-    if tone_strength < 100:
+    if tone_strength != 100:
         source_luminance = luminance if shadow_luminance is None else shadow_luminance
         if tone_strength == 0:
             mapped = source_luminance
@@ -452,7 +453,8 @@ def _recombine(
             # Degenerate normalization maps to white on the reference path.
             target = np.nan_to_num(mapped, nan=1.0, posinf=1.0, neginf=0.0)
             amount = np.float32(tone_strength) / np.float32(100)
-            mapped = source_luminance + amount * (target - source_luminance)
+            with np.errstate(over="ignore"):
+                mapped = source_luminance + amount * (target - source_luminance)
     # Keep color powers in float64 through final RGB scaling.
     original_scale = luminance * np.float32(255)
     ratio = np.divide(
@@ -462,14 +464,15 @@ def _recombine(
         where=original_scale[..., None] > 0,
     )
     chroma = power64(ratio, np.float32(saturation) / np.float32(100), power_mode)
-    result = chroma * (mapped * np.float32(255)).astype(np.float64)[..., None]
-    if highlight_compression > 0:
+    with np.errstate(over="ignore", invalid="ignore"):
+        result = chroma * (mapped * np.float32(255)).astype(np.float64)[..., None]
+    if highlight_compression:
         result = _compress_highlights(result, highlight_compression)
     if output_gamma != 1.0:
         # Apply the curve to filtered RGB before byte quantization and fade.
         unit = np.maximum(np.fmin(result, 255), 0) / 255
         result = np.power(unit, 1.0 / output_gamma) * 255
-    if vibrance > 0:
+    if vibrance:
         result = _boost_vibrance(result, vibrance)
     if black_level != 0 or white_level != 100:
         reference = luminance if shadow_luminance is None else shadow_luminance
@@ -601,7 +604,7 @@ def apply_core(
 ) -> np.ndarray:
     """Apply the effect to decoded pixels with no file or resizing policies."""
     result = array.copy()
-    if params.fade < 100:
+    if params.fade != 100:
         rgb = np.ascontiguousarray(array[..., :3])
         filtered = None
         levels_active = params.black_level != 0 or params.white_level != 100
