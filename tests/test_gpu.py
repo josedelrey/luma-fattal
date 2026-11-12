@@ -467,6 +467,18 @@ def test_cuda_finishing_matches_cpu_on_filtered_rgb(cuda_core):
     np.testing.assert_allclose(actual, finish_rgb(rgb, params), atol=1)
 
 
+@pytest.mark.parametrize("params", [FilterParams(chroma_bleed=100), FilterParams(split_tone=100)])
+def test_cuda_color_finishing_matches_cpu_at_full_strength(cuda_core, params):
+    from luma_fattal.finishing import finish_rgb
+
+    rgb = np.full((8, 512, 3), (180, 80, 70), np.uint8)
+    rgb[:, 256:] = (80, 140, 180)
+    cp = cuda_core.cp
+    with cp.cuda.Device(cuda_core.solver.device), cuda_core.stream:
+        actual = cuda_core._finish_rgb(cp.asarray(rgb), params).get(stream=cuda_core.stream)
+    np.testing.assert_allclose(actual, finish_rgb(rgb, params), atol=1)
+
+
 @pytest.mark.parametrize("variant", [1, 2])
 @pytest.mark.parametrize("optimized", [False, True])
 @pytest.mark.parametrize("resize", [False, True])

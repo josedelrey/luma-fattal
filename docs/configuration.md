@@ -145,7 +145,7 @@ noise combinations can exceed the solver's numeric range on some images.
 | `parameters.halation` | `0` | `0–500`. Adds a red-orange glow around bright regions. |
 | `parameters.posterize` | `0` | `0–100`. Progressively reduces the number of levels per RGB channel from 256 to 4. |
 | `parameters.local_contrast` | `0` | `0–300`. Amplifies brightness differences from a broad local average. |
-| `parameters.chroma_bleed` | `0` | `0–100`. Trails colors horizontally to the right while preserving each pixel’s weighted brightness before clipping. |
+| `parameters.chroma_bleed` | `0` | `0–100`. Trails colors horizontally to the right across up to roughly one sixteenth of the image width while preserving each pixel’s weighted brightness before clipping. |
 | `parameters.split_tone` | `0` | `0–100`. Tints shadows violet-blue and highlights amber, with the strongest tint between the midtones and the black or white endpoints. |
 | `parameters.pre_curve_0`, `pre_curve_25`, `pre_curve_50`, `pre_curve_75`, `pre_curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied to source pixels before luminance and filtering. |
 | `parameters.curve_0`, `curve_25`, `curve_50`, `curve_75`, `curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied after brightness and contrast. These existing keys retain the post curve for compatibility. |

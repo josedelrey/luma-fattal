@@ -23,7 +23,7 @@ def guide_cell(height: int, width: int) -> int:
 
 
 def bleed_radius(width: int, amount: float) -> int:
-    return max(2, (width + 47) // 48) if amount else 0
+    return max(2, (width + 15) // 16) if amount else 0
 
 
 @lru_cache(maxsize=256)
@@ -144,8 +144,8 @@ def _finish_pixels(rgb, guide, cell, radius, contrast, halation, bleed, split, l
                 dr, dg, db = bleed * (dr - dy), bleed * (dg - dy), bleed * (db - dy)
             cool, warm = 0.0, 0.0
             if split:
-                cool = split * max(0, 128 - luma) / 128 * min(1, luma / 32)
-                warm = split * max(0, luma - 128) / 127 * min(1, (255 - luma) / 32)
+                cool = 2 * split * max(0, 128 - luma) / 128 * min(1, luma / 32)
+                warm = 2 * split * max(0, luma - 128) / 127 * min(1, (255 - luma) / 32)
             output[y, x, 0] = lut[_byte(r + detail + glow + dr + 36 * warm - 14 * cool)]
             output[y, x, 1] = lut[
                 _byte(g + detail + 0.28 * glow + dg + 12 * warm - 8 * cool)

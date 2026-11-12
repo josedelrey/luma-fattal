@@ -390,8 +390,8 @@ extern "C" __global__ void finish_rgb(const unsigned char* rgb, unsigned char* o
     }
     double cool = 0, warm = 0;
     if (split) {
-        cool = split * max(0, 128-luma)/128 * fmin(1.0, luma/32.0);
-        warm = split * max(0, luma-128)/127 * fmin(1.0, (255-luma)/32.0);
+        cool = 2 * split * max(0, 128-luma)/128 * fmin(1.0, luma/32.0);
+        warm = 2 * split * max(0, luma-128)/127 * fmin(1.0, (255-luma)/32.0);
     }
     out[p]   = lut[(int)clip(r + detail + glow + dr + 36*warm - 14*cool + 0.5)];
     out[p+1] = lut[(int)clip(g + detail + 0.28*glow + dg + 12*warm - 8*cool + 0.5)];

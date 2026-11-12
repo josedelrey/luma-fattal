@@ -110,6 +110,29 @@ def test_chroma_bleed_trails_color_without_smearing_the_brightness_edge():
     np.testing.assert_allclose(bled @ weights, rgb @ weights, atol=0.5)
 
 
+def test_chroma_bleed_is_visible_beyond_a_narrow_color_edge():
+    rgb = np.full((8, 512, 3), (180, 80, 70), np.uint8)
+    rgb[:, 256:] = (80, 140, 180)
+    half = finish_rgb(rgb, FilterParams(chroma_bleed=50))
+    full = finish_rgb(rgb, FilterParams(chroma_bleed=100))
+    assert 80 < half[4, 271, 0] < full[4, 271, 0]
+    assert full[4, 271, 0] >= 120
+    np.testing.assert_array_equal(full[:, :256], rgb[:, :256])
+    np.testing.assert_array_equal(full[:, 289:], rgb[:, 289:])
+    np.testing.assert_array_equal(finish_rgb(rgb, FilterParams()), rgb)
+
+
+def test_split_tone_is_visible_and_increases_with_strength():
+    rgb = np.repeat(np.array([60, 128, 195], np.uint8)[None, :, None], 3, axis=2)
+    half = finish_rgb(rgb, FilterParams(split_tone=50))
+    full = finish_rgb(rgb, FilterParams(split_tone=100))
+    assert full[0, 0, 2] - full[0, 0, 0] >= 50
+    assert full[0, 2, 0] - full[0, 2, 2] >= 50
+    assert full[0, 0, 2] > half[0, 0, 2] > rgb[0, 0, 2]
+    assert full[0, 2, 0] > half[0, 2, 0] > rgb[0, 2, 0]
+    np.testing.assert_array_equal(full[:, 1], rgb[:, 1])
+
+
 def test_split_tone_tints_each_end_and_posterize_quantizes_last():
     shades = np.array([0, 45, 128, 210, 255], np.uint8)
     rgb = np.repeat(shades[None, :, None], 3, axis=2)
