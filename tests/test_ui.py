@@ -494,6 +494,7 @@ def test_streaming_export_estimates_progress_total(
     def process(source, destination, *, config, on_progress):
         assert app.active_job is not None
         identifier = app.active_job
+        app.job_started[identifier] = time.monotonic() - 10
         on_progress(24, None)
         snapshots.append(app.jobs[identifier].copy())
         on_progress(expected + 1, None)
