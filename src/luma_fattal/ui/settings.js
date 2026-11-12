@@ -44,7 +44,7 @@ const settingGroups = [
     ['brightness', 'Brightness', -100, 100, 1],
     ['contrast', 'Contrast', -100, 100, 1],
     ['sharpen', 'Sharpen', 0, 1000, 1, {inputMin: 0}],
-    ['halation', 'Halation', 0, 200, 1, {inputMin: 0, inputMax: 200}],
+    ['halation', 'Halation', 0, 500, 1, {inputMin: 0, inputMax: 500}],
     ['posterize', 'Posterize', 0, 100, 1, {inputMin: 0, inputMax: 100}],
     ['local_contrast', 'Local contrast', 0, 300, 1, {inputMin: 0, inputMax: 300}],
     ['chroma_bleed', 'Chroma bleed', 0, 100, 1, {inputMin: 0, inputMax: 100}],

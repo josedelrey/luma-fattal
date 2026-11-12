@@ -58,7 +58,7 @@ INPUT_MAX_PIXELS = 8_000_000
 # Leave float32 headroom for byte scaling and weighted sums.
 FLOAT32_CONTROL_LIMIT = float(np.finfo(np.float32).max) / 1024
 _FINISHING_LIMITS = {
-    "halation": 200,
+    "halation": 500,
     "posterize": 100,
     "local_contrast": 300,
     "chroma_bleed": 100,

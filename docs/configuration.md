@@ -142,7 +142,7 @@ noise combinations can exceed the solver's numeric range on some images.
 | `parameters.brightness` | `0` | Signed percentage of white added after vibrance. |
 | `parameters.contrast` | `0` | Signed adjustment around mid-gray. At -100 the result is mid-gray. |
 | `parameters.sharpen` | `0` | Nonnegative unsharp mask strength. `100` adds the difference between the filtered RGB and a 3×3 blur once. The slider reaches `1000` for pronounced edge contrast and halos. Applied at working resolution before enlargement and Fade. |
-| `parameters.halation` | `0` | `0–200`. Adds a red-orange glow around bright regions. |
+| `parameters.halation` | `0` | `0–500`. Adds a red-orange glow around bright regions. |
 | `parameters.posterize` | `0` | `0–100`. Progressively reduces the number of levels per RGB channel from 256 to 4. |
 | `parameters.local_contrast` | `0` | `0–300`. Amplifies brightness differences from a broad local average. |
 | `parameters.chroma_bleed` | `0` | `0–100`. Trails colors horizontally to the right while preserving each pixel’s weighted brightness before clipping. |
