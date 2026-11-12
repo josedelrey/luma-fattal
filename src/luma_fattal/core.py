@@ -388,9 +388,17 @@ def _boost_vibrance(rgb: np.ndarray, strength: float) -> np.ndarray:
     return result
 
 
-@njit(cache=True)
 def _adjust_tones(rgb, brightness, contrast, points, wet=100.0, positions=None):
     """Apply brightness, contrast, and a shape-preserving cubic RGB curve."""
+    # Numba cannot dynamically index tuples containing both integers and floats.
+    points = np.asarray(points, dtype=np.float64)
+    if positions is not None:
+        positions = np.asarray(positions, dtype=np.float64)
+    return _adjust_tones_numba(rgb, brightness, contrast, points, wet, positions)
+
+
+@njit(cache=True)
+def _adjust_tones_numba(rgb, brightness, contrast, points, wet, positions):
     result = np.empty_like(rgb)
     for y in range(rgb.shape[0]):
         for x in range(rgb.shape[1]):
@@ -551,6 +559,39 @@ def _recombine(
     chroma = power64(ratio, np.float32(saturation) / np.float32(100), power_mode)
     with np.errstate(over="ignore", invalid="ignore"):
         result = chroma * (mapped * np.float32(255)).astype(np.float64)[..., None]
+    tone_active = (
+        brightness != 0
+        or contrast != 0
+        or (curve_wet != 0 and (curve_positions is not None or curve != (0, 25, 50, 75, 100)))
+    )
+    post_active = bool(highlight_compression or output_gamma != 1.0 or vibrance or tone_active)
+    if post_active:
+        # Protect shadows in floating point so every following adjustment sees
+        # the protected image, without introducing an intermediate RGB8 round.
+        if shadow_softness:
+            lower = max(0, shadow_threshold - shadow_softness)
+            upper = min(255, shadow_threshold + shadow_softness)
+            mask_luminance = (
+                4899.0 * rgb[..., 0] + 9617.0 * rgb[..., 1] + 1868.0 * rgb[..., 2]
+            ) / 16384.0
+            weight = np.zeros(mask_luminance.shape, dtype=np.float64)
+            weight[(mask_luminance > lower) & (mask_luminance >= upper)] = 1.0
+            if upper > lower:
+                transition = (mask_luminance > lower) & (mask_luminance < upper)
+                t = (mask_luminance[transition] - lower) / (upper - lower)
+                weight[transition] = t * t * (3 - 2 * t)
+            protected = rgb.astype(np.float64)
+            transition = (weight > 0) & (weight < 1)
+            protected[transition] += weight[transition, None] * (
+                np.maximum(np.fmin(result[transition], 255), 0) - protected[transition]
+            )
+            protected[weight == 1] = result[weight == 1]
+            result = protected
+        else:
+            reference = luminance if shadow_luminance is None else shadow_luminance
+            result[reference * np.float32(255) <= shadow_threshold] = rgb[
+                reference * np.float32(255) <= shadow_threshold
+            ]
     if highlight_compression:
         result = _compress_highlights(result, highlight_compression)
     if output_gamma != 1.0:
@@ -559,12 +600,12 @@ def _recombine(
         result = np.power(unit, 1.0 / output_gamma) * 255
     if vibrance:
         result = _boost_vibrance(result, vibrance)
-    if (
-        brightness != 0
-        or contrast != 0
-        or (curve_wet != 0 and (curve_positions is not None or curve != (0, 25, 50, 75, 100)))
-    ):
+    if tone_active:
         result = _adjust_tones(result, brightness, contrast, curve, curve_wet, curve_positions)
+    if post_active:
+        if black_level != 0 or white_level != 100:
+            result = black_level * 255.0 / 100.0 + (white_level - black_level) / 100.0 * np.maximum(np.fmin(result, 255), 0)
+        return np.maximum(np.fmin(result + 0.5, 255), 0).astype(np.uint8)
     if black_level != 0 or white_level != 100:
         reference = luminance if shadow_luminance is None else shadow_luminance
         return _quantize_output_levels(
@@ -745,7 +786,9 @@ def _filter_rgb(
         ).astype(np.uint8)
     filtered = rgb if rgb is not original_rgb else None
     levels_active = params.black_level != 0 or params.white_level != 100
+    identity_fallback = False
     if min(original_rgb.shape[:2]) < 2:
+        identity_fallback = True
         warnings.warn(
             "One-pixel-wide images use an identity extension of the solver",
             RuntimeWarning,
@@ -831,6 +874,34 @@ def _filter_rgb(
                 params.black_level,
                 params.white_level,
             )
+        if mapped is None:
+            identity_fallback = True
+    if identity_fallback and (
+        params.highlight_compression or params.output_gamma != 1.0 or params.vibrance
+        or params.brightness or params.contrast
+        or (params.post_curve_wet and (
+            params.curve_points is not None or
+            (params.curve_0, params.curve_25, params.curve_50, params.curve_75, params.curve_100)
+            != (0, 25, 50, 75, 100)
+        ))
+    ):
+        # The solver has no result for black or one-pixel frames, but post
+        # controls still operate on their identity image.
+        zeros = np.zeros(rgb.shape[:2], dtype=np.float32)
+        filtered = _recombine(
+            rgb, zeros, zeros, 100, shadow_threshold=255,
+            output_gamma=params.output_gamma, highlight_compression=params.highlight_compression,
+            black_level=params.black_level, white_level=params.white_level,
+            vibrance=params.vibrance, brightness=params.brightness, contrast=params.contrast,
+            curve_wet=params.post_curve_wet,
+            curve_positions=tuple(p[0] for p in params.curve_points)
+            if params.curve_points is not None else None,
+            curve=tuple(p[1] for p in params.curve_points)
+            if params.curve_points is not None else (
+                params.curve_0, params.curve_25, params.curve_50,
+                params.curve_75, params.curve_100,
+            ),
+        )
     return filtered
 
 

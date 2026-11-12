@@ -225,7 +225,7 @@ or in-memory array outputs.
 | `numerics.normalization_floor` | `0.0001` | Nonnegative and representable in float32. Fallback for nonpositive normalized brightness and all-zero normalization input. |
 | `numerics.gradient_threshold` | `0.0001` | Nonnegative and representable in float32. Gradients at or below this magnitude retain neutral attenuation at that scale. |
 | `numerics.log_offset` | `0.01` | Greater than `0` and representable in float32. Offset added before the luminance logarithm and subtracted after exponentiation. Avoids log-of-zero and changes dark-region behavior. |
-| `numerics.shadow_threshold` | `6` | Signed integer within the solver’s indexing range. Original-source luminance cutoff for preserving source RGB before output-level mapping. |
+| `numerics.shadow_threshold` | `6` | Signed integer within the solver’s indexing range. Original-source luminance cutoff for preserving source RGB before post adjustments. |
 | `numerics.detail_level` | `0` | Integer ≥ `0`. Number of finest attenuation scales to omit. If all are omitted, attenuation is neutral, but reconstruction and normalization still run. |
 | `numerics.power_mode` | `approximate` | `approximate` uses reference power approximations. `standard` uses NumPy float64 powers for attenuation and color reconstruction, narrowing attenuation to float32. |
 | `numerics.shadow_softness` | `0` | Nonnegative integer within the solver’s indexing range. Half-width of the smooth transition around `shadow_threshold`, in source luminance levels. `0` keeps a hard cutoff. Transition endpoints are clamped to `0–255`. |

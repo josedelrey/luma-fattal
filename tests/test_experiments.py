@@ -117,7 +117,7 @@ def test_output_gamma_curve_precedes_rgb8_quantization(gamma, expected):
     )
 
 
-def test_output_gamma_preserves_the_shadow_gate():
+def test_output_gamma_applies_after_the_shadow_gate():
     rgb = np.full((2, 3, 3), 2, np.uint8)
     output = _recombine(
         rgb,
@@ -126,7 +126,7 @@ def test_output_gamma_preserves_the_shadow_gate():
         100,
         output_gamma=2,
     )
-    np.testing.assert_array_equal(output, rgb)
+    np.testing.assert_array_equal(output, np.full_like(rgb, 23))
 
 
 def test_output_gamma_clips_overshoot_and_preserves_nan_white_behavior():

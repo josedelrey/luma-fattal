@@ -290,6 +290,9 @@ class ConfigurationPanel {
           row.append(range);
           range.addEventListener('input', () => {
             input.value = range.value;
+            if (key === 'pre_curve_wet' || key === 'post_curve_wet') {
+              this.drawCurve({key, value: Number(range.value)});
+            }
           });
         }
         const isBasic = section === 'parameters' && index < 7;
@@ -324,7 +327,7 @@ class ConfigurationPanel {
     this.drawCurve();
   }
 
-  drawCurve() {
+  drawCurve(wetPreview = null) {
     if (!this.config) return;
     for (const {curve, prefix} of this.curves) {
     if (!curve.getContext) continue;
@@ -338,6 +341,17 @@ class ConfigurationPanel {
     }
     const values = this.config.parameters[`${prefix}points`] ?? [0, 25, 50, 75, 100].map(x => [x, this.config.parameters[`${prefix}${x}`]]);
     const points = values.map(([x, value]) => [x / 100 * (width - 8) + 4, (1 - Math.max(0, Math.min(100, value)) / 100) * (height - 8) + 4]);
+    const wetKey = prefix === 'pre_curve_' ? 'pre_curve_wet' : 'post_curve_wet';
+    const wet = (wetPreview?.key === wetKey ? wetPreview.value : this.config.parameters[wetKey]) / 100;
+    ctx.strokeStyle = '#a31818'; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 256; i++) {
+      const input = i / 256 * 100;
+      const value = Math.max(0, Math.min(100, input + (curveAt(values, input) - input) * wet));
+      const x = i / 256 * (width - 8) + 4;
+      const y = (1 - value / 100) * (height - 8) + 4;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
     ctx.strokeStyle = '#ff3030'; ctx.lineWidth = 2; ctx.beginPath();
     for (let i = 0; i <= 256; i++) {
       const x = i / 256 * (width - 8) + 4;

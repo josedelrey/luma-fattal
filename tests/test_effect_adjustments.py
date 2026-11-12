@@ -126,6 +126,40 @@ def test_recombine_applies_tone_controls():
     assert np.all(adjusted > baseline)
 
 
+@pytest.mark.parametrize("softness", [0, 6])
+@pytest.mark.parametrize("post", [
+    {"brightness": 10},
+    {"output_gamma": 2},
+    {"curve": (20, 25, 50, 75, 100)},
+    {"vibrance": 100},
+    {"highlight_compression": 100},
+])
+def test_post_adjustments_apply_after_shadow_protection(softness, post):
+    from luma_fattal.core import _recombine
+
+    rgb = np.array([[[6, 4, 2], [200, 210, 220]]], dtype=np.uint8)
+    luminance = np.array([[6 / 255, 210 / 255]], dtype=np.float32)
+    mapped = np.array([[0.8, 0.8]], dtype=np.float32)
+    protected = _recombine(rgb, luminance, mapped, 100, power_mode="standard", shadow_softness=softness)
+    # Compare with the same post effect applied to the protected image. The
+    # intermediate byte rounding can differ by at most one code value.
+    reference_lum = np.array([[20 / 255, 210 / 255]], dtype=np.float32)
+    actual = _recombine(rgb, luminance, mapped, 100, power_mode="standard", shadow_softness=softness, **post)
+    expected = _recombine(protected, reference_lum, reference_lum, 100, power_mode="standard", shadow_threshold=-1, **post)
+    np.testing.assert_allclose(actual, expected, atol=2)
+
+
+@pytest.mark.parametrize("shape", [(4, 4, 3), (1, 1, 3)])
+def test_brightness_applies_to_black_and_identity_fallback_frames(shape):
+    rgb = np.zeros(shape, np.uint8)
+    if shape[0] == 1:
+        with pytest.warns(RuntimeWarning, match="identity extension"):
+            output = process_pixels(rgb, 1, FilterParams(brightness=10))
+    else:
+        output = process_pixels(rgb, 1, FilterParams(brightness=10))
+    np.testing.assert_array_equal(output, np.full(shape, 26, np.uint8))
+
+
 def test_curve_interpolates_smoothly_without_overshooting():
     curve = (0.0, 20.0, 80.0, 30.0, 100.0)
     values = np.linspace(0, 255, 401).reshape(1, -1, 1)
@@ -284,10 +318,32 @@ def test_custom_curve_points_change_processing_and_round_trip():
     np.testing.assert_allclose(result[0, 0] / 2.55, [70, 20, 100])
 
 
+@pytest.mark.parametrize("curve_name", ["pre_curve_points", "curve_points"])
+def test_mixed_integer_and_decimal_curve_points_process(curve_name):
+    points = ((0, 0), (20.5, 40), (60, 72.5), (100, 100))
+    rgb = np.full((4, 4, 3), 100, dtype=np.uint8)
+    float_points = tuple((float(x), float(y)) for x, y in points)
+    if curve_name == "pre_curve_points":
+        mixed = FilterParams(tone_strength=0, pre_curve_points=points)
+        floats = FilterParams(tone_strength=0, pre_curve_points=float_points)
+    else:
+        mixed = FilterParams(tone_strength=0, curve_points=points)
+        floats = FilterParams(tone_strength=0, curve_points=float_points)
+    numerics = NumericsConfig(power_mode="standard")
+    np.testing.assert_array_equal(
+        process_pixels(rgb, 1, mixed, numerics=numerics),
+        process_pixels(rgb, 1, floats, numerics=numerics),
+    )
+
+
 def test_custom_curve_points_validation():
     import pytest
 
-    for points in ([(0, 0), (20, 30), (20, 40), (100, 100)], [(1, 0), (100, 100)], [(0, 0), (100, 101)]):
+    for points in (
+        ((0, 0), (20, 30), (20, 40), (100, 100)),
+        ((1, 0), (100, 100)),
+        ((0, 0), (100, 101)),
+    ):
         with pytest.raises(ValueError):
             FilterParams(curve_points=points)
 

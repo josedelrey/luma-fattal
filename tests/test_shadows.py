@@ -85,8 +85,8 @@ def test_shadow_mask_uses_fractional_luminance_within_one_integer_bin():
     assert output[0, 0, 2] < output[0, 1, 2]
 
 
-@pytest.mark.parametrize("gamma,mapped,expected", [(1, 10.5 / 255, 8), (2, 0.25, 67)])
-def test_shadow_blend_follows_gamma_and_precedes_byte_quantization(
+@pytest.mark.parametrize("gamma,mapped,expected", [(1, 10.5 / 255, 8), (2, 0.25, 94)])
+def test_shadow_blend_precedes_gamma_and_byte_quantization(
     gamma, mapped, expected
 ):
     output = _recombine(
@@ -195,21 +195,21 @@ def test_existing_schema_one_configuration_keeps_reference_shadow_behavior():
             1.7,
             6,
             12,
-            "d6594f9853d020c64d72cede2d5ac0da9f410e0c828b6d5066bbecf360094fde",
+            "b0bbab81bfcc254c3f892b84747a55847cdf170038c5fce9868158813ae479e5",
         ),
         (
             "approximate",
             0.2,
             0,
             1,
-            "f09ce0c218f883dff3b87eedd7c590e06a16f73acc1db21356db058237271baf",
+            "8d8fa52951effc6308b8160903fe3935bf4ff52bd200540cb5fc322005755750",
         ),
         (
             "standard",
             4.0,
             255,
             255,
-            "73fcf8598becb22f3f5bbc9fcb01147ee90d375ba1d357e9b43891119a91a5e8",
+            "6c0163cef0e20252008f6370a8e644e640caea645532ffebb2e7ab7e1212c244",
         ),
         (
             "approximate",
@@ -234,7 +234,7 @@ def test_shadow_blending_retains_frozen_rgb_bytes(
     softness,
     expected_sha256,
 ):
-    # Captured from the NumPy shadow blend before its fused-loop optimization.
+    # Gamma cases reflect shadow protection before the gamma adjustment.
     rng = np.random.default_rng(44)
     rgb = rng.integers(0, 256, (31, 47, 3), np.uint8)
     rgb[:16] = rng.integers(0, 25, (16, 47, 3), np.uint8)

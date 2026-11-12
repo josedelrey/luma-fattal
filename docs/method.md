@@ -17,8 +17,9 @@ The implementation operates on 8-bit SDR inputs.
 1. Decode, orient, and interpret color. Apply the configured input-area budget.
 2. Reduce to working resolution. Video can apply denoising, cleanup, then source noise.
 3. Attenuate log-luminance gradients and reconstruct brightness.
-4. Apply tone strength, recombine color, compress highlights, and apply output gamma.
-5. Apply vibrance, shadow protection, output levels, and RGB8 quantization.
+4. Apply tone strength, recombine color, and protect shadows.
+5. Apply highlight compression, output gamma, vibrance, brightness, contrast,
+   the post curve, and output levels, then quantize to RGB8.
 6. Apply Sharpen and the finishing effects at working resolution, then enlarge to the prepared input dimensions, apply Fade, and encode.
 
 Halation and Local contrast share a blurred, downsampled guide for highlight
@@ -40,8 +41,8 @@ colors unchanged at this stage.
 
 Shadow protection uses the original source brightness. A positive
 `shadow_softness` blends through a smoothstep interval around `shadow_threshold`,
-while zero retains the hard cutoff. Output levels then remap channels, including
-protected shadows, before Fade blends the result with the original RGB.
+while zero retains the hard cutoff. Subsequent post adjustments apply to the
+protected result, before Fade blends it with the original RGB.
 
 ## Numerical choices
 

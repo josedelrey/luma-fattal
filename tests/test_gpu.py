@@ -154,6 +154,9 @@ def test_cuda_frames_remain_close_with_effect_controls_and_source_treatments(
             black_level=3,
             white_level=97,
             vibrance=25,
+            brightness=10,
+            contrast=-10,
+            curve_50=55,
         ),
         numerics=NumericsConfig(
             shadow_softness=6,

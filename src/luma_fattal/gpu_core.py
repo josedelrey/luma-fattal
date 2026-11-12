@@ -174,6 +174,22 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const unsigned ch
         float ratio=scale>0 ? colors[i*3+k]/scale : 0.0f;
         c[k]=power((double)ratio,(double)saturation,standard)*(double)mscale;
     }
+    double shadow=softness ? (4899.0*rgb[i*3]+9617.0*rgb[i*3+1]+1868.0*rgb[i*3+2])/16384.0
+        : (double)(reference[i]*255.0f);
+    int lower=max(0,threshold-softness), upper=min(255,threshold+softness);
+    double weight=1.0;
+    if (shadow <= lower) weight=0;
+    else if (shadow < upper) { double t=(shadow-lower)/(upper-lower); weight=t*t*(3-2*t); }
+    bool post_active=highlight!=0 || gamma!=1 || vibrance!=0 || brightness_adjust!=0 ||
+        contrast!=0 || (curve_wet!=0 && curve_active);
+    if (post_active) {
+        if (!softness) weight=shadow<=threshold ? 0.0 : 1.0;
+        for (int k=0;k<3;++k) {
+            double original=rgb[i*3+k];
+            if (weight==0) c[k]=original;
+            else if (weight<1) c[k]=original+weight*(clip(c[k])-original);
+        }
+    }
     double peak=fmax(c[0],fmax(c[1],c[2]));
     if (highlight!=0 && isfinite(c[0]) && isfinite(c[1]) && isfinite(c[2]) && peak>191.25) {
         double compressed=191.25+63.75/(1.0+63.75/(peak-191.25));
@@ -204,18 +220,17 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const unsigned ch
             c[k]=clip(value+(curve_eval(value,curve_points,curve_count)-value)*curve_wet/100.0);
         }
     }
-    double shadow=softness ? (4899.0*rgb[i*3]+9617.0*rgb[i*3+1]+1868.0*rgb[i*3+2])/16384.0
-        : (double)(reference[i]*255.0f);
-    int lower=max(0,threshold-softness), upper=min(255,threshold+softness);
-    double weight=1.0;
-    if (shadow <= lower) weight=0;
-    else if (shadow < upper) { double t=(shadow-lower)/(upper-lower); weight=t*t*(3-2*t); }
     for (int k=0;k<3;++k) {
         double v=c[k], original=rgb[i*3+k];
         if (black != 0 || white != 100) {
-            v=original;
-            if (weight>0) v += weight*(clip(c[k])-v);
+            if (post_active) v=clip(v);
+            else {
+                v=original;
+                if (weight>0) v += weight*(clip(c[k])-v);
+            }
             v=clip(black*255.0/100.0+(white-black)/100.0*v+0.5);
+        } else if (post_active) {
+            v=clip(v+0.5);
         } else if (softness) {
             if (weight==0) v=original;
             else if (weight<1) v=original+weight*(clip(v)-original);
