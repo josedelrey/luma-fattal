@@ -243,6 +243,12 @@ def process_pixels(
         work, variant, replace(params, fade=0), numerics, **cleanup_options
     )
     enlarged = enlarge_progressive(filtered, size)
+    if not params.fade:
+        if array.shape[2] == 3:
+            return enlarged
+        result = array.copy()
+        result[..., :3] = enlarged
+        return result
     amount = np.float32(params.fade) / np.float32(100)
     mixed = (
         enlarged.astype(np.float32) * (np.float32(1) - amount)

@@ -19,7 +19,12 @@ The implementation operates on 8-bit SDR inputs.
 3. Attenuate log-luminance gradients and reconstruct brightness.
 4. Apply tone strength, recombine color, compress highlights, and apply output gamma.
 5. Apply vibrance, shadow protection, output levels, and RGB8 quantization.
-6. Enlarge to the prepared input dimensions, apply Fade, and encode.
+6. Apply Sharpen and the finishing effects at working resolution, then enlarge to the prepared input dimensions, apply Fade, and encode.
+
+Halation and Local contrast share a blurred, downsampled guide for highlight
+glow and broad brightness detail. Chroma bleed trails color from neighboring
+pixels on the left. These effects and Split tone use the same sharpened RGB
+input, add their contributions together, and clip once. Posterize applies last.
 
 Tone strength blends source and mapped luminance before color reconstruction,
 using source brightness from before denoising, cleanup, and noise. Highlight

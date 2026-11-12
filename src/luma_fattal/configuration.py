@@ -57,6 +57,13 @@ WORKING_MAX_EDGE = 1536
 INPUT_MAX_PIXELS = 8_000_000
 # Leave float32 headroom for byte scaling and weighted sums.
 FLOAT32_CONTROL_LIMIT = float(np.finfo(np.float32).max) / 1024
+_FINISHING_LIMITS = {
+    "halation": 200,
+    "posterize": 100,
+    "local_contrast": 300,
+    "chroma_bleed": 100,
+    "split_tone": 100,
+}
 MAX_SOLVER_ITERATIONS = 10_000
 MAX_CLEANUP_SIGMA = 128
 _MAX_SHADOW_CONTROL = (2**31 - 1) // 2
@@ -205,13 +212,42 @@ class FilterParams:
     curve_50: float = 50
     curve_75: float = 75
     curve_100: float = 100
+    sharpen: float = 0
+    pre_curve_points: tuple[tuple[float, float], ...] | None = None
+    curve_points: tuple[tuple[float, float], ...] | None = None
+    halation: float = 0
+    posterize: float = 0
+    local_contrast: float = 0
+    chroma_bleed: float = 0
+    split_tone: float = 0
 
     def __post_init__(self):
         for name, value in asdict(self).items():
-            if name == "output_gamma":
+            if name in ("output_gamma", "pre_curve_points", "curve_points"):
                 continue
-            minimum = 0 if name == "alpha" else -FLOAT32_CONTROL_LIMIT
-            _finite(name, value, minimum, FLOAT32_CONTROL_LIMIT)
+            nonnegative = name in _FINISHING_LIMITS or name in ("alpha", "sharpen")
+            minimum = 0 if nonnegative else -FLOAT32_CONTROL_LIMIT
+            _finite(
+                name, value, minimum, _FINISHING_LIMITS.get(name, FLOAT32_CONTROL_LIMIT)
+            )
+        for name in ("pre_curve_points", "curve_points"):
+            points = getattr(self, name)
+            if points is None:
+                continue
+            try:
+                points = tuple(tuple(point) for point in points)
+                if not 2 <= len(points) <= 16 or any(len(point) != 2 for point in points):
+                    raise ValueError
+                for x, y in points:
+                    _finite(name, x, 0, 100)
+                    _finite(name, y, 0, 100)
+                if points[0][0] != 0 or points[-1][0] != 100 or any(
+                    a[0] >= b[0] for a, b in zip(points, points[1:])
+                ):
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise ValueError(f"{name} must contain 2 to 16 ordered [input, output] pairs spanning 0 to 100") from None
+            object.__setattr__(self, name, points)
         if self.alpha == 0:
             raise ValueError("alpha must be greater than zero")
         with np.errstate(under="ignore"):

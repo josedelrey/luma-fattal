@@ -476,6 +476,8 @@ def main(argv: list[str] | None = None) -> None:
             help="Legacy profile. The core profile enables straight alpha",
         )
         for name, default in asdict(FilterParams()).items():
+            if name in ("pre_curve_points", "curve_points"):
+                continue
             command.add_argument(
                 "--" + name.replace("_", "-"),
                 type=float,
@@ -490,6 +492,7 @@ def main(argv: list[str] | None = None) -> None:
                     "white_level": "Output white level as a percentage, default 100",
                     "vibrance": "Boost muted colors more than saturated colors, "
                     "default 0",
+                    "sharpen": "Unsharp mask strength in percent, default 0",
                 }.get(name, f"Effect parameter, default {default:g}"),
             )
         for name, value_type, description in (

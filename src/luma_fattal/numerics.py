@@ -49,7 +49,9 @@ def _fast_pow64_values(
         if abs(exponent) > 1 and (word <= -1 or word >= 0x7FF00000):
             powers[index] = np.power(values[index], exponent)
         else:
-            output[index] = np.uint64(np.trunc(word)) << np.uint64(32)
+            # Convert negative words through a signed integer: direct float-to-uint
+            # conversion outside the unsigned range varies across platforms.
+            output[index] = np.uint64(np.int64(np.trunc(word))) << np.uint64(32)
     return result
 
 

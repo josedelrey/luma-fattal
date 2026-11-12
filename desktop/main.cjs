@@ -57,7 +57,23 @@ async function openWindow() {
       document.querySelector('#close-export').click();
       if (!exportPanel.hidden) throw new Error('Export popup did not close');
       const advanced = document.querySelector('.controls details');
-      advanced.open = true;
+      const summary = advanced.querySelector('summary');
+      const label = summary.querySelector('span');
+      const controlBody = document.querySelector('.control-body');
+      const status = document.querySelector('#status');
+      const originalStatus = status.textContent;
+      for (const message of [originalStatus, 'Processing failed. ' + 'The source could not be decoded. '.repeat(8)]) {
+        status.textContent = message;
+        const rect = label.getBoundingClientRect();
+        for (const fraction of [.2, .5, .8]) {
+          const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height * fraction);
+          if (!summary.contains(hit)) throw new Error('More settings label was covered by ' + hit?.className +
+            ' at ' + fraction + ' with status length ' + message.length);
+        }
+      }
+      status.textContent = originalStatus;
+      label.click();
+      if (!advanced.open) throw new Error('More settings did not open from its label');
       await new Promise(resolve => requestAnimationFrame(resolve));
       const workbench = document.querySelector('.workbench');
       const expandedPanels = {
@@ -105,6 +121,9 @@ async function openWindow() {
         document.querySelector('.signal-lab').scrollHeight - document.querySelector('.signal-lab').clientHeight
       );
       signalReadings.innerHTML = originalReadings;
+      controlBody.scrollTop = controlBody.scrollHeight;
+      const progressBottom = bounds(document.querySelector('.job-status progress')).bottom;
+      controlBody.scrollTop = 0;
       return ({
       title: document.title,
       presets: document.querySelector('#presets').options.length,
@@ -129,7 +148,7 @@ async function openWindow() {
       populatedSignalOverflow,
       videoBottom: bounds(document.querySelector('.monitor')).bottom,
       controlsBottom: bounds(document.querySelector('.controls')).bottom,
-      progressBottom: bounds(document.querySelector('.job-status progress')).bottom,
+      progressBottom,
       previewTop: bounds(document.querySelector('.previews')).top,
       signalTop: bounds(document.querySelector('.signal-lab')).top,
       previewPadding: bounds(document.querySelector('.previews')).bottom - bounds(document.querySelector('.preview-note')).bottom,

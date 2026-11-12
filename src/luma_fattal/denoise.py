@@ -5,7 +5,6 @@ import time
 import numpy as np
 from scipy.ndimage import convolve1d, uniform_filter
 
-
 from .configuration import FLOAT32_CONTROL_LIMIT, _finite
 
 

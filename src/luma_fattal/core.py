@@ -12,6 +12,7 @@ import numpy as np
 from numba import njit
 
 from .configuration import FilterParams, NumericsConfig
+from .finishing import finish_rgb, finishing_active
 from .numerics import (
     gradient_scale,
     luminance_fractional,
@@ -388,7 +389,7 @@ def _boost_vibrance(rgb: np.ndarray, strength: float) -> np.ndarray:
 
 
 @njit(cache=True)
-def _adjust_tones(rgb, brightness, contrast, points, wet=100.0):
+def _adjust_tones(rgb, brightness, contrast, points, wet=100.0, positions=None):
     """Apply brightness, contrast, and a shape-preserving cubic RGB curve."""
     result = np.empty_like(rgb)
     for y in range(rgb.shape[0]):
@@ -407,14 +408,24 @@ def _adjust_tones(rgb, brightness, contrast, points, wet=100.0):
                     255.0,
                 )
                 base = value
-                position = value / 63.75
-                index = min(int(position), 3)
-                left = points[index + 1] - points[index]
-                before = points[index] - points[index - 1] if index > 0 else left
-                after = points[index + 2] - points[index + 1] if index < 3 else left
-                m0 = 2 * before * left / (before + left) if before * left > 0 else 0.0
-                m1 = 2 * left * after / (left + after) if left * after > 0 else 0.0
-                t = position - index
+                position = value / 2.55
+                count = len(points)
+                index = 0
+                while index < count - 2 and position > (positions[index + 1] if positions is not None else (index + 1) * 25):
+                    index += 1
+                x0 = positions[index] if positions is not None else index * 25
+                x1 = positions[index + 1] if positions is not None else (index + 1) * 25
+                width = x1 - x0
+                left = (points[index + 1] - points[index]) / width
+                before_width = x0 - (positions[index - 1] if positions is not None else (index - 1) * 25) if index > 0 else width
+                after_width = (positions[index + 2] if positions is not None else (index + 2) * 25) - x1 if index < count - 2 else width
+                before = (points[index] - points[index - 1]) / before_width if index > 0 else left
+                after = (points[index + 2] - points[index + 1]) / after_width if index < count - 2 else left
+                m0 = (3 * (before_width + width) / ((2 * width + before_width) / before + (width + 2 * before_width) / left)) if before * left > 0 else 0.0
+                m1 = (3 * (width + after_width) / ((2 * after_width + width) / left + (after_width + 2 * width) / after)) if left * after > 0 else 0.0
+                m0 *= width
+                m1 *= width
+                t = (position - x0) / width
                 value = (
                     (2 * t**3 - 3 * t**2 + 1) * points[index]
                     + (t**3 - 2 * t**2 + t) * m0
@@ -473,6 +484,30 @@ def _quantize_output_levels(
     return output
 
 
+@njit(cache=True, nogil=True)
+def _sharpen_rgb(rgb: np.ndarray, strength: float) -> np.ndarray:
+    """Add detail from a 3×3 binomial blur with replicated edges."""
+    height, width = rgb.shape[:2]
+    output = np.empty_like(rgb)
+    gain = strength / 100.0
+    for y in range(height):
+        above, below = max(y - 1, 0), min(y + 1, height - 1)
+        for x in range(width):
+            left, right = max(x - 1, 0), min(x + 1, width - 1)
+            for channel in range(3):
+                weighted = 0
+                for row, weight in ((above, 1), (y, 2), (below, 1)):
+                    weighted += weight * (
+                        int(rgb[row, left, channel])
+                        + 2 * int(rgb[row, x, channel])
+                        + int(rgb[row, right, channel])
+                    )
+                value = float(rgb[y, x, channel])
+                sharp = value + gain * (value - weighted / 16.0)
+                output[y, x, channel] = np.uint8(min(max(sharp + 0.5, 0), 255))
+    return output
+
+
 def _recombine(
     rgb: np.ndarray,
     luminance: np.ndarray,
@@ -493,6 +528,7 @@ def _recombine(
     contrast: float = 0,
     curve: tuple[float, ...] = (0, 25, 50, 75, 100),
     curve_wet: float = 100,
+    curve_positions: tuple[float, ...] | None = None,
 ) -> np.ndarray:
     if tone_strength != 100:
         source_luminance = luminance if shadow_luminance is None else shadow_luminance
@@ -526,9 +562,9 @@ def _recombine(
     if (
         brightness != 0
         or contrast != 0
-        or (curve_wet != 0 and curve != (0, 25, 50, 75, 100))
+        or (curve_wet != 0 and (curve_positions is not None or curve != (0, 25, 50, 75, 100)))
     ):
-        result = _adjust_tones(result, brightness, contrast, curve, curve_wet)
+        result = _adjust_tones(result, brightness, contrast, curve, curve_wet, curve_positions)
     if black_level != 0 or white_level != 100:
         reference = luminance if shadow_luminance is None else shadow_luminance
         return _quantize_output_levels(
@@ -581,11 +617,35 @@ class _ColorInputs(Generic[_Array]):
 
 @dataclass
 class ToneMapSlot(Generic[_Array]):
-    """A normalized map and optional color inputs for one frame and solve."""
+    """Preview intermediates for one frame and solve."""
 
     value: _Array | None = None
     color_budget: ColorInputBudget | None = None
     color_inputs: _ColorInputs[_Array] | None = None
+    base_rgb: _Array | None = None
+    base_key: tuple[object, ...] | None = None
+
+    @staticmethod
+    def recombination_key(params: FilterParams) -> tuple[object, ...]:
+        # The slot already belongs to one frame, source treatment, and solve.
+        return (
+            params.saturation,
+            params.output_gamma,
+            params.tone_strength,
+            params.highlight_compression,
+            params.black_level,
+            params.white_level,
+            params.vibrance,
+            params.brightness,
+            params.contrast,
+            params.post_curve_wet,
+            params.curve_points,
+            params.curve_0,
+            params.curve_25,
+            params.curve_50,
+            params.curve_75,
+            params.curve_100,
+        )
 
     def retain_color_inputs(
         self,
@@ -654,6 +714,126 @@ def _solve_tone_map(luminance, maximum, variant, params, numerics, solver):
     )
 
 
+def _filter_rgb(
+    original_rgb, variant, params, numerics, source_cleanup, solver, tone_map
+):
+    rgb = original_rgb
+    pre_curve = (
+        params.pre_curve_0,
+        params.pre_curve_25,
+        params.pre_curve_50,
+        params.pre_curve_75,
+        params.pre_curve_100,
+    )
+    pre_positions = None
+    if params.pre_curve_points is not None:
+        pre_positions = tuple(p[0] for p in params.pre_curve_points)
+        pre_curve = tuple(p[1] for p in params.pre_curve_points)
+    if params.pre_curve_wet != 0 and (
+        pre_positions is not None or pre_curve != (0, 25, 50, 75, 100)
+    ):
+        rgb = np.floor(
+            _adjust_tones(
+                original_rgb.astype(np.float64),
+                0,
+                0,
+                pre_curve,
+                params.pre_curve_wet,
+                pre_positions,
+            )
+            + 0.5
+        ).astype(np.uint8)
+    filtered = rgb if rgb is not original_rgb else None
+    levels_active = params.black_level != 0 or params.white_level != 100
+    if min(original_rgb.shape[:2]) < 2:
+        warnings.warn(
+            "One-pixel-wide images use an identity extension of the solver",
+            RuntimeWarning,
+        )
+        if levels_active:
+            filtered = _quantize_output_levels(
+                rgb,
+                rgb,
+                np.zeros(rgb.shape[:2], np.float32),
+                0,
+                0,
+                params.black_level,
+                params.white_level,
+            )
+    else:
+        mapped = None if tone_map is None else tone_map.value
+        inputs = None if tone_map is None else tone_map.color_inputs
+        if inputs is not None:
+            luminance = inputs.luminance
+            color_rgb = inputs.colors
+            shadow_luminance = inputs.reference
+        else:
+            if numerics.luminance_mode == "fractional":
+                luminance = luminance_fractional(rgb)
+            else:
+                luminance = luminance_u8(rgb).astype(np.float32) * np.float32(1 / 255)
+            color_rgb = None
+            shadow_luminance = None
+            if source_cleanup is not None:
+                shadow_luminance = luminance
+                color_rgb, luminance = source_cleanup(rgb, luminance)
+            maximum = np.max(luminance)
+            if maximum > 0:
+                if mapped is None:
+                    mapped = _solve_tone_map(
+                        luminance, maximum, variant, params, numerics, solver
+                    )
+                if tone_map is not None:
+                    tone_map.value = mapped
+                    tone_map.retain_color_inputs(luminance, color_rgb, shadow_luminance)
+            else:
+                mapped = None
+        if mapped is not None:
+            filtered = _recombine(
+                rgb,
+                luminance,
+                mapped,
+                params.saturation,
+                shadow_threshold=numerics.shadow_threshold,
+                power_mode=numerics.power_mode,
+                output_gamma=params.output_gamma,
+                shadow_softness=numerics.shadow_softness,
+                color_rgb=color_rgb,
+                shadow_luminance=shadow_luminance,
+                tone_strength=params.tone_strength,
+                highlight_compression=params.highlight_compression,
+                black_level=params.black_level,
+                white_level=params.white_level,
+                vibrance=params.vibrance,
+                brightness=params.brightness,
+                curve_wet=params.post_curve_wet,
+                contrast=params.contrast,
+                curve_positions=tuple(p[0] for p in params.curve_points)
+                if params.curve_points is not None
+                else None,
+                curve=tuple(p[1] for p in params.curve_points)
+                if params.curve_points is not None
+                else (
+                    params.curve_0,
+                    params.curve_25,
+                    params.curve_50,
+                    params.curve_75,
+                    params.curve_100,
+                ),
+            )
+        elif levels_active:
+            filtered = _quantize_output_levels(
+                rgb,
+                rgb,
+                np.zeros(rgb.shape[:2], np.float32),
+                0,
+                0,
+                params.black_level,
+                params.white_level,
+            )
+    return filtered
+
+
 def apply_core(
     array: np.ndarray,
     variant: int,
@@ -668,120 +848,42 @@ def apply_core(
     result = array.copy()
     if params.fade != 100:
         original_rgb = np.ascontiguousarray(array[..., :3])
-        rgb = original_rgb
-        pre_curve = (
-            params.pre_curve_0,
-            params.pre_curve_25,
-            params.pre_curve_50,
-            params.pre_curve_75,
-            params.pre_curve_100,
+        key = None if tone_map is None else tone_map.recombination_key(params)
+        filtered = (
+            None if tone_map is None or tone_map.base_key != key else tone_map.base_rgb
         )
-        if params.pre_curve_wet != 0 and pre_curve != (0, 25, 50, 75, 100):
-            rgb = np.floor(
-                _adjust_tones(
-                    original_rgb.astype(np.float64),
-                    0,
-                    0,
-                    pre_curve,
-                    params.pre_curve_wet,
-                )
-                + 0.5
-            ).astype(np.uint8)
-        filtered = rgb if rgb is not original_rgb else None
-        levels_active = params.black_level != 0 or params.white_level != 100
-        if min(array.shape[:2]) < 2:
-            warnings.warn(
-                "One-pixel-wide images use an identity extension of the solver",
-                RuntimeWarning,
+        if filtered is None:
+            filtered = _filter_rgb(
+                original_rgb,
+                variant,
+                params,
+                numerics,
+                source_cleanup,
+                solver,
+                tone_map,
             )
-            if levels_active:
-                filtered = _quantize_output_levels(
-                    rgb,
-                    rgb,
-                    np.zeros(rgb.shape[:2], np.float32),
-                    0,
-                    0,
-                    params.black_level,
-                    params.white_level,
-                )
-        else:
-            mapped = None if tone_map is None else tone_map.value
-            inputs = None if tone_map is None else tone_map.color_inputs
-            if inputs is not None:
-                luminance = inputs.luminance
-                color_rgb = inputs.colors
-                shadow_luminance = inputs.reference
-            else:
-                if numerics.luminance_mode == "fractional":
-                    luminance = luminance_fractional(rgb)
-                else:
-                    luminance = luminance_u8(rgb).astype(np.float32) * np.float32(
-                        1 / 255
-                    )
-                color_rgb = None
-                shadow_luminance = None
-                if source_cleanup is not None:
-                    shadow_luminance = luminance
-                    color_rgb, luminance = source_cleanup(rgb, luminance)
-                maximum = np.max(luminance)
-                if maximum > 0:
-                    if mapped is None:
-                        mapped = _solve_tone_map(
-                            luminance, maximum, variant, params, numerics, solver
-                        )
-                    if tone_map is not None:
-                        tone_map.value = mapped
-                        tone_map.retain_color_inputs(
-                            luminance, color_rgb, shadow_luminance
-                        )
-                else:
-                    mapped = None
-            if mapped is not None:
-                filtered = _recombine(
-                    rgb,
-                    luminance,
-                    mapped,
-                    params.saturation,
-                    shadow_threshold=numerics.shadow_threshold,
-                    power_mode=numerics.power_mode,
-                    output_gamma=params.output_gamma,
-                    shadow_softness=numerics.shadow_softness,
-                    color_rgb=color_rgb,
-                    shadow_luminance=shadow_luminance,
-                    tone_strength=params.tone_strength,
-                    highlight_compression=params.highlight_compression,
-                    black_level=params.black_level,
-                    white_level=params.white_level,
-                    vibrance=params.vibrance,
-                    brightness=params.brightness,
-                    curve_wet=params.post_curve_wet,
-                    contrast=params.contrast,
-                    curve=(
-                        params.curve_0,
-                        params.curve_25,
-                        params.curve_50,
-                        params.curve_75,
-                        params.curve_100,
-                    ),
-                )
-            elif levels_active:
-                filtered = _quantize_output_levels(
-                    rgb,
-                    rgb,
-                    np.zeros(rgb.shape[:2], np.float32),
-                    0,
-                    0,
-                    params.black_level,
-                    params.white_level,
-                )
+            if tone_map is not None:
+                tone_map.base_key = key
+                tone_map.base_rgb = filtered
+        if params.sharpen:
+            filtered = _sharpen_rgb(
+                original_rgb if filtered is None else filtered, params.sharpen
+            )
+        if finishing_active(params):
+            filtered = finish_rgb(
+                original_rgb if filtered is None else filtered, params
+            )
         if filtered is not None:
-            # Opaque Normal Fade uses nearest rounding with downward ties.
-            amount = np.float32(params.fade) / np.float32(100)
-            mixed = (
-                filtered.astype(np.float32) * (np.float32(1) - amount)
-                + original_rgb.astype(np.float32) * amount
-            )
-            result[..., :3] = np.clip(np.ceil(mixed - np.float32(0.5)), 0, 255).astype(
-                np.uint8
-            )
+            if not params.fade:
+                result[..., :3] = filtered
+            else:
+                # Opaque Normal Fade uses nearest rounding with downward ties.
+                amount = np.float32(params.fade) / np.float32(100)
+                mixed = (
+                    filtered.astype(np.float32) * (np.float32(1) - amount)
+                    + original_rgb.astype(np.float32) * amount
+                )
+                result[..., :3] = np.clip(
+                    np.ceil(mixed - np.float32(0.5)), 0, 255
+                ).astype(np.uint8)
     return result

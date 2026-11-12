@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from .finishing import bleed_radius, finishing_active, guide_cell, posterize_lut
 from .gpu import CudaComposer, GPUUnavailable
 from .numerics import gradient_scale
 
@@ -130,31 +131,34 @@ extern "C" __global__ void normalize_full(const float* src, float* out,
     float v=(src[i]-sorted[low])/(sorted[high]-sorted[low]);
     out[i]=isnan(v)?__int_as_float(0x7fc00000):v>0?v:floor_value;
 }
-__device__ double curve_eval(double value, const double* points) {
-    double position=value/63.75;
-    int index=min((int)position,3);
-    double left=points[index+1]-points[index];
-    double before=index>0 ? points[index]-points[index-1] : left;
-    double after=index<3 ? points[index+2]-points[index+1] : left;
-    double m0=before*left>0 ? 2*before*left/(before+left) : 0;
-    double m1=left*after>0 ? 2*left*after/(left+after) : 0;
-    double t=position-index, t2=t*t, t3=t2*t;
-    return ((2*t3-3*t2+1)*points[index]+(t3-2*t2+t)*m0
-        +(-2*t3+3*t2)*points[index+1]+(t3-t2)*m1)*2.55;
+__device__ double curve_eval(double value, const double* points, int count) {
+    double position=value/2.55;
+    int index=0;
+    while(index<count-2 && position>points[2*(index+1)]) ++index;
+    double x0=points[2*index], x1=points[2*(index+1)], width=x1-x0;
+    double y0=points[2*index+1], y1=points[2*(index+1)+1];
+    double left=(y1-y0)/width;
+    double bw=index>0 ? x0-points[2*(index-1)] : width;
+    double aw=index<count-2 ? points[2*(index+2)]-x1 : width;
+    double before=index>0 ? (y0-points[2*(index-1)+1])/bw : left;
+    double after=index<count-2 ? (points[2*(index+2)+1]-y1)/aw : left;
+    double m0=before*left>0 ? 3*(bw+width)/((2*width+bw)/before+(width+2*bw)/left)*width : 0;
+    double m1=left*after>0 ? 3*(width+aw)/((2*aw+width)/left+(aw+2*width)/after)*width : 0;
+    double t=(position-x0)/width, t2=t*t, t3=t2*t;
+    return ((2*t3-3*t2+1)*y0+(t3-2*t2+t)*m0+(-2*t3+3*t2)*y1+(t3-t2)*m1)*2.55;
 }
 extern "C" __global__ void pre_curve(const unsigned char* src, unsigned char* out, int n,
-    double p0, double p1, double p2, double p3, double p4, double wet) {
+    const double* points, int count, double wet) {
     int i=blockIdx.x*blockDim.x+threadIdx.x;
     if (i>=n) return;
-    double points[5]={p0,p1,p2,p3,p4};
     double v=src[i];
-    out[i]=(unsigned char)floor(clip(v+(curve_eval(v,points)-v)*wet/100.0)+0.5);
+    out[i]=(unsigned char)floor(clip(v+(curve_eval(v,points,count)-v)*wet/100.0)+0.5);
 }
 extern "C" __global__ void recombine(const unsigned char* rgb, const unsigned char* original_rgb, const float* colors,
     const float* lum, const float* reference, const float* mapped, unsigned char* out,
     int n, float saturation, int standard, double gamma, double tone, double highlight,
     double black, double white, double vibrance, double brightness_adjust, double contrast,
-    double curve0, double curve25, double curve50, double curve75, double curve100, double curve_wet,
+    const double* curve_points, int curve_count, int curve_active, double curve_wet,
     int threshold, int softness, float fade) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
@@ -194,11 +198,10 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const unsigned ch
             }
         }
     }
-    if (brightness_adjust != 0 || contrast != 0 || (curve_wet != 0 && (curve0 != 0 || curve25 != 25 || curve50 != 50 || curve75 != 75 || curve100 != 100))) {
-        double points[5]={curve0,curve25,curve50,curve75,curve100};
+    if (brightness_adjust != 0 || contrast != 0 || (curve_wet != 0 && curve_active)) {
         for (int k=0;k<3;++k) {
             double value=clip((c[k]-127.5)*(1.0+contrast/100.0)+127.5+brightness_adjust*2.55);
-            c[k]=clip(value+(curve_eval(value,points)-value)*curve_wet/100.0);
+            c[k]=clip(value+(curve_eval(value,curve_points,curve_count)-value)*curve_wet/100.0);
         }
     }
     double shadow=softness ? (4899.0*rgb[i*3]+9617.0*rgb[i*3+1]+1868.0*rgb[i*3+2])/16384.0
@@ -285,6 +288,99 @@ extern "C" __global__ void fade_rgb(const unsigned char* rgb, const unsigned cha
     int i=blockIdx.x*blockDim.x+threadIdx.x;
     if (i<n) out[i]=fminf(fmaxf(ceilf((float)effect[i]*(1.0f-amount)+(float)rgb[i]*amount-0.5f),0.0f),255.0f);
 }
+extern "C" __global__ void sharpen_rgb(const unsigned char* rgb, unsigned char* out,
+    int h, int w, double gain) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= h*w*3) return;
+    int c = i%3, x = (i/3)%w, y = i/(3*w);
+    int left = max(x-1, 0), right = min(x+1, w-1);
+    int weighted = 0;
+    for (int dy = -1; dy <= 1; ++dy) {
+        int row = min(max(y+dy, 0), h-1)*w;
+        weighted += (dy == 0 ? 2 : 1) *
+            (rgb[(row+left)*3+c] + 2*rgb[(row+x)*3+c] + rgb[(row+right)*3+c]);
+    }
+    double value = rgb[i];
+    out[i] = (unsigned char)clip(value + gain * (value - weighted / 16.0) + 0.5);
+}
+__device__ int finish_luma(int r, int g, int b) {
+    return (4899*r + 9617*g + 1868*b + 8192) >> 14;
+}
+extern "C" __global__ void finish_guide(const unsigned char* rgb, double* guide,
+    int h, int w, int gh, int gw, int cell) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= gh*gw) return;
+    int top = (i/gw)*cell, left = (i%gw)*cell;
+    int bottom = min(top+cell, h), right = min(left+cell, w);
+    int total = 0, bright = 0;
+    for (int y = top; y < bottom; ++y) for (int x = left; x < right; ++x) {
+        int p = (y*w+x)*3;
+        int luma = finish_luma(rgb[p], rgb[p+1], rgb[p+2]);
+        total += luma;
+        bright += max(luma-160, 0);
+    }
+    double count = (bottom-top)*(right-left);
+    guide[i*2] = total/count;
+    guide[i*2+1] = bright/count;
+}
+extern "C" __global__ void blur_finish_guide(const double* guide, double* out, int gh, int gw) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= gh*gw*2) return;
+    int y = i/(2*gw), x = (i/2)%gw, c = i%2;
+    double total = 0;
+    for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+        int row = min(max(y+dy, 0), gh-1), col = min(max(x+dx, 0), gw-1);
+        int weight = (dy == 0 ? 2 : 1) * (dx == 0 ? 2 : 1);
+        total += weight * guide[(row*gw+col)*2+c];
+    }
+    out[i] = total/16;
+}
+__device__ double sample_finish_guide(const double* guide, int gw, int c,
+    int y0, int y1, int x0, int x1, double fy, double fx) {
+    double top = (1-fx)*guide[(y0*gw+x0)*2+c] + fx*guide[(y0*gw+x1)*2+c];
+    double bottom = (1-fx)*guide[(y1*gw+x0)*2+c] + fx*guide[(y1*gw+x1)*2+c];
+    return (1-fy)*top + fy*bottom;
+}
+extern "C" __global__ void finish_rgb(const unsigned char* rgb, unsigned char* out,
+    const double* guide, const unsigned char* lut, int h, int w, int gh, int gw,
+    int cell, int radius, double contrast, double halation, double bleed, double split) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= h*w) return;
+    int y = i/w, x = i%w, p = i*3;
+    int r = rgb[p], g = rgb[p+1], b = rgb[p+2];
+    int luma = finish_luma(r, g, b);
+    double detail = 0, glow = 0;
+    if (gh) {
+        double gy = fmax(0.0, (y+0.5)/cell-0.5), gx = fmax(0.0, (x+0.5)/cell-0.5);
+        int y0 = (int)gy, x0 = (int)gx, y1 = min(y0+1, gh-1), x1 = min(x0+1, gw-1);
+        double fy = gy-y0, fx = gx-x0;
+        if (contrast)
+            detail = contrast * (luma - sample_finish_guide(guide, gw, 0, y0, y1, x0, x1, fy, fx));
+        if (halation)
+            glow = halation * fmax(0.0,
+                sample_finish_guide(guide, gw, 1, y0, y1, x0, x1, fy, fx) - max(luma-160, 0));
+    }
+    double dr = 0, dg = 0, db = 0;
+    if (radius) {
+        int sum_r = r, sum_g = g, sum_b = b;
+        for (int dx = 1; dx <= radius; ++dx) {
+            int q = (y*w+max(x-dx, 0))*3;
+            sum_r += rgb[q]; sum_g += rgb[q+1]; sum_b += rgb[q+2];
+        }
+        double window = radius+1;
+        dr = sum_r/window-r; dg = sum_g/window-g; db = sum_b/window-b;
+        double dy = (4899*dr + 9617*dg + 1868*db)/16384;
+        dr = bleed*(dr-dy); dg = bleed*(dg-dy); db = bleed*(db-dy);
+    }
+    double cool = 0, warm = 0;
+    if (split) {
+        cool = split * max(0, 128-luma)/128 * fmin(1.0, luma/32.0);
+        warm = split * max(0, luma-128)/127 * fmin(1.0, (255-luma)/32.0);
+    }
+    out[p]   = lut[(int)clip(r + detail + glow + dr + 36*warm - 14*cool + 0.5)];
+    out[p+1] = lut[(int)clip(g + detail + 0.28*glow + dg + 12*warm - 8*cool + 0.5)];
+    out[p+2] = lut[(int)clip(b + detail + 0.08*glow + db - 27*warm + 40*cool + 0.5)];
+}
 extern "C" __global__ void filter_axis(const float* src, float* out, const double* weights,
     int n, int length, int stride, int radius, int uniform) {
     int i=blockIdx.x*blockDim.x+threadIdx.x;
@@ -336,6 +432,10 @@ class CudaCore:
                 "resize_fixed",
                 "resize_linear",
                 "fade_rgb",
+                "sharpen_rgb",
+                "finish_guide",
+                "blur_finish_guide",
+                "finish_rgb",
                 "filter_axis",
                 "normalize_full",
             )
@@ -346,6 +446,7 @@ class CudaCore:
             self.mask_axes = {}
             self.noise_fields = {}
             self.filter_weights = {}
+            self.finish_lut = None
             self.optimized = False
             self.buffers = {}
             self.history = {}
@@ -993,6 +1094,69 @@ class CudaCore:
             from .core import apply_core
 
             return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
+        finish = finishing_active(params)
+        defer_fade = tone_map is not None or params.sharpen or finish
+        fade = np.float32(params.fade) / np.float32(100)
+        key = None if tone_map is None else tone_map.recombination_key(params)
+        output = (
+            None if tone_map is None or tone_map.base_key != key else tone_map.base_rgb
+        )
+        if output is None:
+            output = self._filter_rgb(
+                rgb,
+                variant,
+                params,
+                numerics,
+                source_cleanup,
+                lighting_scale,
+                tone_map,
+                np.float32(0) if defer_fade else fade,
+            )
+            if output is None:
+                from .core import apply_core
+
+                return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
+            if tone_map is not None:
+                tone_map.base_rgb = None
+                try:
+                    tone_map.base_rgb = output.copy() if self.optimized else output
+                    tone_map.base_key = key
+                except cp.cuda.memory.OutOfMemoryError:
+                    pass
+        if params.sharpen:
+            sharpened = self.buffer("sharpened", rgb.shape, cp.uint8)
+            self.launch(
+                "sharpen_rgb",
+                rgb.shape,
+                output,
+                sharpened,
+                np.int32(rgb.shape[0]),
+                np.int32(rgb.shape[1]),
+                np.float64(params.sharpen) / 100.0,
+            )
+            output = sharpened
+        if finish:
+            output = self._finish_rgb(output, params)
+        if defer_fade and fade:
+            mixed = self.buffer("mixed", rgb.shape, cp.uint8)
+            self.launch(
+                "fade_rgb", rgb.shape, rgb, output, mixed, np.int32(rgb.size), fade
+            )
+            output = mixed
+        return output
+
+    def _filter_rgb(
+        self,
+        rgb,
+        variant,
+        params,
+        numerics,
+        source_cleanup,
+        lighting_scale,
+        tone_map,
+        fade,
+    ):
+        cp = self.cp
         original_rgb = rgb
         pre_points = (
             params.pre_curve_0,
@@ -1001,7 +1165,13 @@ class CudaCore:
             params.pre_curve_75,
             params.pre_curve_100,
         )
-        if params.pre_curve_wet != 0 and pre_points != (0, 25, 50, 75, 100):
+        pre_pairs = params.pre_curve_points or tuple(
+            (i * 25, y) for i, y in enumerate(pre_points)
+        )
+        if params.pre_curve_wet != 0 and (
+            params.pre_curve_points is not None or pre_points != (0, 25, 50, 75, 100)
+        ):
+            pre_device = cp.asarray(pre_pairs, dtype=cp.float64)
             rgb = self.buffer("pre_curve_rgb", rgb.shape, cp.uint8)
             self.launch(
                 "pre_curve",
@@ -1009,7 +1179,8 @@ class CudaCore:
                 original_rgb,
                 rgb,
                 np.int32(rgb.size),
-                *(np.float64(value) for value in pre_points),
+                pre_device,
+                np.int32(len(pre_pairs)),
                 np.float64(params.pre_curve_wet),
             )
         h, w = rgb.shape[:2]
@@ -1033,11 +1204,7 @@ class CudaCore:
                 colors, lum = self.treat(rgb, reference, source_cleanup)
             maximum = cp.max(lum)
             if float(maximum) <= 0:
-                from .core import apply_core
-
-                return cp.asarray(
-                    apply_core(original_rgb.get(), variant, params, numerics)
-                )
+                return None
             if mapped is None:
                 mapped = self.solve_tone_map(
                     lum, maximum, variant, params, numerics, lighting_scale
@@ -1052,6 +1219,17 @@ class CudaCore:
                     # Prepared colors are optional. Keep the map-only cache.
                     pass
         output = self.buffer("recombined", rgb.shape, cp.uint8)
+        post_values = (
+            params.curve_0,
+            params.curve_25,
+            params.curve_50,
+            params.curve_75,
+            params.curve_100,
+        )
+        post_pairs = params.curve_points or tuple(
+            (i * 25, y) for i, y in enumerate(post_values)
+        )
+        post_device = cp.asarray(post_pairs, dtype=cp.float64)
         self.launch(
             "recombine",
             lum.shape,
@@ -1073,15 +1251,64 @@ class CudaCore:
             np.float64(params.vibrance),
             np.float64(params.brightness),
             np.float64(params.contrast),
-            np.float64(params.curve_0),
-            np.float64(params.curve_25),
-            np.float64(params.curve_50),
-            np.float64(params.curve_75),
-            np.float64(params.curve_100),
+            post_device,
+            np.int32(len(post_pairs)),
+            np.int32(
+                params.curve_points is not None or post_values != (0, 25, 50, 75, 100)
+            ),
             np.float64(params.post_curve_wet),
             np.int32(numerics.shadow_threshold),
             np.int32(numerics.shadow_softness),
-            np.float32(params.fade) / np.float32(100),
+            fade,
+        )
+        return output
+
+    def _finish_rgb(self, rgb, params):
+        cp = self.cp
+        lut = posterize_lut(params.posterize)
+        if self.finish_lut is None or self.finish_lut[0] is not lut:
+            self.finish_lut = (lut, cp.asarray(lut))
+        h, w = rgb.shape[:2]
+        cell = guide_cell(h, w)
+        gh, gw = 0, 0
+        output = self.buffer("finished", rgb.shape, cp.uint8)
+        guide = output  # The kernel reads the guide only when gh is positive.
+        if params.local_contrast or params.halation:
+            gh, gw = (h + cell - 1) // cell, (w + cell - 1) // cell
+            shape = gh, gw, 2
+            means = self.buffer("finish-means", shape, cp.float64)
+            guide = self.buffer("finish-guide", shape, cp.float64)
+            self.launch(
+                "finish_guide",
+                (gh, gw),
+                rgb,
+                means,
+                np.int32(h),
+                np.int32(w),
+                np.int32(gh),
+                np.int32(gw),
+                np.int32(cell),
+            )
+            self.launch(
+                "blur_finish_guide", shape, means, guide, np.int32(gh), np.int32(gw)
+            )
+        self.launch(
+            "finish_rgb",
+            (h, w),
+            rgb,
+            output,
+            guide,
+            self.finish_lut[1],
+            np.int32(h),
+            np.int32(w),
+            np.int32(gh),
+            np.int32(gw),
+            np.int32(cell),
+            np.int32(bleed_radius(w, params.chroma_bleed)),
+            np.float64(params.local_contrast) / 100,
+            np.float64(params.halation) / 100,
+            np.float64(params.chroma_bleed) / 100,
+            np.float64(params.split_tone) / 100,
         )
         return output
 
@@ -1144,6 +1371,7 @@ class CudaCore:
                 if size != work_size:
                     for intermediate in enlargement_sizes(work_size, size):
                         output = self.resize(output, intermediate)
+                if size != work_size and config.parameters.fade:
                     mixed = cp.empty_like(rgb)
                     self.launch(
                         "fade_rgb",

@@ -74,6 +74,8 @@ def test_gui_controls_cover_editable_configuration_fields():
     )
     defaults = Config().to_dict()
     config_only_fields = {
+        # Point lists are edited by the curve canvases, not individual controls.
+        "parameters": {"pre_curve_points", "curve_points"},
         "numerics": {
             "gradient_threshold",
             "log_offset",
@@ -912,28 +914,37 @@ def test_preview_caches_tone_maps_and_prepared_colors(
         return np.random.default_rng(seed).integers(0, 256, (51, 81, 3), np.uint8)
 
     original_solve = core._solve_tone_map
+    original_recombine = core._recombine
     original_cleanup = server.SourceCleanup.__call__
     solves = []
+    recombinations = []
     cleanups = []
 
     def solve(*args):
         solves.append(True)
         return original_solve(*args)
 
+    def recombine(*args, **kwargs):
+        recombinations.append(True)
+        return original_recombine(*args, **kwargs)
+
     def cleanup(self, *args):
         cleanups.append(True)
         return original_cleanup(self, *args)
 
-    def preview(config, expected_solves, upload="first"):
+    def preview(config, expected_solves, upload="first", *, reuse_rgb=False):
         before = len(solves)
+        before_recombine = len(recombinations)
         before_cleanup = len(cleanups)
         identifier = app.submit("preview", dict(upload=upload, config=config.to_dict()))
         app.preview_executor.submit(lambda: None).result(timeout=10)
         job = app.jobs[identifier]
         assert job["state"] == "done", job
         assert len(solves) - before == expected_solves
+        expected_recombinations = 0 if reuse_rgb or config.parameters.fade == 100 else 5
+        assert len(recombinations) - before_recombine == expected_recombinations
         expected_cleanups = expected_solves
-        if expected_solves == 0 and config.parameters.fade < 100:
+        if expected_solves == 0 and config.parameters.fade < 100 and not reuse_rgb:
             expected_cleanups = 5 - cached_frames
         assert len(cleanups) - before_cleanup == expected_cleanups
         source = app.uploads[upload]["path"]
@@ -944,20 +955,40 @@ def test_preview_caches_tone_maps_and_prepared_colors(
 
     monkeypatch.setattr(server, "decoded_sample", decode)
     monkeypatch.setattr(core, "_solve_tone_map", solve)
+    monkeypatch.setattr(core, "_recombine", recombine)
     monkeypatch.setattr(server.SourceCleanup, "__call__", cleanup)
     config = Config()
     config = replace(config, video=replace(config.video, flat_cleanup=0.5))
     color_edit = replace(
         config,
         parameters=FilterParams(
-            output_gamma=1.2, saturation=70, black_level=5, vibrance=20, fade=23
+            output_gamma=1.2,
+            saturation=70,
+            black_level=5,
+            vibrance=20,
+            fade=23,
+            sharpen=250,
         ),
     )
     try:
         preview(config, 5)
         preview(color_edit, 0)
         preview(replace(config, parameters=FilterParams(fade=100)), 0)
-        preview(color_edit, 0)
+        preview(
+            replace(
+                color_edit,
+                parameters=replace(
+                    color_edit.parameters,
+                    halation=80,
+                    posterize=55,
+                    local_contrast=120,
+                    chroma_bleed=60,
+                    split_tone=30,
+                ),
+            ),
+            0,
+            reuse_rgb=True,
+        )
         beta_edit = replace(
             color_edit, parameters=replace(color_edit.parameters, beta=65)
         )

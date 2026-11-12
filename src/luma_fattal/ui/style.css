@@ -1151,12 +1151,25 @@ h1, h2, h3, strong, b { font-weight: normal; }
 .desktop .workbench::-webkit-scrollbar-thumb { min-height: 28px; }
 .desktop .workbench::-webkit-scrollbar-button:single-button { height: 17px; }
 
-/* Keep the processing footer inside the panel without resizing the grid. */
-.desktop .controls { position: relative; }
-.desktop .controls:not(:has(details[open])) .process-footer {
-  position: absolute;
-  left: 9px;
-  right: 9px;
-  bottom: 3px;
+/* Keep the footer below the settings, even when the status wraps. */
+.desktop .controls:not(:has(details[open])) {
+  display: flex;
+  flex-direction: column;
 }
+.desktop .controls:not(:has(details[open])) .control-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 3px;
+  overflow: auto;
+}
+.desktop .controls:not(:has(details[open])) .control-settings { flex: none; }
+.desktop .controls details:not([open]) { padding-top: 4px; }
+.desktop .controls:not(:has(details[open])) .process-footer {
+  flex: none;
+  margin-top: auto;
+}
+.desktop .controls:not(:has(details[open])) .process { margin-top: 0; }
+.desktop .job-status { overflow-wrap: anywhere; }
 .desktop .job-status progress { display: block; }

@@ -591,6 +591,7 @@ class AdaptiveFrameProcessor:
                 "gpu.py",
                 "gpu_core.py",
                 "core.py",
+                "finishing.py",
                 "numerics.py",
                 "processing.py",
                 "pipeline.py",

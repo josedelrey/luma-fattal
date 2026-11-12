@@ -12,6 +12,21 @@ function curveValue(points, position) {
     (-2 * t3 + 3 * t2) * points[index + 1] + (t3 - t2) * m1;
 }
 
+function curveAt(points, x) {
+  let i = 0;
+  while (i < points.length - 2 && x > points[i + 1][0]) i++;
+  const [x0, y0] = points[i], [x1, y1] = points[i + 1];
+  const h = x1 - x0, d = (y1 - y0) / h;
+  const hb = i ? x0 - points[i - 1][0] : h;
+  const ha = i < points.length - 2 ? points[i + 2][0] - x1 : h;
+  const before = i ? (y0 - points[i - 1][1]) / hb : d;
+  const after = i < points.length - 2 ? (points[i + 2][1] - y1) / ha : d;
+  const m0 = before * d > 0 ? 3 * (hb + h) / ((2 * h + hb) / before + (h + 2 * hb) / d) * h : 0;
+  const m1 = d * after > 0 ? 3 * (h + ha) / ((2 * ha + h) / d + (ha + 2 * h) / after) * h : 0;
+  const t = (x - x0) / h, t2 = t * t, t3 = t2 * t;
+  return (2*t3-3*t2+1)*y0 + (t3-2*t2+t)*m0 + (-2*t3+3*t2)*y1 + (t3-t2)*m1;
+}
+
 // This list defines the panel independently of the selected recipe.
 const settingGroups = [
   ['parameters', 'Effect', [
@@ -28,6 +43,12 @@ const settingGroups = [
     ['vibrance', 'Vibrance', -100, 500, 1],
     ['brightness', 'Brightness', -100, 100, 1],
     ['contrast', 'Contrast', -100, 100, 1],
+    ['sharpen', 'Sharpen', 0, 1000, 1, {inputMin: 0}],
+    ['halation', 'Halation', 0, 200, 1, {inputMin: 0, inputMax: 200}],
+    ['posterize', 'Posterize', 0, 100, 1, {inputMin: 0, inputMax: 100}],
+    ['local_contrast', 'Local contrast', 0, 300, 1, {inputMin: 0, inputMax: 300}],
+    ['chroma_bleed', 'Chroma bleed', 0, 100, 1, {inputMin: 0, inputMax: 100}],
+    ['split_tone', 'Split tone', 0, 100, 1, {inputMin: 0, inputMax: 100}],
     ['pre_curve_wet', 'Pre curve dry / wet', 0, 100, 1],
     ['post_curve_wet', 'Post curve dry / wet', 0, 100, 1],
     ['pre_curve_0', 'Pre curve / blacks', 0, 100, 1],
@@ -129,37 +150,76 @@ class ConfigurationPanel {
         curve.className = 'tone-curve';
         curve.width = 256;
         curve.height = 160;
-        curve.setAttribute('aria-label', 'Tone curve. Left and right select a point. Up and down adjust it.');
+        curve.setAttribute('aria-label', 'Tone curve. Click the graph to add a point, drag points, or select a point and press Delete. Arrow keys select or adjust points.');
         curve.tabIndex = 0;
-        curve.title = 'Drag a point to adjust the tone curve';
+        curve.title = 'Click the graph to add a point; drag points to adjust; Delete removes a point';
         let selectedPoint = 0;
-        const move = event => {
+        const pointKey = `${prefix}points`;
+        const getPoints = () => this.config.parameters[pointKey] ?? [0, 25, 50, 75, 100].map(x => [x, this.config.parameters[`${prefix}${x}`]]);
+        const commit = points => {
+          if (this.config.parameters[pointKey] == null && points.length === 5 && points.every((p, i) => p[0] === i * 25)) {
+            points.forEach(([x, y]) => { this.config.parameters[`${prefix}${x}`] = y; });
+          } else this.config.parameters[pointKey] = points;
+          this.drawCurve();
+          this.onChange(true);
+        };
+        const coords = event => {
           const bounds = curve.getBoundingClientRect();
-          const value = Math.max(0, Math.min(100, Math.round((1 - (event.clientY - bounds.top) / bounds.height) * 100)));
-          const control = this.controls.find(item => item.key === `${prefix}${selectedPoint * 25}`);
-          if (!control) return;
-          control.input.value = String(value);
-          this.edit(control, true);
+          const px = (event.clientX - bounds.left) * curve.width / bounds.width;
+          const py = (event.clientY - bounds.top) * curve.height / bounds.height;
+          return [Math.max(0, Math.min(100, (px - 4) / (curve.width - 8) * 100)), Math.max(0, Math.min(100, (1 - (py - 4) / (curve.height - 8)) * 100)), px, py];
+        };
+        const move = event => {
+          const points = getPoints().map(p => [...p]);
+          const [x, y] = coords(event);
+          const last = points.length - 1;
+          points[selectedPoint] = [selectedPoint === 0 ? 0 : selectedPoint === last ? 100 : Math.max(points[selectedPoint-1][0] + 0.01, Math.min(points[selectedPoint+1][0] - 0.01, x)), Math.round(y * 100) / 100];
+          commit(points);
         };
         curve.addEventListener('pointerdown', event => {
-          if (this.disabled) return;
-          const bounds = curve.getBoundingClientRect();
-          selectedPoint = Math.max(0, Math.min(4, Math.round((event.clientX - bounds.left) / bounds.width * 4)));
+          if (this.disabled || !this.config || event.button !== 0) return;
+          const points = getPoints().map(p => [...p]);
+          const [x, y, px, py] = coords(event);
+          const distance = p => Math.hypot(px - (4 + p[0] / 100 * (curve.width - 8)), py - (4 + (1 - p[1] / 100) * (curve.height - 8)));
+          let nearest = -1, best = 8;
+          points.forEach((p, i) => { const d = distance(p); if (d < best) { best = d; nearest = i; } });
+          if (nearest < 0) {
+            // A curve has only one output per input: update an existing point
+            // at this input instead of inserting a duplicate x coordinate.
+            nearest = points.findIndex(p => Math.abs(p[0] - x) < 0.01);
+            if (nearest >= 0) {
+              points[nearest][1] = y;
+            } else {
+              if (points.length >= 16) return;
+              nearest = points.findIndex(p => p[0] > x);
+              points.splice(nearest, 0, [x, y]);
+            }
+            this.config.parameters[pointKey] = points;
+            this.drawCurve();
+            this.onChange(true);
+          }
+          selectedPoint = nearest;
+          curve.focus();
           curve.setPointerCapture(event.pointerId);
-          move(event);
         });
         curve.addEventListener('pointermove', event => { if (curve.hasPointerCapture(event.pointerId)) move(event); });
         curve.addEventListener('keydown', event => {
           if (this.disabled || !this.config) return;
+          const points = getPoints().map(p => [...p]);
+          selectedPoint = Math.min(selectedPoint, points.length - 1);
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-            selectedPoint = Math.max(0, Math.min(4, selectedPoint + (event.key === 'ArrowRight' ? 1 : -1)));
+            selectedPoint = Math.max(0, Math.min(points.length - 1, selectedPoint + (event.key === 'ArrowRight' ? 1 : -1)));
           } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-            const control = this.controls.find(item => item.key === `${prefix}${selectedPoint * 25}`);
-            control.input.value = String(Math.max(0, Math.min(100, Number(control.input.value) + (event.key === 'ArrowUp' ? 1 : -1))));
-            this.edit(control, true);
+            points[selectedPoint][1] = Math.max(0, Math.min(100, points[selectedPoint][1] + (event.key === 'ArrowUp' ? 1 : -1)));
+            commit(points);
+          } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedPoint > 0 && selectedPoint < points.length - 1) {
+            points.splice(selectedPoint, 1);
+            selectedPoint = Math.min(selectedPoint, points.length - 1);
+            this.config.parameters[pointKey] = points;
+            commit(points);
           } else return;
           event.preventDefault();
-          curve.setAttribute('aria-label', `Tone curve point ${selectedPoint + 1} of 5, value ${this.config.parameters[`${prefix}${selectedPoint * 25}`]}. Left and right select a point. Up and down adjust it.`);
+          curve.setAttribute('aria-label', `Tone curve point ${selectedPoint + 1} of ${points.length}, input ${points[selectedPoint][0].toFixed(1)}, output ${points[selectedPoint][1].toFixed(1)}. Left and right select a point. Up and down adjust it. Delete removes a point.`);
         });
         const resetCurve = document.createElement('button');
         resetCurve.type = 'button';
@@ -169,6 +229,8 @@ class ConfigurationPanel {
             this.config.parameters[control.key] = this.baseline.parameters[control.key];
             this.sync(control);
           }
+          this.config.parameters[pointKey] = structuredClone(this.baseline.parameters[pointKey] ?? null);
+          selectedPoint = 0;
           this.drawCurve();
           this.onChange();
         });
@@ -203,6 +265,8 @@ class ConfigurationPanel {
           if (numeric) {
             input.step = step === 1 && section !== 'parameters' ? '1' : 'any';
             input.required = !settings.nullable;
+            if (settings.inputMin !== undefined) input.min = settings.inputMin;
+            if (settings.inputMax !== undefined) input.max = settings.inputMax;
           } else input.required = type !== 'rgb' && type !== 'boolean';
           if (settings.placeholder) input.placeholder = settings.placeholder;
         }
@@ -272,12 +336,12 @@ class ConfigurationPanel {
       ctx.beginPath(); ctx.moveTo(i * width / 4, 0); ctx.lineTo(i * width / 4, height); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, i * height / 4); ctx.lineTo(width, i * height / 4); ctx.stroke();
     }
-    const values = [0, 25, 50, 75, 100].map(x => this.config.parameters[`${prefix}${x}`]);
-    const points = values.map((value, i) => [i / 4 * (width - 8) + 4, (1 - Math.max(0, Math.min(100, value)) / 100) * (height - 8) + 4]);
+    const values = this.config.parameters[`${prefix}points`] ?? [0, 25, 50, 75, 100].map(x => [x, this.config.parameters[`${prefix}${x}`]]);
+    const points = values.map(([x, value]) => [x / 100 * (width - 8) + 4, (1 - Math.max(0, Math.min(100, value)) / 100) * (height - 8) + 4]);
     ctx.strokeStyle = '#ff3030'; ctx.lineWidth = 2; ctx.beginPath();
     for (let i = 0; i <= 256; i++) {
       const x = i / 256 * (width - 8) + 4;
-      const value = Math.max(0, Math.min(100, curveValue(values, i / 64)));
+      const value = Math.max(0, Math.min(100, curveAt(values, i / 256 * 100)));
       const y = (1 - value / 100) * (height - 8) + 4;
       if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
     }

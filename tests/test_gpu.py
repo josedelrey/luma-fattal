@@ -17,6 +17,7 @@ from luma_fattal import (
 from luma_fattal.cleanup import SourceCleanup
 from luma_fattal.denoise import SourceDenoise
 from luma_fattal.prenoise import SourceNoise
+from luma_fattal.processing import process_pixels
 
 
 @pytest.fixture(scope="module")
@@ -435,6 +436,32 @@ def test_fixed_size_normalization_preserves_zero_exclusion(cuda_core, kind):
         )
         cuda_core.optimized = False
     np.testing.assert_array_equal(actual.view(np.uint32), reference.view(np.uint32))
+
+
+@pytest.mark.parametrize("fade", [0, 50])
+def test_cuda_sharpen_matches_cpu_before_fade(cuda_core, fade):
+    edge = np.array([70, 70, 150, 150], np.uint8)
+    rgb = np.broadcast_to(edge[None, :, None], (3, 4, 3)).copy()
+    config = Config(
+        parameters=FilterParams(sharpen=1000, tone_strength=0, fade=fade),
+        numerics=NumericsConfig(power_mode="standard"),
+    )
+    expected = process_pixels(rgb, 1, config.parameters, numerics=config.numerics)
+    np.testing.assert_array_equal(cuda_core(rgb, config), expected)
+
+
+def test_cuda_finishing_matches_cpu_on_filtered_rgb(cuda_core):
+    from luma_fattal.finishing import finish_rgb
+
+    rgb = np.random.default_rng(7).integers(0, 256, (65, 101, 3), np.uint8)
+    params = FilterParams(
+        halation=140, local_contrast=225, chroma_bleed=60, split_tone=75, posterize=0
+    )
+    cp = cuda_core.cp
+    with cp.cuda.Device(cuda_core.solver.device), cuda_core.stream:
+        result = cuda_core._finish_rgb(cp.asarray(rgb), params)
+        actual = result.get(stream=cuda_core.stream)
+    np.testing.assert_allclose(actual, finish_rgb(rgb, params), atol=1)
 
 
 @pytest.mark.parametrize("variant", [1, 2])

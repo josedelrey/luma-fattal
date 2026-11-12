@@ -158,6 +158,7 @@ class _PreviewSamples:
             params.pre_curve_75,
             params.pre_curve_100,
             params.pre_curve_wet,
+            params.pre_curve_points,
             video.denoise,
             video.flat_cleanup,
             video.flat_cleanup_mode,
@@ -170,6 +171,8 @@ class _PreviewSamples:
         )
         if key != self.tone_key:
             self.tone_key = key
+            # One recombined RGB8 frame per sample adds up to 35 MiB per backend
+            # at the fixed working resolution.
             cpu_budget = ColorInputBudget(PREVIEW_COLOR_BYTES)
             cuda_budget = ColorInputBudget(PREVIEW_COLOR_BYTES)
             self.tone_maps = {
@@ -557,6 +560,7 @@ class Workbench:
                 for slots in tone_maps.values():
                     slots.cuda.value = None
                     slots.cuda.color_inputs = None
+                    slots.cuda.base_rgb = None
                 cuda = None
             return image
 

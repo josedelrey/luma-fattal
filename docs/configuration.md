@@ -141,11 +141,17 @@ noise combinations can exceed the solver's numeric range on some images.
 | `parameters.vibrance` | `0` | Signed. Positive values boost muted colors with a gain limited to keep channels in gamut. Negative values mute colors. The slider spans -100 to 500. Grays and fully saturated colors remain unchanged at this stage. |
 | `parameters.brightness` | `0` | Signed percentage of white added after vibrance. |
 | `parameters.contrast` | `0` | Signed adjustment around mid-gray. At -100 the result is mid-gray. |
+| `parameters.sharpen` | `0` | Nonnegative unsharp mask strength. `100` adds the difference between the filtered RGB and a 3×3 blur once. The slider reaches `1000` for pronounced edge contrast and halos. Applied at working resolution before enlargement and Fade. |
+| `parameters.halation` | `0` | `0–200`. Adds a red-orange glow around bright regions. |
+| `parameters.posterize` | `0` | `0–100`. Progressively reduces the number of levels per RGB channel from 256 to 4. |
+| `parameters.local_contrast` | `0` | `0–300`. Amplifies brightness differences from a broad local average. |
+| `parameters.chroma_bleed` | `0` | `0–100`. Trails colors horizontally to the right while preserving each pixel’s weighted brightness before clipping. |
+| `parameters.split_tone` | `0` | `0–100`. Tints shadows violet-blue and highlights amber, with the strongest tint between the midtones and the black or white endpoints. |
 | `parameters.pre_curve_0`, `pre_curve_25`, `pre_curve_50`, `pre_curve_75`, `pre_curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied to source pixels before luminance and filtering. |
 | `parameters.curve_0`, `curve_25`, `curve_50`, `curve_75`, `curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied after brightness and contrast. These existing keys retain the post curve for compatibility. |
 | `parameters.pre_curve_wet`, `post_curve_wet` | `100` | Curve blend percentage. `0` bypasses the corresponding curve and `100` applies it fully. |
 
-Each curve smoothly interpolates between five evenly spaced input levels. Drag points in the GUI or use the arrow keys. The pre curve operates on working-resolution RGB8 pixels before source cleanup and the solve. Final fade still blends against the original input.
+Each curve starts with five evenly spaced input levels and interpolates smoothly between points. Click anywhere in the graph to add a point at that input and output (up to 16 total), drag points to adjust them, or select an interior point and press Delete or Backspace to remove it. Arrow keys select points and adjust their output. The optional `parameters.pre_curve_points` and `parameters.curve_points` lists store `[input, output]` pairs from 0 to 100; when absent, the original five settings remain in use. The pre curve operates on working-resolution RGB8 pixels before source cleanup and the solve. Final fade still blends against the original input.
 
 For gradients above `numerics.gradient_threshold`, attenuation at each scale is
 `((gradient + noise / 100) / ((alpha / 100) * mean_gradient))^(beta / 100 - 1)`.
@@ -160,8 +166,8 @@ luma-fattal apply assets/lantern-garden-original.png outputs/softer.png \
 ```
 
 Output levels apply after shadow protection, including to protected pixels.
-Raising the black level can reduce saturation. Fade applies afterward and can
-move pixels outside the selected output range.
+Raising the black level can reduce saturation. Finishing effects and Fade apply
+afterward and can move pixels outside the selected output range.
 See [processing order](method.md#processing-order) for interactions between controls.
 
 ## Resolution and export

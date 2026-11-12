@@ -13,7 +13,6 @@ from scipy.ndimage import (
     uniform_filter,
 )
 
-
 from .configuration import FLOAT32_CONTROL_LIMIT, MAX_CLEANUP_SIGMA, _finite
 
 
