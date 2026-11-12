@@ -1749,6 +1749,8 @@ def test_hdr_tone_mapping_produces_sdr_and_records_policy(
             observed.append(frame.copy())
             yield frame
 
+    # Observe source order without concurrent filter workers reordering callbacks.
+    monkeypatch.setattr(video.os, "cpu_count", lambda: 1)
     monkeypatch.setattr(video, "process_frames", observe)
     destination = tmp_path / "sdr.mp4"
     record = process_video(source, destination, ffmpeg=tools[0], ffprobe=tools[1])
