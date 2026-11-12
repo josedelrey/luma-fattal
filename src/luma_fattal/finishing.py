@@ -44,7 +44,7 @@ def _luma(red, green, blue):
 
 
 @njit(cache=True, nogil=True)
-def _make_guide(rgb, cell):
+def _make_guide(rgb, cell, halation):
     height, width = rgb.shape[:2]
     gh, gw = (height + cell - 1) // cell, (width + cell - 1) // cell
     guide = np.empty((gh, gw, 2), np.float64)
@@ -57,7 +57,7 @@ def _make_guide(rgb, cell):
                 for col in range(left, right):
                     luma = _luma(rgb[row, col, 0], rgb[row, col, 1], rgb[row, col, 2])
                     total += luma
-                    bright += max(luma - 160, 0)
+                    bright += max(luma - 128, 0)
             count = (bottom - top) * (right - left)
             guide[y, x, 0] = total / count
             guide[y, x, 1] = bright / count
@@ -73,6 +73,19 @@ def _make_guide(rgb, cell):
                         weight = (2 if dy == 0 else 1) * (2 if dx == 0 else 1)
                         total += weight * guide[row, col, c]
                 blurred[y, x, c] = total / 16
+    # Spread highlights farther while keeping the local-contrast guide unchanged.
+    for _ in range(2 if halation else 0):
+        for y in range(gh):
+            for x in range(gw):
+                total = 0.0
+                for dy in range(-1, 2):
+                    row = min(max(y + dy, 0), gh - 1)
+                    for dx in range(-1, 2):
+                        col = min(max(x + dx, 0), gw - 1)
+                        weight = (2 if dy == 0 else 1) * (2 if dx == 0 else 1)
+                        total += weight * blurred[row, col, 1]
+                guide[y, x, 1] = total / 16
+        blurred[:, :, 1] = guide[:, :, 1]
     return blurred
 
 
@@ -114,10 +127,10 @@ def _finish_pixels(rgb, guide, cell, radius, contrast, halation, bleed, split, l
                         luma - _sample_guide(guide, 0, y0, y1, x0, x1, fy, fx)
                     )
                 if halation:
-                    glow = halation * max(
+                    glow = 2 * halation * max(
                         0.0,
                         _sample_guide(guide, 1, y0, y1, x0, x1, fy, fx)
-                        - max(luma - 160, 0),
+                        - max(luma - 128, 0),
                     )
             dr, dg, db = 0.0, 0.0, 0.0
             if radius:
@@ -156,7 +169,7 @@ def finish_rgb(rgb: np.ndarray, params: FilterParams) -> np.ndarray:
     ):
         return lut[rgb]
     guide = (
-        _make_guide(rgb, cell)
+        _make_guide(rgb, cell, bool(params.halation))
         if params.local_contrast or params.halation
         else np.empty((0, 0, 2), np.float64)
     )

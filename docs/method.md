@@ -22,8 +22,9 @@ The implementation operates on 8-bit SDR inputs.
    the post curve, and output levels, then quantize to RGB8.
 6. Apply Sharpen and the finishing effects at working resolution, then enlarge to the prepared input dimensions, apply Fade, and encode.
 
-Halation and Local contrast share a blurred, downsampled guide for highlight
-glow and broad brightness detail. Chroma bleed trails color from neighboring
+Halation and Local contrast share a downsampled guide for highlight glow and
+broad brightness detail. Halation spreads bright areas into a warm halo, with
+more glow at higher settings. Chroma bleed trails color from neighboring
 pixels on the left. These effects and Split tone use the same sharpened RGB
 input, add their contributions together, and clip once. Posterize applies last.
 

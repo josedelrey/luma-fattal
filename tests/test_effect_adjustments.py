@@ -85,6 +85,20 @@ def test_local_contrast_and_halation_spread_across_a_brightness_edge():
     np.testing.assert_array_equal(halation[:, 16:], rgb[:, 16:])
 
 
+def test_halation_produces_visible_warm_glow_around_highlights():
+    rgb = np.full((512, 512, 3), 60, np.uint8)
+    rgb[192:320, 192:320] = 220
+    half = finish_rgb(rgb, FilterParams(halation=50))
+    full = finish_rgb(rgb, FilterParams(halation=100))
+    stronger = finish_rgb(rgb, FilterParams(halation=200))
+    red, green, blue = full[256, 183]
+    assert red >= 90 and red > green > blue > 60
+    assert half[256, 183, 0] < red < stronger[256, 183, 0]
+    np.testing.assert_array_equal(full[256, 256], rgb[256, 256])
+    np.testing.assert_array_equal(full[0, 0], rgb[0, 0])
+    np.testing.assert_array_equal(finish_rgb(rgb, FilterParams()), rgb)
+
+
 def test_chroma_bleed_trails_color_without_smearing_the_brightness_edge():
     rgb = np.full((3, 12, 3), (180, 80, 70), np.uint8)
     rgb[:, 6:] = (80, 140, 180)

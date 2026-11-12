@@ -332,16 +332,17 @@ extern "C" __global__ void finish_guide(const unsigned char* rgb, double* guide,
         int p = (y*w+x)*3;
         int luma = finish_luma(rgb[p], rgb[p+1], rgb[p+2]);
         total += luma;
-        bright += max(luma-160, 0);
+        bright += max(luma-128, 0);
     }
     double count = (bottom-top)*(right-left);
     guide[i*2] = total/count;
     guide[i*2+1] = bright/count;
 }
-extern "C" __global__ void blur_finish_guide(const double* guide, double* out, int gh, int gw) {
+extern "C" __global__ void blur_finish_guide(const double* guide, double* out, int gh, int gw, int highlights_only) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= gh*gw*2) return;
     int y = i/(2*gw), x = (i/2)%gw, c = i%2;
+    if (highlights_only && c == 0) { out[i] = guide[i]; return; }
     double total = 0;
     for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
         int row = min(max(y+dy, 0), gh-1), col = min(max(x+dx, 0), gw-1);
@@ -372,8 +373,8 @@ extern "C" __global__ void finish_rgb(const unsigned char* rgb, unsigned char* o
         if (contrast)
             detail = contrast * (luma - sample_finish_guide(guide, gw, 0, y0, y1, x0, x1, fy, fx));
         if (halation)
-            glow = halation * fmax(0.0,
-                sample_finish_guide(guide, gw, 1, y0, y1, x0, x1, fy, fx) - max(luma-160, 0));
+            glow = 2 * halation * fmax(0.0,
+                sample_finish_guide(guide, gw, 1, y0, y1, x0, x1, fy, fx) - max(luma-128, 0));
     }
     double dr = 0, dg = 0, db = 0;
     if (radius) {
@@ -1305,8 +1306,15 @@ class CudaCore:
                 np.int32(cell),
             )
             self.launch(
-                "blur_finish_guide", shape, means, guide, np.int32(gh), np.int32(gw)
+                "blur_finish_guide", shape, means, guide, np.int32(gh), np.int32(gw), np.int32(0)
             )
+            if params.halation:
+                self.launch(
+                    "blur_finish_guide", shape, guide, means, np.int32(gh), np.int32(gw), np.int32(1)
+                )
+                self.launch(
+                    "blur_finish_guide", shape, means, guide, np.int32(gh), np.int32(gw), np.int32(1)
+                )
         self.launch(
             "finish_rgb",
             (h, w),
