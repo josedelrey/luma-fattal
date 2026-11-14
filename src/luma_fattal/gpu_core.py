@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from .core import pre_tone_lut, pre_tones_active
 from .finishing import bleed_radius, finishing_active, guide_cell, posterize_lut
 from .gpu import CudaComposer, GPUUnavailable
 from .numerics import gradient_scale
@@ -154,6 +155,54 @@ extern "C" __global__ void pre_curve(const unsigned char* src, unsigned char* ou
     double v=src[i];
     out[i]=(unsigned char)floor(clip(v+(curve_eval(v,points,count)-v)*wet/100.0)+0.5);
 }
+__device__ void compress_highlights(double* c, double highlight) {
+    if (!highlight) return;
+    double peak=fmax(c[0],fmax(c[1],c[2]));
+    if (isfinite(c[0]) && isfinite(c[1]) && isfinite(c[2]) && peak>191.25) {
+        double compressed=191.25+63.75/(1.0+63.75/(peak-191.25));
+        double amount=highlight/100.0;
+        double target=(1.0-amount)*peak+amount*compressed;
+        for (int k=0;k<3;++k) c[k]=(c[k]/peak)*target;
+    }
+}
+__device__ void boost_vibrance(double* c, double vibrance) {
+    if (vibrance!=0) {
+        for (int k=0;k<3;++k) c[k]=clip(c[k]);
+        double peak=fmax(c[0],fmax(c[1],c[2]));
+        double minimum=fmin(c[0],fmin(c[1],c[2]));
+        if (peak != minimum) {
+            double saturation=(peak-minimum)/peak;
+            double gain=1.0+(vibrance/100.0)*(1.0-saturation)*(1.0-saturation);
+            double brightness=(4899.0*c[0]+9617.0*c[1]+1868.0*c[2])/16384.0;
+            if (peak>brightness) gain=fmin(gain,(255.0-brightness)/(peak-brightness));
+            if (minimum<brightness) gain=fmin(gain,brightness/(brightness-minimum));
+            if (gain>1 || (vibrance<0 && gain<1)) {
+                gain=fmax(0.0,gain);
+                for (int k=0;k<3;++k) c[k]=clip(brightness+gain*(c[k]-brightness));
+            }
+        }
+    }
+}
+extern "C" __global__ void apply_tone_lut(const unsigned char* src, unsigned char* out, int n,
+    const unsigned char* lut) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x;
+    if (i<n) out[i]=lut[src[i]];
+}
+extern "C" __global__ void pre_tones(const unsigned char* src, unsigned char* out, int n,
+    double highlight, double vibrance, double brightness, double contrast, double black, double white) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x;
+    if (i>=n) return;
+    double c[3]={(double)src[i*3], (double)src[i*3+1], (double)src[i*3+2]};
+    compress_highlights(c, highlight);
+    boost_vibrance(c, vibrance);
+    for (int k=0;k<3;++k) {
+        double value=c[k];
+        if (brightness || contrast)
+            value=(value-127.5)*(1.0+contrast/100.0)+127.5+brightness*2.55;
+        value=clip(value);
+        out[i*3+k]=(unsigned char)clip(black*255.0/100.0+(white-black)/100.0*value+0.5);
+    }
+}
 extern "C" __global__ void recombine(const unsigned char* rgb, const unsigned char* original_rgb, const float* colors,
     const float* lum, const float* reference, const float* mapped, unsigned char* out,
     int n, float saturation, int standard, double gamma, double tone, double highlight,
@@ -190,30 +239,9 @@ extern "C" __global__ void recombine(const unsigned char* rgb, const unsigned ch
             else if (weight<1) c[k]=original+weight*(clip(c[k])-original);
         }
     }
-    double peak=fmax(c[0],fmax(c[1],c[2]));
-    if (highlight!=0 && isfinite(c[0]) && isfinite(c[1]) && isfinite(c[2]) && peak>191.25) {
-        double compressed=191.25+63.75/(1.0+63.75/(peak-191.25));
-        double amount=highlight/100.0;
-        double target=(1.0-amount)*peak+amount*compressed;
-        for (int k=0;k<3;++k) c[k]=(c[k]/peak)*target;
-    }
+    compress_highlights(c, highlight);
     if (gamma != 1) for (int k=0;k<3;++k) c[k]=pow(clip(c[k])/255.0,1.0/gamma)*255.0;
-    if (vibrance!=0) {
-        for (int k=0;k<3;++k) c[k]=clip(c[k]);
-        peak=fmax(c[0],fmax(c[1],c[2]));
-        double minimum=fmin(c[0],fmin(c[1],c[2]));
-        if (peak != minimum) {
-            double saturation=(peak-minimum)/peak;
-            double gain=1.0+(vibrance/100.0)*(1.0-saturation)*(1.0-saturation);
-            double brightness=(4899.0*c[0]+9617.0*c[1]+1868.0*c[2])/16384.0;
-            if (peak>brightness) gain=fmin(gain,(255.0-brightness)/(peak-brightness));
-            if (minimum<brightness) gain=fmin(gain,brightness/(brightness-minimum));
-            if (gain>1 || (vibrance<0 && gain<1)) {
-                gain=fmax(0.0,gain);
-                for (int k=0;k<3;++k) c[k]=clip(brightness+gain*(c[k]-brightness));
-            }
-        }
-    }
+    boost_vibrance(c, vibrance);
     if (brightness_adjust != 0 || contrast != 0 || (curve_wet != 0 && curve_active)) {
         for (int k=0;k<3;++k) {
             double value=clip((c[k]-127.5)*(1.0+contrast/100.0)+127.5+brightness_adjust*2.55);
@@ -441,6 +469,8 @@ class CudaCore:
                 "exponential",
                 "normalize",
                 "pre_curve",
+                "apply_tone_lut",
+                "pre_tones",
                 "recombine",
                 "reduce_u8",
                 "reduce_f32",
@@ -463,6 +493,7 @@ class CudaCore:
             self.noise_fields = {}
             self.filter_weights = {}
             self.finish_lut = None
+            self.source_tone_lut = None
             self.optimized = False
             self.buffers = {}
             self.history = {}
@@ -1110,8 +1141,9 @@ class CudaCore:
             from .core import apply_core
 
             return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
-        finish = finishing_active(params)
-        defer_fade = tone_map is not None or params.sharpen or finish
+        original_params = params
+        pre, params = params.pre_adjustments, params.post_adjustments
+        defer_fade = tone_map is not None or params.sharpen or finishing_active(params)
         fade = np.float32(params.fade) / np.float32(100)
         key = None if tone_map is None else tone_map.recombination_key(params)
         output = (
@@ -1127,11 +1159,12 @@ class CudaCore:
                 lighting_scale,
                 tone_map,
                 np.float32(0) if defer_fade else fade,
+                pre,
             )
             if output is None:
                 from .core import apply_core
 
-                return cp.asarray(apply_core(rgb.get(), variant, params, numerics))
+                return cp.asarray(apply_core(rgb.get(), variant, original_params, numerics))
             if tone_map is not None:
                 tone_map.base_rgb = None
                 try:
@@ -1139,20 +1172,7 @@ class CudaCore:
                     tone_map.base_key = key
                 except cp.cuda.memory.OutOfMemoryError:
                     pass
-        if params.sharpen:
-            sharpened = self.buffer("sharpened", rgb.shape, cp.uint8)
-            self.launch(
-                "sharpen_rgb",
-                rgb.shape,
-                output,
-                sharpened,
-                np.int32(rgb.shape[0]),
-                np.int32(rgb.shape[1]),
-                np.float64(params.sharpen) / 100.0,
-            )
-            output = sharpened
-        if finish:
-            output = self._finish_rgb(output, params)
+        output = self._apply_spatial_effects(output, params)
         if defer_fade and fade:
             mixed = self.buffer("mixed", rgb.shape, cp.uint8)
             self.launch(
@@ -1171,40 +1191,45 @@ class CudaCore:
         lighting_scale,
         tone_map,
         fade,
+        pre,
     ):
         cp = self.cp
         original_rgb = rgb
-        pre_points = (
-            params.pre_curve_0,
-            params.pre_curve_25,
-            params.pre_curve_50,
-            params.pre_curve_75,
-            params.pre_curve_100,
-        )
-        pre_pairs = params.pre_curve_points or tuple(
-            (i * 25, y) for i, y in enumerate(pre_points)
-        )
-        if params.pre_curve_wet != 0 and (
-            params.pre_curve_points is not None or pre_points != (0, 25, 50, 75, 100)
-        ):
-            pre_device = cp.asarray(pre_pairs, dtype=cp.float64)
-            rgb = self.buffer("pre_curve_rgb", rgb.shape, cp.uint8)
-            self.launch(
-                "pre_curve",
-                rgb.shape,
-                original_rgb,
-                rgb,
-                np.int32(rgb.size),
-                pre_device,
-                np.int32(len(pre_pairs)),
-                np.float64(params.pre_curve_wet),
-            )
         h, w = rgb.shape[:2]
         mapped = None if tone_map is None else tone_map.value
         inputs = None if tone_map is None else tone_map.color_inputs
         if inputs is not None:
             lum, colors, reference = inputs.luminance, inputs.colors, inputs.reference
+            if inputs.source_rgb is not None:
+                rgb = inputs.source_rgb
         else:
+            pre_points = (
+                params.pre_curve_0,
+                params.pre_curve_25,
+                params.pre_curve_50,
+                params.pre_curve_75,
+                params.pre_curve_100,
+            )
+            pre_pairs = params.pre_curve_points or tuple(
+                (i * 25, y) for i, y in enumerate(pre_points)
+            )
+            if params.pre_curve_wet != 0 and (
+                params.pre_curve_points is not None or pre_points != (0, 25, 50, 75, 100)
+            ):
+                pre_device = cp.asarray(pre_pairs, dtype=cp.float64)
+                rgb = self.buffer("pre_curve_rgb", rgb.shape, cp.uint8)
+                self.launch(
+                    "pre_curve",
+                    rgb.shape,
+                    original_rgb,
+                    rgb,
+                    np.int32(rgb.size),
+                    pre_device,
+                    np.int32(len(pre_pairs)),
+                    np.float64(params.pre_curve_wet),
+                )
+            if pre is not None:
+                rgb = self._prepare_rgb(rgb, pre)
             lum = self.buffer("luminance", (h, w), cp.float32)
             self.launch(
                 "luminance",
@@ -1230,7 +1255,10 @@ class CudaCore:
                     tone_map.value = mapped.copy()
             if tone_map is not None:
                 try:
-                    tone_map.retain_color_inputs(lum, colors, reference, copy=True)
+                    tone_map.retain_color_inputs(
+                        lum, colors, reference, None if rgb is original_rgb else rgb,
+                        copy=True,
+                    )
                 except cp.cuda.memory.OutOfMemoryError:
                     # Prepared colors are optional. Keep the map-only cache.
                     pass
@@ -1278,6 +1306,39 @@ class CudaCore:
             fade,
         )
         return output
+
+    def _prepare_rgb(self, rgb, params):
+        cp = self.cp
+        if pre_tones_active(params):
+            output = self.buffer("pre_tones", rgb.shape, cp.uint8)
+            if params.highlight_compression or params.vibrance:
+                self.launch(
+                    "pre_tones", rgb.shape[:2], rgb, output, np.int32(rgb.size // 3),
+                    np.float64(params.highlight_compression), np.float64(params.vibrance),
+                    np.float64(params.brightness), np.float64(params.contrast),
+                    np.float64(params.black_level), np.float64(params.white_level),
+                )
+            else:
+                lut = pre_tone_lut(params)
+                if self.source_tone_lut is None or self.source_tone_lut[0] is not lut:
+                    self.source_tone_lut = (lut, cp.asarray(lut))
+                self.launch(
+                    "apply_tone_lut", rgb.shape, rgb, output, np.int32(rgb.size),
+                    self.source_tone_lut[1],
+                )
+            rgb = output
+        return self._apply_spatial_effects(rgb, params)
+
+    def _apply_spatial_effects(self, rgb, params):
+        if params.sharpen:
+            output = self.buffer("sharpened", rgb.shape, self.cp.uint8)
+            self.launch(
+                "sharpen_rgb", rgb.shape, rgb, output,
+                np.int32(rgb.shape[0]), np.int32(rgb.shape[1]),
+                np.float64(params.sharpen) / 100.0,
+            )
+            rgb = output
+        return self._finish_rgb(rgb, params) if finishing_active(params) else rgb
 
     def _finish_rgb(self, rgb, params):
         cp = self.cp
@@ -1373,7 +1434,7 @@ class CudaCore:
                 params = (
                     config.parameters
                     if size == work_size
-                    else replace(config.parameters, fade=0)
+                    else config.parameters.without_fade
                 )
                 numerics = (
                     config.numerics

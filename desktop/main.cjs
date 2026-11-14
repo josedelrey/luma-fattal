@@ -283,19 +283,27 @@ async function openWindow() {
           exported.hidden = !exporting;
           workbench.scrollTop = 0;
           await frame(); await frame();
-          const scale = Number(getComputedStyle(document.documentElement).getPropertyValue('--desktop-scale'));
+          const scale = innerWidth / 1200;
+          const scaleY = innerHeight / 900;
           const title = document.querySelector('.application-title').getBoundingClientRect();
           const close = document.querySelector('#window-close').getBoundingClientRect();
-          if (Math.abs(title.height - 44) > 1 || Math.abs(close.height - 28) > 1)
-            throw new Error('Title bar changed size while resizing');
           const origin = workbench.getBoundingClientRect();
+          if (Math.abs(title.height - 38 * scaleY) > 1 ||
+              Math.abs(close.height - 28 * scaleY) > 1 ||
+              Math.abs(close.width - 40 * scale) > 1)
+            throw new Error('Title bar and controls did not scale with the window');
+          if (Math.abs(title.right - innerWidth) > 1 ||
+              Math.abs(origin.top - title.bottom) > 1 ||
+              Math.abs(origin.right - innerWidth) > 1 ||
+              Math.abs(origin.bottom - innerHeight) > 1)
+            throw new Error('Title bar and workbench did not fill the window');
           const selectors = ['.monitor', '.controls', '.previews', '.signal-lab',
             '.logo h1', '.logo img', '#parameters', '.slider input'];
           if (exporting) selectors.push('#export-panel');
           layouts.push(selectors.flatMap(selector => {
             const rect = document.querySelector(selector).getBoundingClientRect();
-            return [(rect.left - origin.left) / scale, (rect.top - origin.top) / scale,
-              rect.width / scale, rect.height / scale];
+            return [(rect.left - origin.left) / scale, (rect.top - origin.top) / scaleY,
+              rect.width / scale, rect.height / scaleY];
           }));
           if (expanded) {
             const preview = document.querySelector('.previews');

@@ -17,8 +17,6 @@ function createWorkbenchWindow(value, iconPath) {
   isolatedSession.setPermissionCheckHandler(() => false)
 
   const initialSize = windowSize(screen.getPrimaryDisplay())
-  const canvas = { width: referenceSize.width,
-    height: 44 + referenceSize.width * (initialSize.height - 44) / initialSize.width }
   const window = new BrowserWindow({
     ...initialSize,
     useContentSize: true,
@@ -40,7 +38,7 @@ function createWorkbenchWindow(value, iconPath) {
       webSecurity: true,
       navigateOnDragDrop: false,
       preload: path.join(__dirname, 'preload.cjs'),
-      additionalArguments: [`--luma-fattal-layout=${JSON.stringify(canvas)}`],
+      additionalArguments: [`--luma-fattal-layout=${JSON.stringify(referenceSize)}`],
     },
   })
   window.setMenu(null)

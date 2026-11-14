@@ -326,10 +326,10 @@ def _quantize_smooth_shadows(
     return output
 
 
-@njit(cache=True)
-def _compress_highlights(rgb: np.ndarray, strength: float) -> np.ndarray:
+@njit(cache=True, nogil=True)
+def _compress_highlights(rgb: np.ndarray, strength: float, inplace=False) -> np.ndarray:
     """Roll bright RGB peaks off with a common gain before channel clipping."""
-    result = np.empty_like(rgb)
+    result = rgb if inplace else np.empty_like(rgb)
     amount = strength / 100.0
     knee = 0.75 * 255.0
     headroom = 255.0 - knee
@@ -353,10 +353,10 @@ def _compress_highlights(rgb: np.ndarray, strength: float) -> np.ndarray:
     return result
 
 
-@njit(cache=True)
-def _boost_vibrance(rgb: np.ndarray, strength: float) -> np.ndarray:
+@njit(cache=True, nogil=True)
+def _boost_vibrance(rgb: np.ndarray, strength: float, inplace=False) -> np.ndarray:
     """Boost muted RGB chroma while preserving weighted brightness and gamut."""
-    result = np.empty_like(rgb)
+    result = rgb if inplace else np.empty_like(rgb)
     amount = strength / 100.0
     for y in range(rgb.shape[0]):
         for x in range(rgb.shape[1]):
@@ -516,6 +516,71 @@ def _sharpen_rgb(rgb: np.ndarray, strength: float) -> np.ndarray:
     return output
 
 
+def pre_tones_active(params: FilterParams) -> bool:
+    return bool(
+        params.highlight_compression or params.vibrance or params.brightness
+        or params.contrast or params.black_level or params.white_level != 100
+    )
+
+
+@njit(cache=True, nogil=True)
+def _quantize_source_tones(rgb, brightness, contrast, black_level, white_level):
+    black = black_level * 255.0 / 100.0
+    span = (white_level - black_level) / 100.0
+    gain = 1.0 + contrast / 100.0
+    offset = brightness * 2.55
+    output = np.empty(rgb.shape, np.uint8)
+    for y in range(rgb.shape[0]):
+        for x in range(rgb.shape[1]):
+            for channel in range(rgb.shape[2]):
+                value = rgb[y, x, channel]
+                if brightness or contrast:
+                    value = (value - 127.5) * gain + 127.5 + offset
+                value = min(max(value, 0.0), 255.0)
+                output[y, x, channel] = np.uint8(
+                    min(max(black + span * value + 0.5, 0.0), 255.0)
+                )
+    return output
+
+
+def pre_tone_lut(params: FilterParams) -> np.ndarray:
+    return _pre_tone_lut(
+        params.brightness, params.contrast, params.black_level, params.white_level
+    )
+
+
+@lru_cache(maxsize=16)
+def _pre_tone_lut(brightness, contrast, black_level, white_level) -> np.ndarray:
+    values = np.arange(256, dtype=np.float64)
+    if brightness or contrast:
+        values = (values - 127.5) * (1.0 + contrast / 100.0) + 127.5 + brightness * 2.55
+        values = np.clip(values, 0, 255)
+    black = black_level * 255.0 / 100.0
+    span = (white_level - black_level) / 100.0
+    return np.clip(black + span * values + 0.5, 0, 255).astype(np.uint8)
+
+
+def _prepare_rgb(rgb: np.ndarray, params: FilterParams | None) -> np.ndarray:
+    if params is None:
+        return rgb
+    if params.highlight_compression or params.vibrance:
+        adjusted = rgb.astype(np.float64)
+        if params.highlight_compression:
+            _compress_highlights(adjusted, params.highlight_compression, True)
+        if params.vibrance:
+            _boost_vibrance(adjusted, params.vibrance, True)
+        rgb = _quantize_source_tones(
+            adjusted, params.brightness, params.contrast, params.black_level, params.white_level
+        )
+    elif pre_tones_active(params):
+        rgb = pre_tone_lut(params)[rgb]
+    if params.sharpen:
+        rgb = _sharpen_rgb(rgb, params.sharpen)
+    if finishing_active(params):
+        rgb = finish_rgb(rgb, params)
+    return rgb
+
+
 def _recombine(
     rgb: np.ndarray,
     luminance: np.ndarray,
@@ -654,6 +719,7 @@ class _ColorInputs(Generic[_Array]):
     luminance: _Array
     colors: _Array | None
     reference: _Array | None
+    source_rgb: _Array | None
 
 
 @dataclass
@@ -693,6 +759,7 @@ class ToneMapSlot(Generic[_Array]):
         luminance: _Array,
         colors: _Array | None,
         reference: _Array | None,
+        source_rgb: _Array | None = None,
         *,
         copy: bool = False,
     ):
@@ -705,6 +772,8 @@ class ToneMapSlot(Generic[_Array]):
             size += colors.nbytes
         if reference is not None and not shared_reference:
             size += reference.nbytes
+        if source_rgb is not None:
+            size += source_rgb.nbytes
         with budget.lock:
             if size > budget.remaining:
                 return
@@ -713,7 +782,9 @@ class ToneMapSlot(Generic[_Array]):
                 colors = None if colors is None else colors.copy()
                 if reference is not None:
                     reference = luminance if shared_reference else reference.copy()
-            self.color_inputs = _ColorInputs(luminance, colors, reference)
+                if source_rgb is not None:
+                    source_rgb = source_rgb.copy()
+            self.color_inputs = _ColorInputs(luminance, colors, reference, source_rgb)
             budget.remaining -= size
 
 
@@ -756,34 +827,39 @@ def _solve_tone_map(luminance, maximum, variant, params, numerics, solver):
 
 
 def _filter_rgb(
-    original_rgb, variant, params, numerics, source_cleanup, solver, tone_map
+    original_rgb, variant, params, numerics, source_cleanup, solver, tone_map, pre
 ):
-    rgb = original_rgb
-    pre_curve = (
-        params.pre_curve_0,
-        params.pre_curve_25,
-        params.pre_curve_50,
-        params.pre_curve_75,
-        params.pre_curve_100,
-    )
-    pre_positions = None
-    if params.pre_curve_points is not None:
-        pre_positions = tuple(p[0] for p in params.pre_curve_points)
-        pre_curve = tuple(p[1] for p in params.pre_curve_points)
-    if params.pre_curve_wet != 0 and (
-        pre_positions is not None or pre_curve != (0, 25, 50, 75, 100)
-    ):
-        rgb = np.floor(
-            _adjust_tones(
-                original_rgb.astype(np.float64),
-                0,
-                0,
-                pre_curve,
-                params.pre_curve_wet,
-                pre_positions,
-            )
-            + 0.5
-        ).astype(np.uint8)
+    inputs = None if tone_map is None else tone_map.color_inputs
+    if inputs is not None and inputs.source_rgb is not None:
+        rgb = inputs.source_rgb
+    else:
+        rgb = original_rgb
+        pre_curve = (
+            params.pre_curve_0,
+            params.pre_curve_25,
+            params.pre_curve_50,
+            params.pre_curve_75,
+            params.pre_curve_100,
+        )
+        pre_positions = None
+        if params.pre_curve_points is not None:
+            pre_positions = tuple(p[0] for p in params.pre_curve_points)
+            pre_curve = tuple(p[1] for p in params.pre_curve_points)
+        if params.pre_curve_wet != 0 and (
+            pre_positions is not None or pre_curve != (0, 25, 50, 75, 100)
+        ):
+            rgb = np.floor(
+                _adjust_tones(
+                    original_rgb.astype(np.float64),
+                    0,
+                    0,
+                    pre_curve,
+                    params.pre_curve_wet,
+                    pre_positions,
+                )
+                + 0.5
+            ).astype(np.uint8)
+        rgb = _prepare_rgb(rgb, pre)
     filtered = rgb if rgb is not original_rgb else None
     levels_active = params.black_level != 0 or params.white_level != 100
     identity_fallback = False
@@ -805,7 +881,6 @@ def _filter_rgb(
             )
     else:
         mapped = None if tone_map is None else tone_map.value
-        inputs = None if tone_map is None else tone_map.color_inputs
         if inputs is not None:
             luminance = inputs.luminance
             color_rgb = inputs.colors
@@ -828,7 +903,10 @@ def _filter_rgb(
                     )
                 if tone_map is not None:
                     tone_map.value = mapped
-                    tone_map.retain_color_inputs(luminance, color_rgb, shadow_luminance)
+                    tone_map.retain_color_inputs(
+                        luminance, color_rgb, shadow_luminance,
+                        None if rgb is original_rgb else rgb,
+                    )
             else:
                 mapped = None
         if mapped is not None:
@@ -918,6 +996,7 @@ def apply_core(
     """Apply the effect to decoded pixels with no file or resizing policies."""
     result = array.copy()
     if params.fade != 100:
+        pre, params = params.pre_adjustments, params.post_adjustments
         original_rgb = np.ascontiguousarray(array[..., :3])
         key = None if tone_map is None else tone_map.recombination_key(params)
         filtered = (
@@ -932,6 +1011,7 @@ def apply_core(
                 source_cleanup,
                 solver,
                 tone_map,
+                pre,
             )
             if tone_map is not None:
                 tone_map.base_key = key

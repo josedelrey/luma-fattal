@@ -185,7 +185,7 @@ def _evaluate(args: argparse.Namespace) -> dict:
     compared = [row for row in rows if row["status"] == "compared"]
     summary: dict[str, Any] = dict(
         fidelity_status=STATUS,
-        parameters=asdict(params),
+        parameters=params.to_dict(),
         processing_profile=config.processing.profile_name,
         configuration=config.to_dict(),
         records=rows,
@@ -476,7 +476,7 @@ def main(argv: list[str] | None = None) -> None:
             help="Legacy profile. The core profile enables straight alpha",
         )
         for name, default in asdict(FilterParams()).items():
-            if name in ("pre_curve_points", "curve_points"):
+            if name in ("pre_curve_points", "curve_points", "effect_stages"):
                 continue
             command.add_argument(
                 "--" + name.replace("_", "-"),

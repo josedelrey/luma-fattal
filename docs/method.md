@@ -15,12 +15,14 @@ The implementation operates on 8-bit SDR inputs.
 ## Processing order
 
 1. Decode, orient, and interpret color. Apply the configured input-area budget.
-2. Reduce to working resolution. Video can apply denoising, cleanup, then source noise.
+2. Reduce to working resolution. Apply the pre curve, then any effects set to
+   Pre. Video can apply denoising, cleanup, then source noise to those pixels.
 3. Attenuate log-luminance gradients and reconstruct brightness.
 4. Apply tone strength, recombine color, and protect shadows.
-5. Apply highlight compression, output gamma, vibrance, brightness, contrast,
-   the post curve, and output levels, then quantize to RGB8.
-6. Apply Sharpen and the finishing effects at working resolution, then enlarge to the prepared input dimensions, apply Fade, and encode.
+5. Apply the enabled Post color effects in order with output gamma and the post
+   curve, then quantize to RGB8.
+6. Apply any Post Sharpen and finishing effects at working resolution, then
+   enlarge to the prepared input dimensions, apply Fade, and encode.
 
 Halation and Local contrast share a downsampled guide for highlight glow and
 broad brightness detail. Halation spreads bright areas into a warm halo, with

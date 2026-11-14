@@ -2,6 +2,7 @@
 
 from .configuration import (
     Config,
+    EffectStages,
     FilterParams,
     ImageConfig,
     NumericsConfig,
@@ -14,6 +15,7 @@ from .pipeline import apply_filter, process_frames
 
 __all__ = [
     "Config",
+    "EffectStages",
     "FilterParams",
     "ImageConfig",
     "NumericsConfig",

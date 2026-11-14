@@ -21,6 +21,7 @@ parameters:
   local_contrast: 0
   chroma_bleed: 0
   split_tone: 0
+  effect_stages: {}
   pre_curve_0: 0
   pre_curve_25: 25
   pre_curve_50: 50

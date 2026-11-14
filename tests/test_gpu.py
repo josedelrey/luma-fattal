@@ -1,12 +1,14 @@
 """GPU agreement and automatic selection use controlled fields and clocks."""
 
 import os
+from dataclasses import replace
 
 import numpy as np
 import pytest
 
 from luma_fattal import (
     Config,
+    EffectStages,
     FilterParams,
     NumericsConfig,
     ProcessingConfig,
@@ -355,6 +357,39 @@ def cuda_core(cuda_solver):
     from luma_fattal.gpu_core import CudaCore
 
     return CudaCore()
+
+
+@pytest.mark.parametrize("coupled_color", [False, True])
+def test_staged_effects_match_cpu_with_fade(cuda_core, coupled_color, monkeypatch):
+    rgb = np.random.default_rng(8).integers(30, 235, (32, 64, 3), np.uint8)
+    pre = {"brightness": 15, "contrast": -24, "black_level": 8, "white_level": 94,
+           "sharpen": 70, "local_contrast": 55, "split_tone": 50}
+    if coupled_color:
+        pre.update(highlight_compression=75, vibrance=110)
+    config = Config(
+        parameters=FilterParams(
+            effect_stages=tuple(
+                (name, EffectStages(pre=True, pre_strength=amount))
+                for name, amount in pre.items()
+            ),
+            brightness=-9, sharpen=45, local_contrast=50, split_tone=25,
+            tone_strength=0, fade=20,
+        ),
+        numerics=NumericsConfig(iterations=2, power_mode="standard"),
+    )
+    expected = process_pixels(rgb, 1, config.parameters, numerics=config.numerics)
+    slot = core.ToneMapSlot(color_budget=core.ColorInputBudget(1_000_000))
+    actual = cuda_core(rgb, config, tone_map=slot)
+    np.testing.assert_allclose(actual.astype(np.int16), expected, atol=1)
+    edited = replace(config, parameters=replace(config.parameters, brightness=5))
+    expected = cuda_core(rgb, edited)
+
+    def unexpected(*args):
+        pytest.fail("A CUDA Post edit should reuse the solved map and prepared Pre pixels")
+
+    monkeypatch.setattr(cuda_core, "_prepare_rgb", unexpected)
+    monkeypatch.setattr(cuda_core, "solve_tone_map", unexpected)
+    np.testing.assert_array_equal(cuda_core(rgb, edited, tone_map=slot), expected)
 
 
 def test_warmed_cuda_preview_matches_normal_cpu_colors(

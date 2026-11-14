@@ -1,12 +1,121 @@
 """Contracts for the post-reconstruction tone controls."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
-from luma_fattal import Config, FilterParams, NumericsConfig
+from luma_fattal import Config, EffectStages, FilterParams, NumericsConfig
 from luma_fattal.core import _adjust_tones, _boost_vibrance
 from luma_fattal.finishing import finish_rgb
 from luma_fattal.processing import process_pixels
+
+
+@pytest.mark.parametrize(("effect", "strength"), [
+    ("highlight_compression", 65), ("black_level", 10), ("white_level", 75),
+    ("vibrance", 70), ("brightness", 12), ("contrast", -50), ("sharpen", 120),
+    ("halation", 200), ("posterize", 100), ("local_contrast", 200),
+    ("chroma_bleed", 100), ("split_tone", 100),
+])
+def test_staged_effects_apply_on_the_selected_side(effect, strength):
+    from luma_fattal.core import apply_core
+
+    rgb = np.random.default_rng(3).integers(45, 245, (16, 32, 3), np.uint8)
+    numerics = NumericsConfig(iterations=2)
+    sources = []
+
+    def cleanup(pixels, luminance):
+        sources.append(pixels.copy())
+        return pixels.astype(np.float32), luminance
+
+    def render(params):
+        return apply_core(rgb, 1, params, numerics, source_cleanup=cleanup)
+
+    post = FilterParams(**{effect: strength})
+    full = render(post)
+    np.testing.assert_array_equal(sources.pop(), rgb)
+    active = replace(post, effect_stages=((effect, EffectStages(pre=True, post=False)),))
+    pre_only = render(active)
+    adjusted = sources.pop()
+    assert np.any(adjusted != rgb)
+    np.testing.assert_array_equal(pre_only, apply_core(adjusted, 1, FilterParams(), numerics))
+
+    both = replace(post, effect_stages=((effect, EffectStages(pre=True)),))
+    np.testing.assert_array_equal(render(both), apply_core(adjusted, 1, post, numerics))
+    np.testing.assert_array_equal(sources.pop(), adjusted)
+
+    off = replace(post, effect_stages=((effect, EffectStages(post=False)),))
+    baseline = render(FilterParams())
+    assert np.any(full != baseline)
+    np.testing.assert_array_equal(render(off), baseline)
+    np.testing.assert_array_equal(sources.pop(), rgb)
+
+
+def test_independent_stage_strengths_and_fade():
+    rgb = np.full((5, 5, 3), 70, np.uint8)
+    parameters = FilterParams(
+        brightness=20,
+        tone_strength=0,
+        effect_stages=(("brightness", EffectStages(pre=True, pre_strength=10)),),
+    )
+    numerics = NumericsConfig(iterations=2, power_mode="standard")
+    np.testing.assert_array_equal(process_pixels(rgb, 1, parameters, numerics=numerics), 147)
+    faded = replace(parameters, fade=50)
+    np.testing.assert_array_equal(process_pixels(rgb, 1, faded, numerics=numerics), 108)
+
+
+def test_effect_stage_config_round_trip_and_validation():
+    config = Config.from_dict({"parameters": {
+        "brightness": 17,
+        "effect_stages": {
+            "sharpen": {"pre": False, "post": False, "pre_strength": 12.5},
+            "brightness": {"pre": True, "post": True, "pre_strength": -23},
+        },
+    }})
+    assert Config.from_dict(config.to_dict()) == config
+    assert Config.from_sources("effect.yaml", {"effect.yaml": config.to_yaml()}) == config
+    assert Config.from_sources("effect.toml", {"effect.toml": config.to_toml()}) == config
+    for invalid in (
+        {"fade": {"pre": True}},
+        {"curve": {"post": False}},
+        {"brightness": {"pre": 1}},
+        {"brightness": {"post_strength": 1}},
+        {"posterize": {"pre_strength": 101}},
+    ):
+        with pytest.raises(ValueError):
+            Config.from_dict({"parameters": {"effect_stages": invalid}})
+
+
+def test_preview_reuses_prepared_rgb_and_solve_for_post_edits(monkeypatch):
+    from luma_fattal import core
+    from luma_fattal.ui.server import _PreviewSamples
+
+    rgb = np.random.default_rng(6).integers(0, 256, (16, 32, 3), np.uint8)
+    stages = EffectStages(pre=True, pre_strength=100)
+    params = FilterParams(sharpen=50, effect_stages=(("sharpen", stages),))
+    config = Config(parameters=params)
+    samples = _PreviewSamples.__new__(_PreviewSamples)
+    samples.tone_key = None
+    samples.tone_maps = {}
+    initial = samples.tone_maps_for(config, [1.0])
+    slot = initial[1.0].cpu
+    core.apply_core(rgb, 1, params, config.numerics, tone_map=slot)
+    changed_post = replace(params, sharpen=0, brightness=10)
+    expected = core.apply_core(rgb, 1, changed_post, config.numerics)
+
+    def unexpected(*args):
+        pytest.fail("A Post edit should reuse the solved map and prepared Pre pixels")
+
+    monkeypatch.setattr(core, "_solve_tone_map", unexpected)
+    monkeypatch.setattr(core, "_prepare_rgb", unexpected)
+    assert samples.tone_maps_for(replace(config, parameters=changed_post), [1.0]) is initial
+    actual = core.apply_core(rgb, 1, changed_post, config.numerics, tone_map=slot)
+    np.testing.assert_array_equal(actual, expected)
+
+    disabled_post = replace(params, effect_stages=(("sharpen", replace(stages, post=False)),))
+    assert samples.tone_maps_for(replace(config, parameters=disabled_post), [1.0]) is initial
+    changed_pre = replace(params, effect_stages=(("sharpen", replace(stages, pre_strength=20)),))
+    assert samples.tone_maps_for(replace(config, parameters=changed_pre), [1.0]) is not initial
 
 
 def test_tone_adjustments_apply_curve_after_brightness_and_contrast():

@@ -141,7 +141,7 @@ noise combinations can exceed the solver's numeric range on some images.
 | `parameters.vibrance` | `0` | Signed. Positive values boost muted colors with a gain limited to keep channels in gamut. Negative values mute colors. The slider spans -100 to 500. Grays and fully saturated colors remain unchanged at this stage. |
 | `parameters.brightness` | `0` | Signed percentage of white added after vibrance. |
 | `parameters.contrast` | `0` | Signed adjustment around mid-gray. At -100 the result is mid-gray. |
-| `parameters.sharpen` | `0` | Nonnegative unsharp mask strength. `100` adds the difference between the filtered RGB and a 3×3 blur once. The slider reaches `1000` for pronounced edge contrast and halos. Applied at working resolution before enlargement and Fade. |
+| `parameters.sharpen` | `0` | Nonnegative unsharp mask strength. `100` adds the difference between RGB and a 3×3 blur once. The slider reaches `1000` for pronounced edge contrast and halos. |
 | `parameters.halation` | `0` | `0–500`. Adds a red-orange glow around bright regions. |
 | `parameters.posterize` | `0` | `0–100`. Progressively reduces the number of levels per RGB channel from 256 to 4. |
 | `parameters.local_contrast` | `0` | `0–300`. Amplifies brightness differences from a broad local average. |
@@ -150,6 +150,30 @@ noise combinations can exceed the solver's numeric range on some images.
 | `parameters.pre_curve_0`, `pre_curve_25`, `pre_curve_50`, `pre_curve_75`, `pre_curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied to source pixels before luminance and filtering. |
 | `parameters.curve_0`, `curve_25`, `curve_50`, `curve_75`, `curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied after brightness and contrast. These existing keys retain the post curve for compatibility. |
 | `parameters.pre_curve_wet`, `post_curve_wet` | `100` | Curve blend percentage. `0` bypasses the corresponding curve and `100` applies it fully. |
+
+In **More settings → Effect**, Highlight compression through Split tone each
+have independent **Pre** and **Post** buttons. Post is selected by default.
+Pre changes the working pixels that go into Fattal. Post changes the filtered
+pixels before enlargement and Fade. Select both for independent sliders.
+Turning off both bypasses the effect. The first Pre selection copies the
+current Post amount. Each stage keeps its own amount when toggled off.
+
+Saved configurations store the buttons and Pre amounts in
+`parameters.effect_stages`. For example, this YAML sharpens at strength 50
+before Fattal and at strength 100 after it.
+
+```yaml
+parameters:
+  sharpen: 100
+  effect_stages:
+    sharpen:
+      pre: true
+      post: true
+      pre_strength: 50
+```
+
+Existing effect keys hold the Post values. In a hand-written recipe, omit
+`pre_strength` to use the same amount at both stages.
 
 Each curve starts with five evenly spaced input levels and interpolates smoothly between points. Click anywhere in the graph to add a point at that input and output (up to 16 total), drag points to adjust them, or select an interior point and press Delete or Backspace to remove it. Arrow keys select points and adjust their output. The optional `parameters.pre_curve_points` and `parameters.curve_points` lists store `[input, output]` pairs from 0 to 100; when absent, the original five settings remain in use. The pre curve operates on working-resolution RGB8 pixels before source cleanup and the solve. Final fade still blends against the original input.
 
@@ -165,7 +189,7 @@ luma-fattal apply assets/lantern-garden-original.png outputs/softer.png \
   --tone-strength 60 --highlight-compression 60 --black-level 5 --white-level 95
 ```
 
-Output levels apply after shadow protection, including to protected pixels.
+Post output levels apply after shadow protection, including to protected pixels.
 Raising the black level can reduce saturation. Finishing effects and Fade apply
 afterward and can move pixels outside the selected output range.
 See [processing order](method.md#processing-order) for interactions between controls.

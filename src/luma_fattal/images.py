@@ -122,7 +122,7 @@ def process_image(
             implementation_version=__version__,
             fidelity_status=STATUS,
             filter=f"Fattal {variant}",
-            parameters=asdict(params),
+            parameters=params.to_dict(),
             runtime=dict(
                 python=platform.python_version(),
                 platform=platform.system(),

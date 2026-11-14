@@ -124,6 +124,7 @@ class ConfigurationPanel {
     this.onChange = onChange;
     this.controls = [];
     this.curves = [];
+    this.effectRoutes = [];
     for (const [section, title, definitions] of settingGroups) {
       const group = document.createElement('fieldset');
       group.className = 'settings-group';
@@ -243,6 +244,11 @@ class ConfigurationPanel {
         const [key, label, type, max, step, options = {}] = definition;
         const numeric = typeof type === 'number';
         const settings = numeric ? options : (max || {});
+        const isBasic = section === 'parameters' && index < 7;
+        const isCurveControl = /^(?:pre_|post_)?curve_/.test(key);
+        const route = section === 'parameters' && !isBasic && !isCurveControl
+          ? this.stageButtons(key, label)
+          : null;
         const row = document.createElement('div');
         row.className = (numeric && max !== null && !settings.nullable) || settings.sliderMax ? 'slider' : 'setting-row';
         row.dataset.setting = `${section}.${key}`;
@@ -270,7 +276,12 @@ class ConfigurationPanel {
           } else input.required = type !== 'rgb' && type !== 'boolean';
           if (settings.placeholder) input.placeholder = settings.placeholder;
         }
-        row.append(text, input);
+        row.append(text);
+        if (route) {
+          row.dataset.effectStage = 'post';
+          row.append(route.buttons);
+        }
+        row.append(input);
         const reset = document.createElement('button');
         reset.type = 'button';
         reset.className = 'setting-reset';
@@ -295,14 +306,21 @@ class ConfigurationPanel {
             }
           });
         }
-        const isBasic = section === 'parameters' && index < 7;
-        const control = {section, key, input, range, reset, type, settings, expand: isBasic ? null : setExpanded};
+        const control = {section, key, input, range, reset, type, settings, route, expand: isBasic ? null : setExpanded};
         this.controls.push(control);
         reset.addEventListener('click', () => {
+          if (route) {
+            const saved = this.baseline.parameters.effect_stages?.[key];
+            if (saved) this.config.parameters.effect_stages[key] = structuredClone(saved);
+            else delete this.config.parameters.effect_stages[key];
+          }
           this.config[section][key] = structuredClone(this.baseline[section][key]);
-          this.sync(control);
+          if (route) this.syncStages(route);
+          else {
+            this.sync(control);
+            this.drawCurve();
+          }
           this.validate();
-          this.drawCurve();
           this.onChange();
         });
         range?.addEventListener('change', () => this.edit(control, true));
@@ -310,6 +328,51 @@ class ConfigurationPanel {
         if (key === 'pre_curve_wet' || key === 'post_curve_wet') {
           const curve = this.curves[key === 'pre_curve_wet' ? 0 : 1];
           curve.wrapper.append(row, curve.resetCurve);
+        } else if (route) {
+          const wrapper = document.createElement('div');
+          const extra = document.createElement('div');
+          extra.className = 'slider effect-extra';
+          extra.dataset.effectStage = 'pre';
+          extra.hidden = true;
+          const preLabel = document.createElement('label');
+          const preInput = document.createElement('input');
+          const preRange = document.createElement('input');
+          preLabel.textContent = 'Pre';
+          preInput.id = `${input.id}-pre`;
+          preLabel.htmlFor = preInput.id;
+          preInput.type = 'number';
+          preInput.step = input.step;
+          preInput.required = true;
+          if (settings.inputMin !== undefined) preInput.min = settings.inputMin;
+          if (settings.inputMax !== undefined) preInput.max = settings.inputMax;
+          preInput.setAttribute('aria-label', `${label} Pre strength`);
+          preRange.type = 'range';
+          preRange.min = range.min;
+          preRange.max = range.max;
+          preRange.step = range.step;
+          preRange.setAttribute('aria-label', `${label} Pre slider`);
+          extra.append(preLabel, preInput, preRange);
+          const secondary = {...control, input: preInput, range: preRange, reset: null, stage: 'pre'};
+          this.controls.push(secondary);
+          preRange.addEventListener('input', () => { preInput.value = preRange.value; });
+          preRange.addEventListener('change', () => this.edit(secondary, true));
+          preInput.addEventListener('input', () => this.edit(secondary));
+          route.sync = ({pre, post}) => {
+            const active = post ? 'post' : pre ? 'pre' : null;
+            control.stage = active;
+            control.inactive = active === null;
+            secondary.inactive = !(pre && post);
+            extra.hidden = secondary.inactive;
+            input.hidden = range.hidden = control.inactive;
+            row.dataset.effectStage = active ?? 'off';
+            input.setAttribute('aria-label', active ? `${label} ${active} strength` : label);
+            range.setAttribute('aria-label', `${label} ${active} slider`);
+            this.sync(control);
+            this.sync(secondary);
+          };
+          wrapper.append(row, extra);
+          group.append(wrapper);
+          rows.push(wrapper);
         } else if (!/^(?:pre_)?curve_\d+$/.test(key)) {
           (isBasic ? basic : group).append(row);
           if (!isBasic) rows.push(row);
@@ -319,10 +382,62 @@ class ConfigurationPanel {
     }
   }
 
+  stageButtons(key, label) {
+    const buttons = document.createElement('div');
+    buttons.className = 'effect-stages';
+    buttons.setAttribute('role', 'group');
+    buttons.setAttribute('aria-label', `${label} stages`);
+    const route = {key, buttons, toggles: []};
+    for (const stage of ['pre', 'post']) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.stage = stage;
+      button.textContent = stage === 'pre' ? 'Pre' : 'Post';
+      button.title = stage === 'pre' ? 'Apply before Fattal' : 'Apply after Fattal';
+      button.addEventListener('click', () => {
+        const {parameters} = this.config;
+        const stages = this.stageSelection(key);
+        const updated = {...stages, [stage]: !stages[stage]};
+        if (updated.pre && updated.pre_strength == null) {
+          updated.pre_strength = parameters[key];
+        }
+        parameters.effect_stages[key] = updated;
+        this.syncStages(route);
+        this.validate();
+        this.onChange(true);
+      });
+      buttons.append(button);
+      route.toggles.push(button);
+    }
+    this.effectRoutes.push(route);
+    return route;
+  }
+
+  stageSelection(key) {
+    return {pre: false, post: true, ...this.config.parameters.effect_stages[key]};
+  }
+
+  syncStages(route) {
+    const stages = this.stageSelection(route.key);
+    for (const button of route.toggles) {
+      button.setAttribute('aria-pressed', String(stages[button.dataset.stage]));
+    }
+    route.sync(stages);
+  }
+
   load(config) {
     this.config = config;
+    this.config.parameters.effect_stages ??= {};
+    for (const [key, stages] of Object.entries(config.parameters.effect_stages)) {
+      if (stages.pre && stages.pre_strength == null) {
+        stages.pre_strength = config.parameters[key];
+      }
+    }
     this.baseline = structuredClone(config);
-    for (const control of this.controls) this.sync(control);
+    for (const control of this.controls) {
+      if (!control.route) this.sync(control);
+    }
+    for (const route of this.effectRoutes) this.syncStages(route);
     this.validate();
     this.drawCurve();
   }
@@ -364,8 +479,10 @@ class ConfigurationPanel {
     }
   }
 
-  sync({section, key, input, range, type}) {
-    const value = this.config[section][key];
+  sync({section, key, input, range, type, stage}) {
+    const value = stage === 'pre'
+      ? this.stageSelection(key).pre_strength ?? this.config[section][key]
+      : this.config[section][key];
     input.setCustomValidity('');
     if (type === 'boolean') input.checked = value;
     else input.value = Array.isArray(value) ? value.join(', ') : value ?? '';
@@ -381,10 +498,18 @@ class ConfigurationPanel {
     else if (type === 'rgb') {
       value = value.trim() === '' ? null : value.split(',').map(part => part.trim() === '' ? NaN : Number(part));
     }
-    this.config[section][key] = value;
+    if (control.route) {
+      if (!Number.isFinite(value) || !input.validity.valid) return;
+    }
+    if (control.stage === 'pre') {
+      const stages = this.stageSelection(key);
+      this.config.parameters.effect_stages[key] = {...stages, pre_strength: value};
+    } else {
+      this.config[section][key] = value;
+    }
     if (control.range && Number.isFinite(value)) control.range.value = value;
     this.validate();
-    this.drawCurve();
+    if (!control.route) this.drawCurve();
     this.onChange(sliderCommit);
   }
 
@@ -406,7 +531,7 @@ class ConfigurationPanel {
   }
 
   valid(report = false) {
-    const invalid = this.controls.find(({input}) => !input.validity.valid);
+    const invalid = this.controls.find(({input, inactive}) => !inactive && !input.validity.valid);
     if (invalid && report) {
       const details = invalid.input.closest('details');
       if (details) details.open = true;
@@ -419,9 +544,12 @@ class ConfigurationPanel {
   setDisabled(value) {
     this.disabled = value;
     for (const {resetCurve} of this.curves) resetCurve.disabled = value;
+    for (const {toggles} of this.effectRoutes) {
+      for (const button of toggles) button.disabled = value;
+    }
     for (const {input, range, reset} of this.controls) {
       input.disabled = value;
-      reset.disabled = value;
+      if (reset) reset.disabled = value;
       if (range) range.disabled = value;
     }
   }

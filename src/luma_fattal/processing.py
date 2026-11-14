@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 import numpy as np
 
 from .configuration import WORKING_MAX_EDGE, NumericsConfig, ProcessingConfig
@@ -240,7 +238,7 @@ def process_pixels(
     rgb = array[..., :3]
     work = resize_working(rgb, work_size, processing.working_resampler)
     filtered = apply_core(
-        work, variant, replace(params, fade=0), numerics, **cleanup_options
+        work, variant, params.without_fade, numerics, **cleanup_options
     )
     enlarged = enlarge_progressive(filtered, size)
     if not params.fade:

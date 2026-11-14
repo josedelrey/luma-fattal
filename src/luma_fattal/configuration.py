@@ -10,6 +10,7 @@ import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from fractions import Fraction
+from functools import cached_property
 from numbers import Real
 from pathlib import Path
 
@@ -63,6 +64,16 @@ _FINISHING_LIMITS = {
     "local_contrast": 300,
     "chroma_bleed": 100,
     "split_tone": 100,
+}
+_STAGED_EFFECT_DEFAULTS = {
+    "highlight_compression": 0,
+    "black_level": 0,
+    "white_level": 100,
+    "vibrance": 0,
+    "brightness": 0,
+    "contrast": 0,
+    "sharpen": 0,
+    **dict.fromkeys(_FINISHING_LIMITS, 0),
 }
 MAX_SOLVER_ITERATIONS = 10_000
 MAX_CLEANUP_SIGMA = 128
@@ -184,6 +195,15 @@ class NumericsConfig:
 
 
 @dataclass(frozen=True)
+class EffectStages:
+    """Stage selection and independent Pre amount for an advanced effect."""
+
+    pre: bool = False
+    post: bool = True
+    pre_strength: float | None = None
+
+
+@dataclass(frozen=True)
 class FilterParams:
     """Effect controls with a positive alpha and output gamma."""
 
@@ -220,16 +240,16 @@ class FilterParams:
     local_contrast: float = 0
     chroma_bleed: float = 0
     split_tone: float = 0
+    effect_stages: tuple[tuple[str, EffectStages], ...] = ()
 
     def __post_init__(self):
-        for name, value in asdict(self).items():
-            if name in ("output_gamma", "pre_curve_points", "curve_points"):
+        for item in fields(self):
+            name = item.name
+            if name in (
+                "output_gamma", "pre_curve_points", "curve_points", "effect_stages"
+            ):
                 continue
-            nonnegative = name in _FINISHING_LIMITS or name in ("alpha", "sharpen")
-            minimum = 0 if nonnegative else -FLOAT32_CONTROL_LIMIT
-            _finite(
-                name, value, minimum, _FINISHING_LIMITS.get(name, FLOAT32_CONTROL_LIMIT)
-            )
+            self._validate_amount(name, getattr(self, name))
         for name in ("pre_curve_points", "curve_points"):
             points = getattr(self, name)
             if points is None:
@@ -261,6 +281,67 @@ class FilterParams:
         )
         if not math.isfinite(1.0 / self.output_gamma):
             raise ValueError("output_gamma must have a finite reciprocal")
+        normalized = {}
+        for name, stages in self.effect_stages:
+            if name in normalized or name not in _STAGED_EFFECT_DEFAULTS:
+                raise ValueError(f"Invalid staged effect {name!r}")
+            if (
+                not isinstance(stages, EffectStages)
+                or type(stages.pre) is not bool
+                or type(stages.post) is not bool
+            ):
+                raise ValueError(f"{name} must have boolean Pre and Post selections")
+            if stages.pre_strength is not None:
+                self._validate_amount(name, stages.pre_strength)
+            normalized[name] = stages
+        object.__setattr__(self, "effect_stages", tuple(sorted(normalized.items())))
+
+    @staticmethod
+    def _validate_amount(name, value):
+        nonnegative = name in _FINISHING_LIMITS or name in ("alpha", "sharpen")
+        minimum = 0 if nonnegative else -FLOAT32_CONTROL_LIMIT
+        _finite(name, value, minimum, _FINISHING_LIMITS.get(name, FLOAT32_CONTROL_LIMIT))
+
+    @cached_property
+    def pre_adjustments(self) -> FilterParams | None:
+        values = {}
+        for name, stages in self.effect_stages:
+            if stages.pre:
+                amount = (
+                    getattr(self, name) if stages.pre_strength is None else stages.pre_strength
+                )
+                if amount != _STAGED_EFFECT_DEFAULTS[name]:
+                    values[name] = amount
+        return FilterParams(**values) if values else None
+
+    @property
+    def post_adjustments(self) -> FilterParams:
+        return self._post_overrides or self
+
+    @cached_property
+    def _post_overrides(self) -> FilterParams | None:
+        values = {
+            name: _STAGED_EFFECT_DEFAULTS[name]
+            for name, stages in self.effect_stages
+            if not stages.post
+        }
+        return replace(self, **values) if values else None
+
+    @property
+    def without_fade(self) -> FilterParams:
+        return self._zero_fade if self.fade else self
+
+    @cached_property
+    def _zero_fade(self) -> FilterParams:
+        return replace(self, fade=0)
+
+    def to_dict(self):
+        data = asdict(self)
+        data["effect_stages"] = {
+            name: {key: value for key, value in stages.items() if value is not None}
+            for name, stages in data["effect_stages"]
+        }
+        return data
 
 
 @dataclass(frozen=True)
@@ -531,6 +612,22 @@ class Config:
                 raise ValueError(
                     f"Unknown {name} options: {', '.join(sorted(unknown))}"
                 )
+            if name == "parameters" and "effect_stages" in section:
+                stages = section["effect_stages"]
+                if not isinstance(stages, dict):
+                    raise ValueError("effect_stages must be an object")
+                if any(
+                    not isinstance(key, str) or not isinstance(value, dict)
+                    or value.keys() - {"pre", "post", "pre_strength"}
+                    for key, value in stages.items()
+                ):
+                    raise ValueError("Each staged effect must have Pre and Post settings")
+                section = {
+                    **section,
+                    "effect_stages": tuple(
+                        (key, EffectStages(**value)) for key, value in stages.items()
+                    ),
+                }
             values[name] = types[name](**section)
         return cls(**values)
 
@@ -626,7 +723,9 @@ class Config:
         return merged
 
     def to_dict(self):
-        return asdict(self)
+        result = asdict(self)
+        result["parameters"] = self.parameters.to_dict()
+        return result
 
     def to_yaml(self):
         return yaml.safe_dump(self.to_dict(), sort_keys=False)
@@ -642,10 +741,17 @@ class Config:
                 continue
             lines.append(f"[{name}]")
             for key, value in section.items():
-                if value is not None:
+                if key != "effect_stages" and value is not None:
                     # All values here have equivalent JSON and TOML literal forms.
                     lines.append(f"{key} = {json.dumps(value)}")
             lines.append("")
+            if name == "parameters":
+                for effect, stages in section["effect_stages"].items():
+                    lines.append(f"[parameters.effect_stages.{effect}]")
+                    lines.extend(
+                        f"{key} = {json.dumps(value)}" for key, value in stages.items()
+                    )
+                    lines.append("")
         return "\n".join(lines)
 
 

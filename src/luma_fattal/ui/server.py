@@ -159,6 +159,7 @@ class _PreviewSamples:
             params.pre_curve_100,
             params.pre_curve_wet,
             params.pre_curve_points,
+            params.pre_adjustments,
             video.denoise,
             video.flat_cleanup,
             video.flat_cleanup_mode,

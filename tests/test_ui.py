@@ -74,8 +74,8 @@ def test_gui_controls_cover_editable_configuration_fields():
     )
     defaults = Config().to_dict()
     config_only_fields = {
-        # Point lists are edited by the curve canvases, not individual controls.
-        "parameters": {"pre_curve_points", "curve_points"},
+        # Point lists and stage selections have their own controls.
+        "parameters": {"pre_curve_points", "curve_points", "effect_stages"},
         "numerics": {
             "gradient_threshold",
             "log_offset",
@@ -157,6 +157,38 @@ Object.assign(config.numerics, numerics);
 const video = {pre_noise_seed: 42, frame_rate: '30000/1001', input_color: 'bt709', input_range: 'full'};
 Object.assign(config.video, video);
 panel.load(config);
+assert.equal(panel.effectRoutes.length, 12);
+const brightness = panel.controls.find(control => control.key === 'brightness');
+const [pre, post] = brightness.route.toggles;
+const extra = panel.controls.find(control => control.key === 'brightness' && control !== brightness);
+const change = (control, value) => {
+  control.input.value = String(value);
+  control.input.valueAsNumber = value;
+  control.input.input();
+};
+assert.equal(pre.getAttribute('aria-pressed'), 'false');
+assert.equal(post.getAttribute('aria-pressed'), 'true');
+assert.equal(extra.inactive, true);
+change(brightness, 12.5);
+pre.click();
+assert.equal(extra.inactive, false);
+assert.equal(extra.input.value, 12.5);
+change(extra, -9);
+change(brightness, 20);
+assert.equal(config.parameters.brightness, 20);
+assert.equal(config.parameters.effect_stages.brightness.pre_strength, -9);
+post.click();
+assert.equal(brightness.stage, 'pre');
+assert.equal(brightness.input.value, -9);
+assert.equal(extra.inactive, true);
+pre.click();
+assert.equal(brightness.inactive, true);
+pre.click();
+assert.equal(brightness.input.value, -9);
+brightness.reset.click();
+assert.equal(pre.getAttribute('aria-pressed'), 'false');
+assert.equal(post.getAttribute('aria-pressed'), 'true');
+assert.equal(config.parameters.brightness, 0);
 const alpha = panel.controls.find(control => control.key === 'alpha');
 assert.equal(alpha.range.max, 500);
 assert.equal(alpha.input.max, undefined);
