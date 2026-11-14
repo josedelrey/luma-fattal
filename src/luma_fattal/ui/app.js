@@ -28,11 +28,13 @@ if (window.desktopWindow) {
   document.documentElement.style.setProperty('--desktop-width', `${width}px`);
   document.documentElement.style.setProperty('--desktop-height', `${height}px`);
   const fitCanvas = () => {
-    const scale = Math.min(innerWidth / width, Math.max(0, innerHeight - 44) / (height - 44));
+    const scale = innerWidth / width;
+    const scaleY = Math.max(0, innerHeight - 44) / (height - 44);
     const left = (innerWidth - width * scale) / 2;
     document.documentElement.style.setProperty('--desktop-scale', scale);
+    document.documentElement.style.setProperty('--desktop-scale-y', scaleY);
     document.documentElement.style.setProperty('--desktop-left', `${left}px`);
-    document.documentElement.style.setProperty('--desktop-export-top', `${44 + 19 * scale}px`);
+    document.documentElement.style.setProperty('--desktop-export-top', `${44 + 19 * scaleY}px`);
     document.documentElement.style.setProperty('--desktop-export-right', `${innerWidth - left - (width - 19) * scale}px`);
   };
   window.addEventListener('resize', fitCanvas);

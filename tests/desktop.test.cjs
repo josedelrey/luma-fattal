@@ -183,17 +183,17 @@ test('preserves user size on display changes and fits smaller work areas', () =>
   display = { id: 2, bounds: { width: 1024, height: 768 },
     workArea: { x: -1024, y: -768, width: 1024, height: 768 }, scaleFactor: 2 }
   window.emit('move')
-  assert.deepEqual(window.getContentSize(), [1014, 767])
+  assert.deepEqual(window.getContentSize(), [1024, 768])
   assert.equal(zoom, 1)
-  assert.deepEqual(bounds, { x: -1014, y: -767, width: 1014, height: 767 })
+  assert.deepEqual(bounds, { x: -1024, y: -768, width: 1024, height: 768 })
 
   display.bounds.width = 1280
   screen.emit('display-metrics-changed', {}, display, ['bounds'])
-  assert.deepEqual(window.getContentSize(), [1014, 767])
+  assert.deepEqual(window.getContentSize(), [1024, 768])
 
   display.workArea.height = 300
   screen.emit('display-metrics-changed', {}, display, ['workArea', 'scaleFactor'])
-  assert.deepEqual(window.getContentSize(), [358, 299])
+  assert.deepEqual(window.getContentSize(), [400, 300])
   assert.equal(zoom, 1)
   zoom = 1.5
   window.webContents.emit('zoom-changed', {}, 'in')
@@ -232,7 +232,7 @@ test('delegates interactive aspect ratio enforcement to the native window', () =
   window.setContentSize = () => { throw new Error('Unexpected resize correction') }
   window.setPosition = () => {}
   installDisplayScaling(window, screen)
-  assert.deepEqual(constraint, { ratio: 1200 / 856, extraSize: { width: 0, height: 44 } })
+  assert.deepEqual(constraint, { ratio: 1200 / 900, extraSize: undefined })
   window.emit('resize')
   window.emit('closed')
 })

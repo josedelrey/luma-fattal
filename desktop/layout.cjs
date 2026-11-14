@@ -4,13 +4,13 @@ function installDisplayScaling(window, screen, initialSize) {
   const contents = window.webContents
   const [initialWidth, initialHeight] = initialSize
     ? [initialSize.width, initialSize.height] : window.getContentSize()
-  const ratio = initialWidth / (initialHeight - 44)
+  const ratio = initialWidth / initialHeight
   let displayKey
   let fitting = false
   const scaleContents = () => {
     contents.setZoomFactor(1)
   }
-  window.setAspectRatio(ratio, { width: 0, height: 44 })
+  window.setAspectRatio(ratio)
   const fitDisplay = () => {
     if (fitting) return
     const display = screen.getDisplayMatching(window.getBounds())
@@ -22,10 +22,10 @@ function installDisplayScaling(window, screen, initialSize) {
     fitting = true
     try {
       const [width, height] = window.getContentSize()
-      const fitWidth = Math.min(width, area.width, Math.max(1, (area.height - 44) * ratio))
+      const fitWidth = Math.min(width, area.width, Math.max(1, area.height * ratio))
       if (fitWidth < width || height > area.height) {
         const nextWidth = Math.floor(fitWidth)
-        const nextHeight = Math.min(area.height, Math.round(44 + nextWidth / ratio))
+        const nextHeight = Math.min(area.height, Math.round(nextWidth / ratio))
         window.setContentSize(nextWidth, nextHeight)
       }
       const bounds = window.getBounds()

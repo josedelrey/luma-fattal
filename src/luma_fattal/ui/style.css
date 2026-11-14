@@ -1030,7 +1030,7 @@ h1, h2, h3, strong, b { font-weight: normal; }
   margin: 0;
   padding: 16px;
   overflow: hidden;
-  transform: scale(var(--desktop-scale, 1));
+  transform: scale(var(--desktop-scale, 1), var(--desktop-scale-y, 1));
   transform-origin: top left;
 }
 .desktop .application-title {
@@ -1075,7 +1075,7 @@ h1, h2, h3, strong, b { font-weight: normal; }
   max-width: none;
   top: var(--desktop-export-top);
   right: var(--desktop-export-right);
-  transform: scale(var(--desktop-scale, 1));
+  transform: scale(var(--desktop-scale, 1), var(--desktop-scale-y, 1));
   transform-origin: top right;
 }
 .desktop .video-column, .desktop .config-column { display: contents; }

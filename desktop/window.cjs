@@ -18,7 +18,7 @@ function createWorkbenchWindow(value, iconPath) {
 
   const initialSize = windowSize(screen.getPrimaryDisplay())
   const canvas = { width: referenceSize.width,
-    height: 34 + referenceSize.width * (initialSize.height - 34) / initialSize.width }
+    height: 44 + referenceSize.width * (initialSize.height - 44) / initialSize.width }
   const window = new BrowserWindow({
     ...initialSize,
     useContentSize: true,

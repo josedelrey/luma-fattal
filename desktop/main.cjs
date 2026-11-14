@@ -269,7 +269,7 @@ async function openWindow() {
     let checkedSizes = 0
     for (const factor of [1, 0.75, 0.5, 0.3]) {
       const width = Math.floor(originalSize[0] * factor)
-      const height = Math.round(44 + width * (originalSize[1] - 44) / originalSize[0])
+      const height = Math.round(width * originalSize[1] / originalSize[0])
       if (width < 300 || height < 225) continue
       window.setContentSize(width, height)
       const layout = await window.webContents.executeJavaScript(`(async () => {
