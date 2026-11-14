@@ -5,31 +5,12 @@ function installDisplayScaling(window, screen, initialSize) {
   const [initialWidth, initialHeight] = initialSize
     ? [initialSize.width, initialSize.height] : window.getContentSize()
   const ratio = initialWidth / (initialHeight - 44)
-  let lastSize = [initialWidth, initialHeight]
-  let correcting = false
   let displayKey
   let fitting = false
   const scaleContents = () => {
     contents.setZoomFactor(1)
   }
-  const resize = () => {
-    scaleContents()
-    if (correcting || fitting) return
-    const [width, height] = window.getContentSize()
-    const widthChange = Math.abs(width - lastSize[0]) / lastSize[0]
-    const heightChange = Math.abs(height - lastSize[1]) / lastSize[1]
-    let nextWidth = width
-    let nextHeight = height
-    if (widthChange >= heightChange) nextHeight = Math.round(44 + width / ratio)
-    else nextWidth = Math.round((height - 44) * ratio)
-    nextWidth = Math.max(1, nextWidth)
-    nextHeight = Math.max(35, nextHeight)
-    lastSize = [nextWidth, nextHeight]
-    if (width !== nextWidth || height !== nextHeight) {
-      correcting = true
-      try { window.setContentSize(nextWidth, nextHeight) } finally { correcting = false }
-    }
-  }
+  window.setAspectRatio(ratio, { width: 0, height: 44 })
   const fitDisplay = () => {
     if (fitting) return
     const display = screen.getDisplayMatching(window.getBounds())
@@ -45,7 +26,6 @@ function installDisplayScaling(window, screen, initialSize) {
       if (fitWidth < width || height > area.height) {
         const nextWidth = Math.floor(fitWidth)
         const nextHeight = Math.min(area.height, Math.round(44 + nextWidth / ratio))
-        lastSize = [nextWidth, nextHeight]
         window.setContentSize(nextWidth, nextHeight)
       }
       const bounds = window.getBounds()
@@ -62,7 +42,6 @@ function installDisplayScaling(window, screen, initialSize) {
   contents.setZoomMode('isolated')
   contents.on('zoom-changed', scaleContents)
   contents.on('did-finish-load', scaleContents)
-  window.on('resize', resize)
   window.on('move', fitDisplay)
   for (const event of ['display-metrics-changed', 'display-added', 'display-removed']) {
     screen.on(event, fitDisplay)
@@ -70,7 +49,6 @@ function installDisplayScaling(window, screen, initialSize) {
   window.once('closed', () => {
     contents.removeListener('zoom-changed', scaleContents)
     contents.removeListener('did-finish-load', scaleContents)
-    window.removeListener('resize', resize)
     window.removeListener('move', fitDisplay)
     for (const event of ['display-metrics-changed', 'display-added', 'display-removed']) {
       screen.removeListener(event, fitDisplay)

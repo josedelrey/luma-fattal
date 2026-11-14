@@ -1163,7 +1163,9 @@ h1, h2, h3, strong, b { font-weight: normal; }
   gap: 2px;
   padding-bottom: 3px;
   overflow: auto;
+  scrollbar-width: none;
 }
+.desktop .controls:not(:has(details[open])) .control-body::-webkit-scrollbar { display: none; }
 .desktop .controls:not(:has(details[open])) .control-settings { flex: none; }
 .desktop .controls details:not([open]) { padding-top: 4px; }
 .desktop .controls:not(:has(details[open])) .process-footer {

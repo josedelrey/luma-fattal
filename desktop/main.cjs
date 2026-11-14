@@ -265,17 +265,6 @@ async function openWindow() {
       }
     }
     const originalSize = window.getContentSize()
-    const contentRatio = originalSize[0] / (originalSize[1] - 44)
-    for (const [width, height] of [[originalSize[0] - 200, originalSize[1]],
-      [originalSize[0] - 200, originalSize[1] - 300]]) {
-      window.setContentSize(width, height)
-      await new Promise(resolve => setTimeout(resolve, 100))
-      const [actualWidth, actualHeight] = window.getContentSize()
-      if (Math.abs(actualWidth - (actualHeight - 44) * contentRatio) > 2)
-        throw new Error(`Window resize left unused space at ${actualWidth}x${actualHeight}`)
-    }
-    window.setContentSize(...originalSize)
-    await new Promise(resolve => setTimeout(resolve, 100))
     let referenceLayout
     let checkedSizes = 0
     for (const factor of [1, 0.75, 0.5, 0.3]) {

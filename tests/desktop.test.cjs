@@ -164,6 +164,7 @@ test('preserves user size on display changes and fits smaller work areas', () =>
   window.webContents = new EventEmitter()
   window.webContents.setZoomFactor = value => { zoom = value }
   window.webContents.setZoomMode = value => { zoomMode = value }
+  window.setAspectRatio = () => {}
   window.getBounds = () => ({ ...bounds })
   window.getContentSize = () => [bounds.width, bounds.height]
   window.setContentSize = (width, height) => {
@@ -201,7 +202,7 @@ test('preserves user size on display changes and fits smaller work areas', () =>
   window.webContents.emit('did-finish-load')
   assert.equal(zoom, 1)
 
-  window.setContentSize(720, 554)
+  window.setContentSize(720, 558)
   assert.equal(zoom, 1)
   display = { id: 1, bounds: { width: 2560, height: 1600 },
     workArea: { x: 0, y: 0, width: 2560, height: 1530 }, scaleFactor: 1 }
@@ -216,29 +217,23 @@ test('preserves user size on display changes and fits smaller work areas', () =>
   assert.equal(window.listenerCount('move'), 0)
 })
 
-test('corrects wide and tall resizes to fill the window below the title', () => {
+test('delegates interactive aspect ratio enforcement to the native window', () => {
   const screen = new EventEmitter()
   screen.getDisplayMatching = () => ({ id: 1, bounds: { width: 3000, height: 2000 },
     workArea: { x: 0, y: 0, width: 3000, height: 2000 }, scaleFactor: 1 })
   const window = new EventEmitter()
-  let bounds = { x: 0, y: 0, width: 1200, height: 900 }
   window.webContents = new EventEmitter()
   window.webContents.setZoomFactor = () => {}
   window.webContents.setZoomMode = () => {}
-  window.getBounds = () => ({ ...bounds })
-  window.getContentSize = () => [bounds.width, bounds.height]
-  window.setContentSize = (width, height) => {
-    bounds = { ...bounds, width, height }
-    window.emit('resize')
-  }
+  window.getBounds = () => ({ x: 0, y: 0, width: 1200, height: 900 })
+  window.getContentSize = () => [1200, 900]
+  let constraint
+  window.setAspectRatio = (ratio, extraSize) => { constraint = { ratio, extraSize } }
+  window.setContentSize = () => { throw new Error('Unexpected resize correction') }
   window.setPosition = () => {}
   installDisplayScaling(window, screen)
-  window.setContentSize(1600, 900)
-  assert.deepEqual(window.getContentSize(), [1600, 1185])
-  window.setContentSize(1600, 600)
-  assert.deepEqual(window.getContentSize(), [779, 600])
-  window.setContentSize(900, 650)
-  assert.deepEqual(window.getContentSize(), [900, 686])
+  assert.deepEqual(constraint, { ratio: 1200 / 856, extraSize: { width: 0, height: 44 } })
+  window.emit('resize')
   window.emit('closed')
 })
 
