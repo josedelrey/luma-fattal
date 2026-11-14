@@ -343,7 +343,7 @@ class ConfigurationPanel {
     const points = values.map(([x, value]) => [x / 100 * (width - 8) + 4, (1 - Math.max(0, Math.min(100, value)) / 100) * (height - 8) + 4]);
     const wetKey = prefix === 'pre_curve_' ? 'pre_curve_wet' : 'post_curve_wet';
     const wet = (wetPreview?.key === wetKey ? wetPreview.value : this.config.parameters[wetKey]) / 100;
-    ctx.strokeStyle = '#a31818'; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.strokeStyle = '#00dce6'; ctx.lineWidth = 2; ctx.beginPath();
     for (let i = 0; i <= 256; i++) {
       const input = i / 256 * 100;
       const value = Math.max(0, Math.min(100, input + (curveAt(values, input) - input) * wet));

@@ -23,7 +23,7 @@ def guide_cell(height: int, width: int) -> int:
 
 
 def bleed_radius(width: int, amount: float) -> int:
-    return max(2, (width + 15) // 16) if amount else 0
+    return max(2, (width + 7) // 8) if amount else 0
 
 
 @lru_cache(maxsize=256)
@@ -180,7 +180,7 @@ def finish_rgb(rgb: np.ndarray, params: FilterParams) -> np.ndarray:
         bleed_radius(rgb.shape[1], params.chroma_bleed),
         params.local_contrast / 100,
         params.halation / 100,
-        params.chroma_bleed / 100,
+        params.chroma_bleed / 50,
         params.split_tone / 100,
         lut,
     )

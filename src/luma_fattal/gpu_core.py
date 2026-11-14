@@ -1330,7 +1330,7 @@ class CudaCore:
             np.int32(bleed_radius(w, params.chroma_bleed)),
             np.float64(params.local_contrast) / 100,
             np.float64(params.halation) / 100,
-            np.float64(params.chroma_bleed) / 100,
+            np.float64(params.chroma_bleed) / 50,
             np.float64(params.split_tone) / 100,
         )
         return output

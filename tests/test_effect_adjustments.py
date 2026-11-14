@@ -118,7 +118,8 @@ def test_chroma_bleed_is_visible_beyond_a_narrow_color_edge():
     assert 80 < half[4, 271, 0] < full[4, 271, 0]
     assert full[4, 271, 0] >= 120
     np.testing.assert_array_equal(full[:, :256], rgb[:, :256])
-    np.testing.assert_array_equal(full[:, 289:], rgb[:, 289:])
+    assert full[4, 300, 0] >= 120
+    np.testing.assert_array_equal(full[:, 321:], rgb[:, 321:])
     np.testing.assert_array_equal(finish_rgb(rgb, FilterParams()), rgb)
 
 
