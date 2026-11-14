@@ -1243,6 +1243,8 @@ class CudaCore:
             colors = rgb.astype(cp.float32)
             if source_cleanup is not None:
                 colors, lum = self.treat(rgb, reference, source_cleanup)
+            colors = cp.ascontiguousarray(colors, dtype=cp.float32)
+            lum = cp.ascontiguousarray(lum, dtype=cp.float32)
             maximum = cp.max(lum)
             if float(maximum) <= 0:
                 return None

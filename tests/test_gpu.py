@@ -392,6 +392,42 @@ def test_staged_effects_match_cpu_with_fade(cuda_core, coupled_color, monkeypatc
     np.testing.assert_array_equal(cuda_core(rgb, edited, tone_map=slot), expected)
 
 
+def test_cuda_preview_zero_noise_denoising_matches_disabled(cuda_core):
+    from cupyx.scipy.ndimage import convolve1d, uniform_filter
+
+    from luma_fattal.denoise import denoise_rgb
+    from luma_fattal.ui import server
+
+    gradient = np.tile(np.arange(128, dtype=np.uint8), (96, 1))
+    pixels = np.repeat(gradient[..., None], 3, axis=2)
+    cp = cuda_core.cp
+    with cuda_core.stream:
+        _, sigma = denoise_rgb(
+            cp.asarray(pixels), backend=cp, filters=(convolve1d, uniform_filter)
+        )
+        assert not bool(cp.any(sigma))
+
+    cuda = server._PreviewCuda()
+    cuda.core = cuda_core
+    config = Config()
+    config = replace(config, video=replace(config.video, filter_backend="auto"))
+    denoised = replace(config, video=replace(config.video, denoise=1.0))
+    expected = np.asarray(server._filter_preview(pixels, config, cuda))
+    maps = server._PreviewToneMaps(
+        cuda=core.ToneMapSlot(color_budget=core.ColorInputBudget(96 * 1024**2))
+    )
+    actual = np.asarray(server._filter_preview(pixels, denoised, cuda, maps))
+    assert maps.cuda.color_inputs is not None
+    np.testing.assert_array_equal(actual, expected)
+    edited = replace(denoised, parameters=FilterParams(output_gamma=1.2))
+    edited_without_denoise = replace(edited, video=config.video)
+    expected_edited = np.asarray(
+        server._filter_preview(pixels, edited_without_denoise, cuda)
+    )
+    cached = np.asarray(server._filter_preview(pixels, edited, cuda, maps))
+    np.testing.assert_array_equal(cached, expected_edited)
+
+
 def test_warmed_cuda_preview_matches_normal_cpu_colors(
     cuda_solver, tmp_path, monkeypatch
 ):
