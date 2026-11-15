@@ -14,13 +14,17 @@ The implementation operates on 8-bit SDR inputs.
 
 ## Processing order
 
-1. Decode, orient, and interpret color. Apply the configured input-area budget.
+1. Decode, orient, and interpret color. Fit inputs larger than 8,000,000 pixels
+   to the input-area budget.
 2. Reduce to working resolution. Apply the pre curve, then any effects set to
-   Pre. Video can apply denoising, cleanup, then source noise to those pixels.
+   Pre. At this stage, apply highlight compression, vibrance, brightness and
+   contrast, output levels, sharpening, and finishing in that order when
+   enabled. Video then applies denoising, cleanup, and source noise as configured.
 3. Attenuate log-luminance gradients and reconstruct brightness.
 4. Apply tone strength, recombine color, and protect shadows.
-5. Apply the enabled Post color effects in order with output gamma and the post
-   curve, then quantize to RGB8.
+5. Apply Post highlight compression, output gamma, Post vibrance, Post brightness
+   and contrast, the post curve, and Post output levels in that order, then
+   quantize to RGB8.
 6. Apply any Post Sharpen and finishing effects at working resolution, then
    enlarge to the prepared input dimensions, apply Fade, and encode.
 
@@ -31,8 +35,9 @@ pixels on the left. These effects and Split tone use the same sharpened RGB
 input, add their contributions together, and clip once. Posterize applies last.
 
 Tone strength blends source and mapped luminance before color reconstruction,
-using source brightness from before denoising, cleanup, and noise. Highlight
-compression scales channels together above a knee at 75 percent of white. At full
+using working brightness after the pre curve and Pre effects, before denoising,
+cleanup, and noise. Highlight compression scales channels together above a knee
+at 75 percent of white. At full
 strength, it bounds finite, nonnegative RGB peaks. Partial strength may still
 leave bright values that clip.
 
@@ -42,10 +47,12 @@ differences around weighted brightness, with a requested gain of
 The gain is limited to keep channels in gamut, leaving grays and fully saturated
 colors unchanged at this stage.
 
-Shadow protection uses the original source brightness. A positive
+Shadow protection uses the working RGB and brightness after the pre curve and
+Pre effects, before video source treatments. A positive
 `shadow_softness` blends through a smoothstep interval around `shadow_threshold`,
 while zero retains the hard cutoff. Subsequent post adjustments apply to the
-protected result, before Fade blends it with the original RGB.
+protected result. Fade blends the finished image with the prepared original
+at output resolution.
 
 ## Numerical choices
 
@@ -71,18 +78,17 @@ Frozen references check numerical and encoding behavior for the tested cases.
 ## Color handling
 
 By default, image processing applies EXIF orientation and converts supported RGB
-matrix/TRC ICC profiles to sRGB. Unsupported transforms fall back to Little CMS,
+matrix/TRC ICC profiles to sRGB. Other profiles can fall back to Little CMS,
 which can produce different numerical results.
 Reference JPEG export uses quality 100, 4:2:0 chroma subsampling, and no embedded
-profile. In-memory processing retains color interpretation metadata for Pillow
-inputs, while NumPy callers must supply already interpreted RGB pixels.
+profile. In-memory Pillow results carry an sRGB ICC profile when the sRGB policy
+is used for color conversion. NumPy callers supply already interpreted RGB pixels.
 
 ## Scope
 
-The image workflow supports opaque 8-bit SDR JPEG and PNG. HEIC, high-bit-depth
-images, and arbitrary ICC LUT transforms are outside its supported scope.
-Straight RGBA is available through explicit configuration or the `core` profile,
-as an experimental extension.
+The supported image workflow is opaque 8-bit SDR JPEG and PNG. The gradient
+solver operates on RGB8. Straight RGBA is available through explicit
+configuration or the `core` profile as an experimental extension.
 
 The [video adapter](video.md) prepares inputs through FFmpeg and produces silent
 SDR H.264 output at a constant frame rate. It filters each frame independently,

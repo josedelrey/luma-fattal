@@ -393,7 +393,7 @@ def test_staged_effects_match_cpu_with_fade(cuda_core, coupled_color, monkeypatc
 
 
 def test_cuda_preview_zero_noise_denoising_matches_disabled(cuda_core):
-    from cupyx.scipy.ndimage import convolve1d, uniform_filter
+    from cupyx.scipy.ndimage import convolve1d, uniform_filter  # pyright: ignore[reportMissingImports]
 
     from luma_fattal.denoise import denoise_rgb
     from luma_fattal.ui import server

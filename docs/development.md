@@ -16,10 +16,11 @@ python -m pytest -q
 python scripts/check_presets.py
 ```
 
-[CI](../.github/workflows/ci.yml) runs Ruff and Pyright, plus the test suite and preset checks on Ubuntu
-and Windows with Python 3.11 and 3.12. FFmpeg and ffprobe are installed
-there, and video integration tests must pass. In local runs, those tests are
-skipped if the tools are unavailable.
+[CI](../.github/workflows/ci.yml) runs Ruff lint and Pyright on Ubuntu. It runs
+the Python suite and preset checker on Ubuntu and Windows with Python 3.11
+and 3.12. CI installs FFmpeg and ffprobe and requires video integration tests
+with `LUMA_FATTAL_REQUIRE_VIDEO_TESTS=1`. Local runs skip tests that require
+unavailable tools.
 
 Ruff and Pyright use the repository settings in `pyproject.toml`. Pyright checks
 source, tests, scripts and experiments against `.venv`. SciPy stubs are included
@@ -70,6 +71,31 @@ python scripts/check_presets.py --output outputs/preset-check
 Use a new output directory for each run. Frozen results detect numerical and
 encoding changes in the bundled preset cases.
 
+## Image comparison tools
+
+Use `compare` for two images with matching dimensions. It writes
+`metrics.json` with RGB error, PSNR, SSIM, and exact-pixel agreement.
+Supply the original at the same dimensions to also write a difference panel.
+
+```bash
+luma-fattal compare assets/lantern-garden-fattal-1.png outputs/candidate.png \
+  --original assets/lantern-garden-original.png --output outputs/comparison
+```
+
+Generate deterministic PNG inputs with `probes`, then use `evaluate` to run a
+recipe over those inputs and compare the results with matching reference files:
+
+```bash
+luma-fattal probes outputs/probes
+luma-fattal evaluate outputs/probes local_inputs/references outputs/evaluation \
+  --config configs/fattal-1.yaml --filter both --output-format png
+```
+
+Place references in `local_inputs/references/fattal_1/` and `fattal_2/`, using
+the input stem with a `.png`, `.jpg`, or `.jpeg` extension. The
+`evaluation.json` report lists comparisons and missing references. Use a fresh
+evaluation directory because the generated image outputs cannot be overwritten.
+
 ## README images
 
 Regenerate the opening comparison from its bundled input:
@@ -94,13 +120,11 @@ Its source and filtered result are 1080×810 PNGs.
 
 README image sources and filtered results are kept in `assets/`. Use the ignored
 `local_inputs/` directory for experimental inputs and `outputs/` for generated artifacts.
-
-
 ## Workbench appearance
 
-The Electron shell in `desktop/` displays the same UI in a fixed-size desktop
-window. Development requires Node.js 22.12 or later and the existing Python
-environment with FFmpeg and ffprobe. Install the desktop dependencies once:
+The Electron shell in `desktop/` displays the workbench in a native window.
+Development requires Node.js 22.12 or later, the project's Python environment,
+and FFmpeg and ffprobe on `PATH`. Install the desktop dependencies:
 
 ```bash
 npm --prefix desktop ci
@@ -134,19 +158,34 @@ the source tree during development. A packaged build will read them from its
 resources directory. The backend runs with the session directory as its working
 directory, so starting Electron from another location does not redirect files.
 
-The frameless window uses the interface's blue title bar as its draggable frame,
-with working minimize and close buttons. The bar spans the top edge and stays
-visible while expanded settings scroll beneath it. It opens at up to 1200 by
-900 pixels, constrained by the display work area. Resizing, maximizing, and
-fullscreen are disabled. Electron requests square outer corners.
-At its default size, the textured workbench fills the window and the preview,
-signal, and export panels fit without a page scrollbar. Video and Configuration
-share one row, with Filter preview and Frame / Spectrum aligned below them.
-Opening More settings adds a classic gray scrollbar so the extra controls
-remain reachable. The completed render panel appears beneath Filter preview
-when More settings is open.
-Closing the window exits Electron and stops its Python backend and child
-processes. Active processing is interrupted when the application exits.
+The desktop opens with a 4:3 aspect ratio. Its initial width is about 54% of
+the primary display's longer dimension, constrained by the work area. You can
+resize it within the display and drag it using the title bar. The renderer
+scales the 1200×900 reference layout to fill the window at 100% page zoom.
+Opening **More settings** makes the workbench scroll while the title bar stays
+visible and filter previews stay within reach. The completed render panel sits
+below the previews in this layout. Closing the window stops the Python backend
+and its child processes and interrupts active processing.
+
+Native Open dialogs select videos and YAML, TOML, or JSON recipes. The desktop
+uses native Save dialogs for videos, run records, and saved configurations.
+Browser sessions use file inputs and downloads. Run `npm --prefix desktop test`
+for desktop URL, file handling, and window sizing checks.
+
+The frontend lives in `src/luma_fattal/ui/`. Edit `index.html`, `style.css`,
+`app.js`, and `settings.js` there. Refresh the browser after frontend edits,
+and restart the server after Python edits. The desktop development shell
+launches that same server privately. In this directory, `server.py` handles
+local input copies, configuration validation, previews, render jobs, and
+byte-range media serving. Export uses `process_video(on_progress=...)`.
+Run `python -m pytest -q tests/test_ui.py tests/test_video.py` for focused checks.
+
+Workbench textures, logos, and fonts are in `src/luma_fattal/ui/assets/`.
+The placement and color treatment of `viscera.png`, `panel-078-red.png`, and
+`logo-purple.png` are defined in `style.css`. The workbench serves these
+assets and all frontend code locally.
+
+## Desktop builds and releases
 
 Desktop releases use pinned FFmpeg sources with libx264, zscale and zlib.
 Linux and Windows also include NVENC headers and the Python CUDA extra.
@@ -184,9 +223,9 @@ npm --prefix desktop run package:dir -- --linux
 uv run --locked --extra gpu python scripts/smoke_desktop_backend.py outputs/desktop-app/linux-unpacked/resources
 ```
 
-The assembled Linux prototype is in ignored `outputs/desktop-app/linux-unpacked/`.
-On Linux, the unpacked prototype's Chromium sandbox helper needs root ownership
-and mode 4755 before launching the executable without flags:
+The unpacked Linux app is in `outputs/desktop-app/linux-unpacked/`. On Linux
+systems that restrict unprivileged user namespaces, configure the Chromium
+sandbox helper before launching:
 
 ```bash
 sudo chown root:root outputs/desktop-app/linux-unpacked/chrome-sandbox
@@ -196,7 +235,7 @@ sudo chmod 4755 outputs/desktop-app/linux-unpacked/chrome-sandbox
 
 Reapply those permissions after rebuilding the app. For a temporary local test,
 `./outputs/desktop-app/linux-unpacked/luma-fattal-desktop --no-sandbox` also
-starts the prototype, with Chromium's process sandbox disabled.
+starts the app with Chromium's process sandbox disabled.
 The smoke script generates a short video and checks bundled presets, textures,
 preview frames, processing, export, FFprobe output, and Numba caching from a
 temporary working directory. The desktop workflow builds Windows x64, Linux x64
@@ -210,39 +249,16 @@ sandboxing enabled, then uninstalls it. Publication waits for these checks.
 macOS requires version 14 or newer. The Linux baseline is Ubuntu 22.04
 with desktop GTK/NSS libraries. Intel Mac and Linux ARM builds are not included.
 
-Desktop builds currently have no
-trusted publisher signature. macOS uses ad-hoc signatures and is not notarized.
-Production signing requires separately configured signing credentials.
+Windows builds are unsigned, and macOS builds use ad-hoc signatures without
+notarization.
 Release assets include exact FFmpeg and dependency source archives, their build
 recipe and SHA-256 checksums. Only small source manifests and scripts are tracked
 in Git. Environments, downloaded sources and generated packages stay ignored.
 
 To publish, run the Desktop packages workflow with its `publish` input enabled.
-The publication job waits for CI and every platform to pass on the release commit, creates a draft release,
-uploads the packages, corresponding sources and checksums, then publishes it.
-A matching `v<desktop version>` tag also enables publication. Versions with a
-prerelease suffix are marked as prereleases. Other versions are published as stable. The workflow never
-uploads failed builds to a public release. Release notes are maintained in
-`.github/desktop-release-notes.md`.
-The desktop window uses native Open dialogs for videos and YAML or JSON recipes.
-Save video, Run record, and Save config use native Save dialogs. The browser UI
-continues to use its file inputs and downloads. Run `npm --prefix desktop test`
-for the desktop URL and sizing checks.
-
-The local UI lives in `src/luma_fattal/ui/`. Edit `index.html`, `style.css`, and
-`app.js` directly. The server reads these files on each request, so refresh the
-browser after frontend edits. Restart it after Python changes.
-
-Replace `assets/viscera.png` for the outer frame, or `assets/panel-078-red.png`
-for the video, configuration, and preview panels. The header logo is
-`assets/logo-purple.png`, with its red color shift applied in CSS.
-The texture variables and panel rules in `style.css` control their placement.
-The bundled abstract red, black, and bone texture was generated with the built-in
-image generator. Its brief was dense organic cavities with pale rims, scraped
-membranes, extreme scanned contrast, and early web photomanipulation artifacts.
-No external font, image, analytics, or JavaScript requests are required at runtime.
-
-`server.py` owns local uploads, preset validation, independent preview jobs,
-render jobs, and byte-range media serving. It uses the existing video pipeline
-for export and exposes frame progress through `process_video(on_progress=...)`.
-Run `python -m pytest -q tests/test_ui.py tests/test_video.py` for focused checks.
+The publication job waits for CI and every platform to pass on the release
+commit, creates a draft release, uploads the packages, corresponding sources
+and checksums, then publishes it. Pushing a tag matching the version in
+`desktop/package.json` with the `v` prefix also triggers publication. A version
+with a prerelease suffix is published as a prerelease. The workflow uses the
+[desktop release notes](../.github/desktop-release-notes.md).

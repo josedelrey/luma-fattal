@@ -11,6 +11,8 @@ source .venv/bin/activate
 
 On Windows, use `.venv\Scripts\Activate.ps1` in PowerShell or
 `source .venv/Scripts/activate` in Git Bash.
+You can also prefix a command with `uv run --locked` to run it without
+activation. Commands split across lines with `\` use Bash syntax.
 
 Use `--config` to load a YAML, TOML, or JSON file. Explicit CLI options take
 precedence over file settings. Without `--config`, the application uses built-in
@@ -41,7 +43,7 @@ settings require integers. Booleans must be `true` or `false`. YAML words such a
 `on`, `off`, `yes`, and `no` are strings. Quote numeric strings such as
 `jpeg_subsampling: "420"` and `frame_rate: "30000/1001"`.
 
-Unknown keys, duplicate keys, invalid values, and inheritance cycles are rejected.
+Unrecognized keys, duplicate keys, invalid values, and inheritance cycles are rejected.
 The inherited configuration is validated before CLI overrides, so an override
 cannot repair an invalid file. TOML has no `null` value, so omit optional settings
 to use their defaults.
@@ -67,7 +69,7 @@ dependencies for GPU speedups.
 | Preset | Purpose |
 | --- | --- |
 | [default.yaml](../configs/default.yaml) | General defaults |
-| [high.yaml](../configs/high.yaml) | Legacy alias for general defaults |
+| [high.yaml](../configs/high.yaml) | Alias for general defaults |
 | [fattal-1.yaml](../configs/fattal-1.yaml), [fattal-2.yaml](../configs/fattal-2.yaml) | Full reference effect with smooth shadows |
 | [fattal-1-compressed.yaml](../configs/fattal-1-compressed.yaml) | Smooth shadows, gentle video debanding, standard cleanup 0.75 |
 | [fattal-1-compressed-multiscale.yaml](../configs/fattal-1-compressed-multiscale.yaml) | Compressed preset with scale-separated cleanup |
@@ -80,9 +82,10 @@ so values from a previously selected preset do not carry over. No processing
 behavior depends on the preset filename.
 
 The GUI keeps the same controls for every preset. Seven common effect controls
-are visible initially. **More settings** contains additional effect and numerical
-controls, along with **Video source**, encoding, and GPU performance controls.
-Processing settings, the numerical fields `gradient_threshold`, `log_offset`,
+are visible initially. **More settings** contains collapsible groups for effects,
+numerics, video source, encoding and performance, and image input and export.
+**Effect** opens by default. Processing settings, the numerical fields
+`gradient_threshold`, `log_offset`,
 `detail_level`, `power_mode`, and `luminance_mode`, and the video fields
 `pre_noise_seed`, `frame_rate`, `input_color`, and `input_range` are retained in
 configuration files and can be changed through the CLI or Python API. Visible
@@ -92,7 +95,11 @@ do not affect video processing. Schema version `1` is fixed, and video requires
 one filter rather than `both`. `extends` selects inherited values and is resolved
 before they reach the panel.
 
-Loading a preset applies its full configuration. **Reset** restores the loaded values.
+Loading a preset or opening a file applies its full configuration and sets the
+baseline for **Reset**. The reset arrow beside a control restores that setting
+from the baseline. For an effect with stage buttons, the arrow also restores the
+stage selections and amounts. The curve reset buttons restore the curve points,
+and the dry/wet row has its own reset arrow.
 **Save…** beside the filter saves the current configuration without rendering.
 **Save config** in the completed output panel saves the configuration used for
 that render. Both produce a complete JSON file that can be reopened in the GUI
@@ -103,8 +110,9 @@ the sliders' practical increments. Blank GPU iterations use `numerics.iterations
 
 Use `extends` to inherit from a parent configuration and override selected settings.
 Parent paths are relative to the child file. Named sections merge by setting,
-and the child can add sections absent from its parent. For example, save this
-file beside the presets:
+and the child can add sections absent from its parent. A child that supplies
+`effect_stages` replaces that entire map. For example, save this file beside the
+presets:
 
 ```yaml
 extends: fattal-1.yaml
@@ -145,14 +153,19 @@ noise combinations can exceed the solver's numeric range on some images.
 | `parameters.halation` | `0` | `0–500`. Adds a red-orange glow around bright regions. |
 | `parameters.posterize` | `0` | `0–100`. Progressively reduces the number of levels per RGB channel from 256 to 4. |
 | `parameters.local_contrast` | `0` | `0–300`. Amplifies brightness differences from a broad local average. |
-| `parameters.chroma_bleed` | `0` | `0–100`. Trails colors horizontally to the right across up to roughly one sixteenth of the image width while preserving each pixel’s weighted brightness before clipping. |
+| `parameters.chroma_bleed` | `0` | `0–100`. Trails colors horizontally to the right across roughly one eighth of the working width while preserving each pixel's weighted brightness before clipping. |
 | `parameters.split_tone` | `0` | `0–100`. Tints shadows violet-blue and highlights amber, with the strongest tint between the midtones and the black or white endpoints. |
 | `parameters.pre_curve_0`, `pre_curve_25`, `pre_curve_50`, `pre_curve_75`, `pre_curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied to source pixels before luminance and filtering. |
-| `parameters.curve_0`, `curve_25`, `curve_50`, `curve_75`, `curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied after brightness and contrast. These existing keys retain the post curve for compatibility. |
-| `parameters.pre_curve_wet`, `post_curve_wet` | `100` | Curve blend percentage. `0` bypasses the corresponding curve and `100` applies it fully. |
+| `parameters.curve_0`, `curve_25`, `curve_50`, `curve_75`, `curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied after brightness and contrast. |
+| `parameters.pre_curve_wet`, `post_curve_wet` | `100` | Signed curve blend percentage. `0` bypasses the curve, `100` applies it fully, and values outside `0–100` extrapolate before clipping. |
+| `parameters.pre_curve_points`, `curve_points` | `null` | A list of 2–16 `[input, output]` pairs for the pre or post curve. Both coordinates use `0–100`. Inputs must increase strictly from `0` to `100`. A list overrides the corresponding five scalar points. |
+| `parameters.effect_stages` | `{}` | Map from effect names to stage selections and optional Pre strengths. See below. |
 
-In **More settings → Effect**, Highlight compression through Split tone each
-have independent **Pre** and **Post** buttons. Post is selected by default.
+### Selecting effect stages
+
+In **More settings → Effect**, the 12 controls from Highlight compression through
+Split tone each have independent **Pre** and **Post** buttons. Post is selected
+by default.
 Pre changes the working pixels that go into Fattal. Post changes the filtered
 pixels before enlargement and Fade. Select both for independent sliders.
 Turning off both bypasses the effect. The first Pre selection copies the
@@ -172,10 +185,20 @@ parameters:
       pre_strength: 50
 ```
 
-Existing effect keys hold the Post values. In a hand-written recipe, omit
-`pre_strength` to use the same amount at both stages.
+The scalar effect keys hold the Post values. In a hand-written recipe, omit
+`pre_strength` to use the corresponding scalar value for Pre. Each stage entry
+defaults to `pre: false` and `post: true`. A Pre strength accepts the same values
+as its scalar effect key.
 
-Each curve starts with five evenly spaced input levels and interpolates smoothly between points. Click anywhere in the graph to add a point at that input and output (up to 16 total), drag points to adjust them, or select an interior point and press Delete or Backspace to remove it. Arrow keys select points and adjust their output. The optional `parameters.pre_curve_points` and `parameters.curve_points` lists store `[input, output]` pairs from 0 to 100; when absent, the original five settings remain in use. The pre curve operates on working-resolution RGB8 pixels before source cleanup and the solve. Final fade still blends against the original input.
+### Editing curves
+
+The default curves have five evenly spaced input levels. The workbench
+interpolates smoothly between the points. Click the graph to add a point, drag
+to adjust it, or select an interior point and press Delete or Backspace to
+remove it. Left and Right select points, and Up and Down adjust their output.
+The red line shows the curve and the cyan line shows the result at the current
+dry/wet amount. The pre curve runs on working-resolution RGB8 before any Pre
+effects and video source treatments. Final Fade uses the prepared original.
 
 For gradients above `numerics.gradient_threshold`, attenuation at each scale is
 `((gradient + noise / 100) / ((alpha / 100) * mean_gradient))^(beta / 100 - 1)`.
@@ -207,10 +230,8 @@ See [processing order](method.md#processing-order) for interactions between cont
 Every preset uses the same fixed input-area cap of 8,000,000 pixels and
 working longest edge of 1536 pixels. The filtered image is enlarged to the
 prepared input dimensions afterward. The area cap can reduce output dimensions
-for large inputs. A fully bypassed effect preserves the original dimensions.
-
-Older configuration files still load. Their `device_class`, `max_edge`,
-`max_input_pixels`, `limit_input_pixels`, and `resize` settings are ignored.
+for large inputs. A fully bypassed effect preserves the input dimensions at the filtering stage.
+Video can still apply aspect ratio correction, rotation and output padding.
 
 ### Image input
 
@@ -249,7 +270,7 @@ or in-memory array outputs.
 | `numerics.normalization_floor` | `0.0001` | Nonnegative and representable in float32. Fallback for nonpositive normalized brightness and all-zero normalization input. |
 | `numerics.gradient_threshold` | `0.0001` | Nonnegative and representable in float32. Gradients at or below this magnitude retain neutral attenuation at that scale. |
 | `numerics.log_offset` | `0.01` | Greater than `0` and representable in float32. Offset added before the luminance logarithm and subtracted after exponentiation. Avoids log-of-zero and changes dark-region behavior. |
-| `numerics.shadow_threshold` | `6` | Signed integer within the solver’s indexing range. Original-source luminance cutoff for preserving source RGB before post adjustments. |
+| `numerics.shadow_threshold` | `6` | Signed integer within the solver’s indexing range. Luminance cutoff for preserving the prepared working RGB before Post adjustments. |
 | `numerics.detail_level` | `0` | Integer ≥ `0`. Number of finest attenuation scales to omit. If all are omitted, attenuation is neutral, but reconstruction and normalization still run. |
 | `numerics.power_mode` | `approximate` | `approximate` uses reference power approximations. `standard` uses NumPy float64 powers for attenuation and color reconstruction, narrowing attenuation to float32. |
 | `numerics.shadow_softness` | `0` | Nonnegative integer within the solver’s indexing range. Half-width of the smooth transition around `shadow_threshold`, in source luminance levels. `0` keeps a hard cutoff. Transition endpoints are clamped to `0–255`. |
@@ -293,7 +314,8 @@ generated source noise, and the Fattal effect. It estimates noise in RGB detail
 bands at three scales, including correlated grain, and shrinks detail according
 to local signal energy. Floating-point RGB and luminance avoid a new RGB8
 quantization step. Frames are independent, with no temporal color averaging.
-Original pixels still control shadow protection and Fade.
+Shadow protection uses working RGB before source treatments. Fade uses the
+prepared original.
 
 All presets and API defaults leave denoising disabled at `0.0`. Enable it with
 `video.denoise` or `--denoise`, for example `--denoise 0.5`. Very fine texture
@@ -307,8 +329,7 @@ grain and detail. Intentional source noise is added after denoising when enabled
 ### Smooth-area cleanup
 
 Cleanup runs at working resolution before the Fattal effect. Its mask protects
-texture and abrupt edges. Original pixels still control shadow protection and
-Fade. Cleanup can change smooth skin and grain.
+texture and abrupt edges. Cleanup can change smooth skin and grain.
 
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
@@ -321,7 +342,6 @@ Fade. Cleanup can change smooth skin and grain.
 
 Generated noise enters floating-point RGB and luminance after denoising and
 cleanup and before the effect. The same change enters every RGB channel.
-Original pixels still control shadow protection and Fade.
 
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
@@ -337,12 +357,16 @@ hyphens, such as `--tone-strength 60` and `--pre-noise-rms 0.35`.
 `output.format` uses `--output-format`. Boolean settings also accept a `--no-`
 form, such as `--no-embed-icc` and `--no-pre-noise-masked`.
 `--jpeg-background` takes three integers, such as `--jpeg-background 255 255 255`.
-`schema_version` and `extends` are file-only settings.
+`schema_version`, `extends`, `parameters.effect_stages`, and the two custom curve
+point lists have no CLI overrides. To replace custom points with the five
+scalar settings, clear the corresponding list in the recipe. A scalar effect
+flag updates the Post value and also supplies the Pre value if Pre is enabled
+and its `pre_strength` is omitted.
 
 Image input/output flags apply to `apply` and `evaluate`. Video flags apply to
 `video`. Effect, processing, and numerical flags apply to all three commands.
 Run `luma-fattal COMMAND --help` for command-specific options.
 
-The legacy `--profile bounded-1536` selects built-in defaults. The legacy
-`--profile core` also allows straight RGBA. Both use the fixed size limits.
-`--profile` cannot be combined with `--config`.
+`--profile bounded-1536` selects built-in defaults, and `--profile core` enables
+straight RGBA under the same fixed size limits. Use either profile without
+`--config`.

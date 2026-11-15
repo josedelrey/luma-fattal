@@ -1838,6 +1838,8 @@ def test_untagged_rgb_assumes_srgb_and_preserves_values(
             observed.append(frame.copy())
             yield frame
 
+    # Observe source order without concurrent filter workers reordering callbacks.
+    monkeypatch.setattr(video.os, "cpu_count", lambda: 1)
     monkeypatch.setattr(video, "process_frames", observe)
     record = process_video(
         source,

@@ -7,7 +7,8 @@
 Install `ffmpeg` and `ffprobe` so they are available on `PATH`. FFmpeg must include
 `zscale` and `libx264` for CPU encoding and fallback, plus `bwdif` for
 interlaced input, `tonemap` for HDR, and `deblock` or `deband` if you enable those
-source treatments. No additional Python packages are required.
+source treatments. Desktop downloads bundle both tools. For CLI runs, use
+`--ffmpeg` and `--ffprobe` to select executables outside `PATH`.
 
 Inputs are decoded and prepared through FFmpeg without an intermediate video
 file. Common RGB and YUV formats, including higher bit depths, are converted to
@@ -22,8 +23,8 @@ luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
 
 By default, a separate decoding pass checks timing, geometry, and color throughout
 the stream. Fast presets validate compatible inputs during the main decode.
-Filtering follows frame order with bounded buffering. Optional pipeline workers
-overlap decoding and encoding.
+Filtering and encoding use bounded buffering. With pipeline slots enabled, the
+decoder and encoder can overlap filtering, while the export retains frame order.
 
 Filtered frames are converted back to limited-range BT.709 for H.264 MP4 output,
 using zscale's display-referred BT.709/BT.1886 interpretation.
@@ -41,7 +42,9 @@ using zscale's display-referred BT.709/BT.1886 interpretation.
 - Interlaced frames are deinterlaced with `bwdif`, keeping one frame per input
   frame. Non-square pixels are resized to square pixels, with unspecified pixel
   shape treated as square. Display rotations in multiples of 90 degrees are
-  applied. Reflected, skewed, and perspective display matrices are rejected.
+  applied. Display translation, such as the offset in some phone camera files,
+  is normalized to the origin. Reflected, scaled, skewed, and perspective display
+  matrices are rejected.
 - Constant-frame-rate input keeps its cadence by default. Variable timing is
   converted to the source's nominal rate, falling back to its average rate.
   Frames are duplicated or dropped as needed. Use `--frame-rate` to select a rate
@@ -64,7 +67,8 @@ color, geometry, timing, and preparation filters.
 The output contains only silent, opaque video. Audio, subtitles, alpha, and other
 streams are discarded. If an output dimension is odd, edge pixels are repeated
 at the right or bottom to accommodate YUV420P. Image ICC, EXIF, and JPEG/PNG export
-options do not apply to video.
+options do not apply to video. Use a new `.mp4` path with no existing video or
+matching `.meta.json` sidecar.
 
 Use `--progress` to report filtered frames and speed on stderr, with estimated
 remaining time when the frame count is known before filtering. Rate conversion
@@ -152,10 +156,11 @@ buffer capacity. Source treatments with temporal history run in frame order,
 and filtered frames are encoded in their original order. The desktop can reuse
 its warmed CUDA core for export while retaining the normal calibration checks.
 
-Cached calibration measures CPU/GPU processing and checks the first frame
-for visual agreement. Device, driver, configuration, geometry, or implementation
-changes invalidate the cache. GPU failures or sustained slow processing switch
-to the CPU, preserving source cleanup history.
+Calibration measures CPU/GPU processing and checks the first frame for RGB
+agreement. A cache hit reuses timings and still checks first-frame RGB. The
+cache is specific to the device, driver, configuration, geometry, and
+implementation. GPU failures or sustained slow processing switch to the CPU,
+preserving source cleanup history.
 
 See the [configuration reference](configuration.md#encoding-and-source-preparation)
 for individual performance controls and validation modes.
@@ -218,12 +223,16 @@ See [source denoising](configuration.md#source-denoising),
 
 ## Local workbench
 
-Run `uv run --locked python -m luma_fattal.ui` from the repository root.
+Launch the desktop app from a [desktop download](../README.md#install), or run
+`uv run --locked python -m luma_fattal.ui` from the repository root for the
+browser workbench. If you installed the optional CUDA dependencies, include
+`--extra gpu` after `--locked` to keep them installed when launching with `uv`.
 Use `--no-browser` to open the printed URL yourself, or `--port 8765` for a
-fixed port. The UI uses a loopback-only Python server and requires no Node build
-or additional Python dependencies. To use the same interface in its own desktop
-window, follow the [Electron development setup](development.md#workbench-appearance).
-The desktop shell starts and stops its own local server automatically.
+fixed browser session port. Use `--presets DIRECTORY` to load a different
+directory of YAML presets. The browser workbench uses a loopback-only Python
+server and requires no Node build. The desktop starts and stops its own local
+server. See the [Electron development setup](development.md#workbench-appearance)
+to launch the desktop from source.
 
 1. Open a source video. Original playback depends on browser codec support.
    FFmpeg preview and rendering can still work for a source the browser cannot play.
@@ -232,54 +241,57 @@ The desktop shell starts and stops its own local server automatically.
    browser, use Open again to select each requested parent file. Cancel the file
    picker to abandon an incomplete import. Bundled presets resolve inheritance
    automatically.
-3. Adjust sliders, numeric fields, and selectors. **More settings** always shows
-   the same controls, including settings inactive for the selected mode or backend.
-   Automatic previews update after you release a slider or finish typing a value.
-   You can keep editing while previews render. A newer preview starts when
-   the frames already running finish. Turn off auto preview to make several
-   changes, then Refresh. **Save…** beside the filter
-   saves your current configuration before rendering, and **Reset** restores the
-   loaded preset values.
+3. Adjust the visible controls or open **More settings** for the effect curves,
+   Pre and Post controls, video source treatments, encoding, and other settings.
+   Auto preview updates after a slider release or a pause in typing. You can
+   keep editing while a preview runs. To batch changes, turn off **auto** and
+   click **Refresh** when ready. **Save…** beside the filter exports the current
+   configuration as JSON, and **Reset** restores the selected recipe.
 4. Inspect the samples at 10%, 30%, 50%, 70%, and 90% of the clip. Click a sample
    to open the full-size filtered image. Escape closes it.
-5. Process video. Auto preview and Refresh remain available while it renders.
-   Settings edits apply to the previews and your next render. The current render
-   keeps its starting settings. When it finishes, switch between Original and
-   Processed playback or save the MP4, run metadata, and render configuration.
+5. Click **Process video**. The workbench shows progress, speed and ETA as
+   estimates become available. Click **Stop** to cancel. Auto preview and
+   Refresh remain available during export. Settings edits apply to previews
+   and your next render. The current render uses its starting settings.
+6. When export finishes, switch between **Original** and **Processed** playback.
+   Use **Save video** for the MP4, **Run record** for the metadata, and
+   **Save config** for the settings used in that render. The desktop uses
+   native save dialogs, and the browser uses downloads.
 
 Full preview samples appear in order as they finish. Previews use the video
 adapter's geometry, color conversion, source treatments, and normal filter
 resolution. Auto backend mode can reuse CUDA after background initialization.
 The CPU handles previews while CUDA is warming up, unavailable, or reserved
-for an Auto render. When decoded samples are already cached, the CPU filters
-the first frame before assigning the rest to up to three workers.
-Temporal cleanup history, cadence conversion,
-and export-specific GPU settings can affect the rendered video.
-Short clips may repeat their last available frame. Full previews can take longer
-for large inputs. Preview and render speeds can drop when both run together.
+for an Auto render. In CPU mode, cached decoded samples allow up to three
+workers to filter the remaining frames after the first. An unchanged source and
+Pre stage can let a Post edit reuse the solved brightness. Post finishing and
+Fade edits can also reuse the recombined RGB.
 
-Uploads and outputs stay under `outputs/ui/<session>/` by default. The app
-serves the current previews from memory and uses lossless PNG files for any
-previews that exceed the memory budget.
-Use `--output-dir` to choose another location. Files remain after shutdown, even
-if you do not download the output. Remove old sessions manually when no longer
-needed. A browser refresh starts a fresh UI state. Previous files remain on disk,
-but are not restored into the interface. Stop the server with Ctrl+C. Only the
-printed session URL grants access to its API and media. No files go to a hosted
-service. Uploads are streamed to disk with a 20 GiB per-file limit.
+Each sample uses its own source-treatment state. Export processes the full
+sequence, so temporal mask history, cadence conversion, and export-specific
+GPU settings can change the result. Short clips can repeat the last available
+frame. Processing previews and export at the same time can slow both.
 
-The signal analyzer below the configuration panel samples the original source
-when a clip loads. It measures 16 evenly spaced frames, reduced to at most
-128 pixels on the longest edge before pixel statistics. The plots show RGB
-means and encoded-sRGB luma over time, a mean 32-bin luma histogram, and a numeric readout with sampled RGB differences, luma standard deviation
-and mean spatial differences. Hover the plot to inspect a sample. SCAN repeats the measurement. These approximate source
-statistics do not change with effect presets. Temporal differences compare
-widely spaced samples and do not estimate optical flow or continuous motion.
-The panel updates as samples arrive and does not keep decoding after completion.
+### Session storage
 
-If the running server predates the analysis endpoint and returns HTTP 404, the UI
-falls back to the browser's video decoder for the same 16 low-resolution samples.
-It uses a separate video element and leaves player position unchanged. Browser
-color conversion and seeking can differ from FFmpeg, so the approximate readings
-can differ. A codec unsupported by the browser requires restarting the current
-server to enable FFmpeg analysis. No new dependencies are required.
+Opening a video streams a local copy to the session directory, up to 20 GiB
+per file. The session also holds rendered MP4s and run records. Previews are
+served from memory, with a lossless PNG on disk when the memory budget is
+exceeded. Browser sessions use `outputs/ui/<session>/` by default. Pass
+`--output-dir` to use a different base directory. Desktop sessions use
+`sessions/` inside the application's OS data directory.
+
+Session files persist across shutdowns and can be removed manually when no
+longer needed. Refreshing the browser clears the workbench state. Stop the
+browser server with Ctrl+C, or close the desktop window to stop its server.
+The browser session URL contains the token that grants access to its local
+API and media. All files are processed locally.
+
+### Frame / Spectrum
+
+The spectrum shows the spatial frequencies of luminance in the frame
+currently displayed by the video player. It uses a 64×64 sample and shows
+low, mid, and high frequency readouts. It updates during playback and on
+seeks. Use **SAMPLE** to inspect the current frame manually. Switching from
+**Original** to **Processed** changes the video the panel samples. The
+spectrum is a visual display and has no effect on processing or export.

@@ -5,8 +5,8 @@
 [![License](https://img.shields.io/badge/License-MIT%20%2B%20BSD--3--Clause-22A559)](LICENSE)
 
 Luma Fattal provides image and video stylization through gradient-domain
-filtering. Its processing pipeline is configurable through a Python API or the
-command line.
+filtering. Configure it through the desktop or browser video workbench, the
+command line, or the Python API.
 
 | <img src="assets/lantern-garden-original.png" alt="Final Fantasy XIV input" width="280" height="350" align="middle"> | <img src="assets/lantern-garden-fattal-1.png" alt="Fattal 1 result" width="280" height="350" align="middle"> | <img src="assets/lantern-garden-fattal-2.png" alt="Fattal 2 result" width="280" height="350" align="middle"> |
 | :---: | :---: | :---: |
@@ -59,7 +59,8 @@ This writes `fattal1.png`, `fattal2.png`, and their `.meta.json` run records to
 `outputs/comparison/`. Replace the input path with your own JPEG or PNG.
 Explicit command-line options, including `--filter`, override the YAML settings
 for that run.
-For one result, pass an output filename and select `--filter fattal1` or `fattal2`.
+For one result, pass an output filename and select `--filter fattal1` or
+`--filter fattal2`.
 
 The [configuration guide](docs/configuration.md) covers presets, tone controls,
 resolution, and export. Use `luma-fattal apply --help` for CLI options.
@@ -96,6 +97,7 @@ See the [video guide](docs/video.md#local-workbench) for storage and preview lim
 ## Documentation
 
 - [Configuration](docs/configuration.md): presets, inheritance, and effect controls.
+- [Video](docs/video.md): input support, encoding, GPU filtering, and the workbench.
 - [Python API](docs/python-api.md): images, arrays, and decoded frame streams.
 - [Method](docs/method.md): numerical behavior, color handling, and scope.
 - [Experiments](docs/experiments.md): source cleanup and pre-filter noise studies.
@@ -126,5 +128,6 @@ See the [source treatment studies](docs/experiments.md) for the filtering and
 noise experiments.
 
 Project-authored code is licensed under MIT. Color conversion includes skcms
-adaptations under BSD-3-Clause. Image credits and complete notices are in
+adaptations under BSD-3-Clause, and bundled fonts use OFL-1.1. Image credits and
+complete notices are in
 [LICENSE](LICENSE).
