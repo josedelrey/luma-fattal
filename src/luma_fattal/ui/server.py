@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from fractions import Fraction
+from functools import partial
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
@@ -666,8 +667,10 @@ class Workbench:
                 except (ValueError, OSError, subprocess.SubprocessError, OverflowError):
                     pass
 
+                check_cancelled = partial(self.check_cancelled, identifier)
+
                 def report_progress(count, total):
-                    self.check_cancelled(identifier)
+                    check_cancelled()
                     self.update(
                         identifier,
                         completed=count,
@@ -676,7 +679,7 @@ class Workbench:
                     )
 
                 with self.preview_cuda.for_export(config) as cuda:
-                    self.check_cancelled(identifier)
+                    check_cancelled()
                     cuda_options: dict[str, Any] = (
                         {} if cuda is None else {"_cuda_core": cuda}
                     )
@@ -685,9 +688,10 @@ class Workbench:
                         folder / "processed.mp4",
                         config=config,
                         on_progress=report_progress,
+                        _check_cancelled=check_cancelled,
                         **cuda_options,
                     )
-                    self.check_cancelled(identifier)
+                    check_cancelled()
                 with self.lock:
                     if self.jobs[identifier]["state"] == "cancelling":
                         raise _ProcessingCancelled()
@@ -840,9 +844,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         app = self.app
         path = urlsplit(self.path).path
+        cancel_request = path.startswith("/api/cancel/")
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= (20 * 1024**3 if path == "/api/upload" else 1024**2):
+            minimum = 0 if cancel_request else 1
+            maximum = 20 * 1024**3 if path == "/api/upload" else 1024**2
+            if not minimum <= length <= maximum:
                 raise ValueError("Request is empty or too large")
             if path == "/api/upload":
                 identifier = uuid4().hex
@@ -938,7 +945,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path in ("/api/preview", "/api/process", "/api/analyze"):
                 data = json.loads(self.rfile.read(length))
                 self.send_json(dict(job=app.submit(path.rsplit("/", 1)[-1], data)))
-            elif path.startswith("/api/cancel/"):
+            elif cancel_request:
                 app.cancel(path.rsplit("/", 1)[-1])
                 self.send_json(dict(ok=True))
             else:

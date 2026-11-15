@@ -19,7 +19,7 @@ from dataclasses import asdict, replace
 from fractions import Fraction
 from importlib.metadata import version
 from pathlib import Path
-from threading import Condition
+from threading import Condition, Event
 from typing import Any
 
 import numpy as np
@@ -43,6 +43,56 @@ def _digest(path):
     return digest.hexdigest()
 
 
+def _stop_process(process):
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        # Chocolatey shims launch a child that owns the files and pipes.
+        # Stop the tree before the launcher can leave that child orphaned.
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            process.terminate()
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+@contextmanager
+def _watch_process(process, check_cancelled: Callable[[], None]):
+    """Stop the subprocess even when its caller is blocked reading a pipe."""
+    finished = Event()
+
+    def watch():
+        while not finished.wait(0.05):
+            try:
+                check_cancelled()
+            except Exception:
+                _stop_process(process)
+                raise
+
+    check_cancelled()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        watcher = executor.submit(watch)
+        try:
+            yield
+        finally:
+            finished.set()
+            watcher.result()
+    check_cancelled()
+
+
 @contextmanager
 def _process(command, **kwargs):
     # Keep diagnostics off pipes so a verbose failure cannot deadlock processing.
@@ -62,28 +112,7 @@ def _process(command, **kwargs):
             yield process, log
         finally:
             # Also runs after cancellation, failed filtering or a broken encoder pipe.
-            if process.poll() is None:
-                if os.name == "nt":
-                    # Chocolatey shims launch a child that owns the files and pipes.
-                    # Stop the tree before the launcher can leave that child orphaned.
-                    try:
-                        subprocess.run(
-                            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            creationflags=subprocess.CREATE_NO_WINDOW,
-                            timeout=5,
-                            check=False,
-                        )
-                    except (OSError, subprocess.TimeoutExpired):
-                        process.terminate()
-                else:
-                    process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
+            _stop_process(process)
             for pipe in (process.stdin, process.stdout):
                 if pipe is not None:
                     try:
@@ -351,7 +380,14 @@ class _TimingAudit:
         return rate, self.count, self.first, bool(self.variable), bool(self.interlaced)
 
 
-def _scan_timing(path, stream, executable, settings):
+def _scan_timing(
+    path,
+    stream,
+    executable,
+    settings,
+    *,
+    check_cancelled: Callable[[], None] | None = None,
+):
     """Scan source timing and reject changing geometry or color interpretation."""
     audit = _TimingAudit(stream, settings)
     entries = (
@@ -373,9 +409,12 @@ def _scan_timing(path, stream, executable, settings):
         "compact=p=0",
         str(path),
     ]
-    with _process(command, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL) as (
-        p,
-        log,
+    with (
+        _process(command, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL) as (
+            p,
+            log,
+        ),
+        _watch_process(p, check_cancelled) if check_cancelled else nullcontext(),
     ):
         assert p.stdout is not None
         for raw in p.stdout:
@@ -873,6 +912,7 @@ def process_video(
     ffmpeg: str | Path = "ffmpeg",
     ffprobe: str | Path = "ffprobe",
     _cuda_core=None,
+    _check_cancelled: Callable[[], None] | None = None,
 ) -> dict:
     """Prepare and filter video into silent, square-pixel SDR H.264 MP4.
 
@@ -925,7 +965,7 @@ def process_video(
         interlaced = stream.get("field_order") not in (None, "unknown", "progressive")
     else:
         source_rate, source_count, first, variable, interlaced = _scan_timing(
-            source, stream, ffprobe, settings
+            source, stream, ffprobe, settings, check_cancelled=_check_cancelled
         )
     rate = (
         source_rate if settings.frame_rate == "auto" else Fraction(settings.frame_rate)

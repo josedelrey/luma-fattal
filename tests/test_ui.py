@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import time
+from functools import partial
 from io import BytesIO
 
 import numpy as np
@@ -21,6 +22,37 @@ from luma_fattal.ui.server import (
 from luma_fattal.video import _decode_command, _geometry, _probe, _resolve_color
 
 
+def _request(app, path, *, method="GET", body=b"", headers="", token=True):
+    from socket import socket
+    from types import SimpleNamespace
+    from typing import cast
+
+    from luma_fattal.ui.server import Handler, Server
+
+    class Connection:
+        def __init__(self, request):
+            self.request = BytesIO(request)
+            self.response = BytesIO()
+
+        def makefile(self, *_):
+            return self.request
+
+        def sendall(self, data):
+            self.response.write(data)
+
+    separator = "&" if "?" in path else "?"
+    target = path + (f"{separator}token={app.token}" if token else "")
+    raw = (
+        f"{method} {target} HTTP/1.0\r\nHost: 127.0.0.1:8765\r\nContent-Length: {len(body)}\r\n{headers}\r\n".encode()
+        + body
+    )
+    server = cast(Server, SimpleNamespace(workbench=app, server_port=8765))
+    connection = Connection(raw)
+    Handler(cast(socket, connection), ("127.0.0.1", 1), server)
+    head, result = connection.response.getvalue().split(b"\r\n\r\n", 1)
+    return head, result
+
+
 def test_cancel_export_waits_for_cleanup_and_discards_output(tmp_path, monkeypatch):
     import threading
 
@@ -30,7 +62,7 @@ def test_cancel_export_waits_for_cleanup_and_discards_output(tmp_path, monkeypat
     app.uploads["test"] = dict(path=tmp_path / "source.mp4", duration=1)
     entered, resume = threading.Event(), threading.Event()
 
-    def process(source, destination, *, config, on_progress):
+    def process(source, destination, *, config, on_progress, _check_cancelled):
         destination.write_text("partial")
         entered.set()
         assert resume.wait(10)
@@ -41,7 +73,10 @@ def test_cancel_export_waits_for_cleanup_and_discards_output(tmp_path, monkeypat
     try:
         identifier = app.submit("process", dict(upload="test", config=Config().to_dict()))
         assert entered.wait(10)
-        app.cancel(identifier)
+        cancel = f"/api/cancel/{identifier}"
+        assert b"403" in _request(app, cancel, method="POST", token=False)[0]
+        assert app.jobs[identifier]["state"] == "running"
+        assert b"200" in _request(app, cancel, method="POST")[0]
         assert app.jobs[identifier]["state"] == "cancelling"
         assert app.busy
         resume.set()
@@ -51,6 +86,84 @@ def test_cancel_export_waits_for_cleanup_and_discards_output(tmp_path, monkeypat
         assert not (app.directory / identifier).exists()
     finally:
         resume.set()
+        app.shutdown()
+
+
+def test_stop_interrupts_timing_scan_and_allows_retry(tmp_path, tools, monkeypatch):
+    import sys
+    from threading import Event
+
+    from test_video import make_clip
+
+    from luma_fattal import video
+    from luma_fattal.ui import server
+
+    source = make_clip(tmp_path / "source.mp4", tools, width=48, height=36)
+    stream = _probe(source, tools[1])
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    app.uploads["test"] = dict(path=source, duration=0.2, stream=stream)
+    scanned_frame = Event()
+    probes = []
+    popen = subprocess.Popen
+    audit_frame = video._TimingAudit.add
+
+    def stall_first_scan(command, *args, **kwargs):
+        if "-show_frames" in command and not probes:
+            row = f"pts=0|width={stream['width']}|height={stream['height']}"
+            probe = popen(
+                [
+                    sys.executable,
+                    "-c",
+                    f"import time\nprint({row!r}, flush=True)\ntime.sleep(45)\n",
+                ],
+                *args,
+                **kwargs,
+            )
+            probes.append(probe)
+            return probe
+        return popen(command, *args, **kwargs)
+
+    def scan_frame(audit, fields):
+        audit_frame(audit, fields)
+        scanned_frame.set()
+
+    monkeypatch.setattr(subprocess, "Popen", stall_first_scan)
+    monkeypatch.setattr(video._TimingAudit, "add", scan_frame)
+    monkeypatch.setattr(
+        server,
+        "process_video",
+        partial(video.process_video, ffmpeg=tools[0], ffprobe=tools[1]),
+    )
+    config = Config(parameters=FilterParams(fade=100))
+    payload = json.dumps(dict(upload="test", config=config.to_dict())).encode()
+
+    def submit():
+        head, body = _request(app, "/api/process", method="POST", body=payload)
+        assert b"200" in head, body
+        return json.loads(body)["job"]
+
+    try:
+        cancelled = submit()
+        assert scanned_frame.wait(10), app.jobs[cancelled]
+        assert probes[0].poll() is None
+        assert b"200" in _request(app, f"/api/cancel/{cancelled}", method="POST")[0]
+        app.executor.submit(lambda: None).result(timeout=10)
+        assert probes[0].poll() is not None
+        head, body = _request(app, f"/api/jobs/{cancelled}")
+        assert b"200" in head and json.loads(body)["state"] == "cancelled"
+        assert not (app.directory / cancelled).exists()
+
+        retried = submit()
+        app.executor.submit(lambda: None).result(timeout=20)
+        head, body = _request(app, f"/api/jobs/{retried}")
+        job = json.loads(body)
+        assert b"200" in head and job["state"] == "done", job
+        output = app.directory / job["url"].removeprefix("/media/")
+        assert _probe(output, tools[1])["codec_name"] == "h264"
+        assert b"200" in _request(app, job["metadata"])[0]
+    finally:
+        for probe in probes:
+            video._stop_process(probe)
         app.shutdown()
 
 
@@ -296,38 +409,8 @@ def test_workbench_rejects_invalid_config_and_retains_source(tmp_path):
 
 
 def test_http_auth_import_ranges_and_path_boundaries(tmp_path, monkeypatch):
-    import io
-    from socket import socket
-    from types import SimpleNamespace
-    from typing import cast
-
-    from luma_fattal.ui.server import Handler, Server
-
     app = Workbench(tmp_path / "session", tmp_path / "no-presets")
-    server = cast(Server, SimpleNamespace(workbench=app, server_port=8765))
-
-    class Connection:
-        def __init__(self, request):
-            self.request = io.BytesIO(request)
-            self.response = io.BytesIO()
-
-        def makefile(self, *_):
-            return self.request
-
-        def sendall(self, data):
-            self.response.write(data)
-
-    def request(path, *, method="GET", body=b"", headers="", token=True):
-        separator = "&" if "?" in path else "?"
-        target = path + (f"{separator}token={app.token}" if token else "")
-        raw = (
-            f"{method} {target} HTTP/1.0\r\nHost: 127.0.0.1:8765\r\nContent-Length: {len(body)}\r\n{headers}\r\n".encode()
-            + body
-        )
-        connection = Connection(raw)
-        Handler(cast(socket, connection), ("127.0.0.1", 1), server)
-        head, result = connection.response.getvalue().split(b"\r\n\r\n", 1)
-        return head, result
+    request = partial(_request, app)
 
     try:
         assert b"403" in request("/api/presets", token=False)[0]
@@ -523,7 +606,7 @@ def test_streaming_export_estimates_progress_total(
     monkeypatch.setattr(server, "_probe", lambda *_: {"avg_frame_rate": "24/1"})
     snapshots = []
 
-    def process(source, destination, *, config, on_progress):
+    def process(source, destination, *, config, on_progress, _check_cancelled):
         assert app.active_job is not None
         identifier = app.active_job
         app.job_started[identifier] = time.monotonic() - 10
@@ -589,7 +672,7 @@ def test_preview_runs_while_export_borrows_cuda(tmp_path, monkeypatch, fails):
         assert params == edited.parameters
         return np.full_like(frame, 42)
 
-    def process(source, destination, *, config, on_progress, _cuda_core):
+    def process(source, destination, *, config, on_progress, _cuda_core, _check_cancelled):
         assert _cuda_core is cuda
         assert cuda.solver.parallel_edge
         assert config.parameters != edited.parameters
