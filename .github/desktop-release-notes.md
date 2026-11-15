@@ -1,6 +1,19 @@
-Desktop release of Luma Fattal. Python, Electron, FFmpeg, ffprobe,
+The first stable desktop release of Luma Fattal. Python, Electron, FFmpeg, ffprobe,
 presets and processing dependencies are included. Python and Node.js do not
 need to be installed to run these downloads.
+
+## Changes since beta.4
+
+- Apply supported effects before filtering, after filtering, or at both stages
+  with independent strengths. Chroma bleed now extends farther across the frame.
+- Stop an export during the video timing scan and retry the same clip after
+  cancellation cleans up partial output.
+- The desktop preset importer asks you to select inherited files outside the
+  recipe folder or when it cannot find them there.
+- Fixed CUDA denoising previews, desktop resize jitter, and gaps around the
+  workbench at some window sizes.
+
+## Downloads
 
 | Download | Platform |
 | --- | --- |
