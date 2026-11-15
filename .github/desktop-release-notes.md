@@ -50,8 +50,9 @@ Each platform build checks the frozen backend, Numba caching, video previews,
 processing, export, UI assets and packaged H.264 playback before publication.
 Checksums verify download integrity and do not replace publisher signatures.
 
-Project code is MIT with the BSD notices in LICENSE. Bundled dependencies retain
-their own licenses. FFmpeg includes libx264 and is distributed under GPL-2.0-or-later.
+Project code is MIT. The bundled color conversion code and fonts carry
+BSD-3-Clause and OFL-1.1 notices in LICENSE. Bundled dependencies retain their
+own licenses. FFmpeg includes libx264 and is distributed under GPL-2.0-or-later.
 The corresponding FFmpeg sources and build recipe are attached to this release.
 Full Python dependency notices are included under the backend's `_internal/licenses/`
 directory. Electron and Chromium notices are also included in the application.

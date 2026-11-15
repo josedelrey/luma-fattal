@@ -3,7 +3,8 @@
 [Overview](../README.md) · [Video controls](video.md) · [Experiment scripts](../experiments/)
 
 These studies compare optional preprocessing treatments for compression artifacts
-that the Fattal filters amplify.
+that the Fattal filters amplify. Use the [configuration reference](configuration.md#smooth-area-cleanup)
+for their controls in the current video pipeline.
 
 ## Multiscale cleanup
 
@@ -91,6 +92,13 @@ resolution, without final enlargement or the production adapter's full-stream
 preflight. Video mode requires FFmpeg and ffprobe.
 It uses the adapter's color defaults and encoder availability check, including
 CPU fallback. Reports record the resolved color and actual encoder.
+
+## Video throughput
+
+Use [the throughput benchmark](video.md#gpu-filtering) to compare two complete
+video runs, including decoding, filtering, and encoding. Its `report.json`
+includes total time and pre-encode RGB fingerprints. When filter timing samples
+are available after warmup, it also reports the median filtering time per frame.
 
 ## Background
 

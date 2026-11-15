@@ -37,8 +37,8 @@ input, add their contributions together, and clip once. Posterize applies last.
 Tone strength blends source and mapped luminance before color reconstruction,
 using working brightness after the pre curve and Pre effects, before denoising,
 cleanup, and noise. Highlight compression scales channels together above a knee
-at 75 percent of white. At full
-strength, it bounds finite, nonnegative RGB peaks. Partial strength may still
+at 75 percent of white. At full strength, it bounds finite, nonnegative RGB
+peaks. Partial strength may still
 leave bright values that clip.
 
 Gamma applies `x^(1/gamma)` to clipped, normalized RGB. Vibrance increases channel

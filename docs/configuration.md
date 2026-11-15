@@ -61,10 +61,11 @@ The [configs/](../configs/) directory contains all presets, with a matching
 All bundled YAML presets use `numerics.shadow_softness: 6`, equivalent to
 `--shadow-softness 6`. API and CLI runs without a config keep the default of `0`.
 Each preset has a `-fast.yaml` counterpart for sustained video throughput. Fast
-presets reuse GPU buffers, capture compatible cleanup operations, and overlap
-decoding and encoding through three pinned frame slots. Compatible
-inputs are validated during the main decode. They require the optional GPU
-dependencies for GPU speedups.
+presets reuse GPU buffers and calibration, capture compatible cleanup
+operations, and overlap decoding and encoding through three reusable frame
+slots with pinned input buffers when available. Compatible inputs are validated
+during the main decode. The CUDA solver iteration count in these recipes is
+set separately to 80. CUDA filtering requires the optional GPU dependencies.
 
 | Preset | Purpose |
 | --- | --- |
@@ -76,10 +77,9 @@ dependencies for GPU speedups.
 | [fattal-1-compressed-noise.yaml](../configs/fattal-1-compressed-noise.yaml) | Compressed preset with masked high-pass noise at 0.35 RMS |
 | [fattal-1-compressed-fbm.yaml](../configs/fattal-1-compressed-fbm.yaml) | Masked fBm-like noise at 0.75 RMS, flat cleanup disabled |
 
-Presets are configuration values. Loading one resolves inheritance and fills
-omitted fields from `Config()` defaults. It replaces the previous configuration,
-so values from a previously selected preset do not carry over. No processing
-behavior depends on the preset filename.
+Loading a preset replaces the entire configuration, resolves inheritance, and
+fills omitted fields from `Config()` defaults. The resolved settings determine
+processing behavior.
 
 The GUI keeps the same controls for every preset. Seven common effect controls
 are visible initially. **More settings** contains collapsible groups for effects,
@@ -230,8 +230,9 @@ See [processing order](method.md#processing-order) for interactions between cont
 Every preset uses the same fixed input-area cap of 8,000,000 pixels and
 working longest edge of 1536 pixels. The filtered image is enlarged to the
 prepared input dimensions afterward. The area cap can reduce output dimensions
-for large inputs. A fully bypassed effect preserves the input dimensions at the filtering stage.
-Video can still apply aspect ratio correction, rotation and output padding.
+for large inputs. A fully bypassed effect preserves the input dimensions at the
+filtering stage. Video can still apply aspect ratio correction, rotation and
+output padding.
 
 ### Image input
 
@@ -288,7 +289,7 @@ requirements, input preparation, and examples. Output is silent SDR H.264 MP4.
 | `video.encoder` | `libx264` | `libx264` for CPU encoding or `h264_nvenc` for NVIDIA hardware encoding. Bundled YAML presets select `h264_nvenc`. A failed NVENC preflight automatically falls back to `libx264` using `video.crf` and `video.preset`. The actual encoder and fallback diagnostics are recorded in the sidecar's `encoding` section. |
 | `video.filter_backend` | `cpu` | `cpu` uses reference processing. `auto` benchmarks the complete CUDA frame pipeline, including transfers and setup cost, and checks RGB agreement with the CPU reference. It selects CUDA when the measured speedup justifies setup cost. Otherwise, or on GPU failure, it uses the CPU. Bundled YAML presets select `auto`. Independent of `video.encoder`. |
 | `video.calibration_cache` | `false` | Reuse compatible CUDA calibration across runs. A cache hit still compares the first GPU frame with the CPU reference. The cache is stored under `XDG_CACHE_HOME/luma-fattal` or the user's default cache directory. |
-| `video.gpu_iterations` | `null` | `null` uses `numerics.iterations` on both backends. A positive integer overrides the GPU solver iteration count. CPU processing uses `numerics.iterations`. |
+| `video.gpu_iterations` | `null` | `null` uses `numerics.iterations` on both backends. An integer from `1–10000` overrides the GPU solver iteration count. CPU processing uses `numerics.iterations`. |
 | `video.lighting_scale` | `1.0` | Fraction greater than `0` and at most `1`. Below `1`, the GPU estimates the remaining lighting correction on a smaller grid and applies it at full resolution. Applies only to GPU processing. |
 | `video.decode_prefetch` | `0` | Integer `0–16`. Simple decoded-frame prefetch when `pipeline_depth` is `0`. Fast presets keep it off and use reusable pipeline slots instead. |
 | `video.pinned_frames` | `false` | Decode RGB frames into pinned host memory for GPU upload. Falls back to ordinary buffers if pinning is unavailable. Fast presets enable it. |

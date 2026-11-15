@@ -66,7 +66,7 @@ from luma_fattal.images import process_image
 
 record = process_image(
     "assets/lantern-garden-original.png",
-    "outputs/api.jpg",
+    "outputs/api-image.jpg",
     config_path="configs/fattal-1.yaml",
 )
 ```
@@ -96,7 +96,7 @@ def report_progress(completed, total):
 
 record = process_video(
     "local_inputs/input.mp4",
-    "outputs/api.mp4",
+    "outputs/api-video.mp4",
     config=Config.load("configs/fattal-1.yaml"),
     on_progress=report_progress,
 )

@@ -1,7 +1,6 @@
 # General settings. Reference presets pin their own values.
 filter: fattal1
-# Effect controls use a 0..100 scale, except for positive output_gamma.
-# Alpha must be positive.
+# See docs/configuration.md for the range and units of each effect control.
 # Fade 0 applies the full effect. Fade 100 bypasses the effect.
 parameters:
   alpha: 1

@@ -128,6 +128,5 @@ See the [source treatment studies](docs/experiments.md) for the filtering and
 noise experiments.
 
 Project-authored code is licensed under MIT. Color conversion includes skcms
-adaptations under BSD-3-Clause, and bundled fonts use OFL-1.1. Image credits and
-complete notices are in
-[LICENSE](LICENSE).
+adaptations under BSD-3-Clause, and bundled fonts use OFL-1.1. See
+[LICENSE](LICENSE) for image credits and complete notices.

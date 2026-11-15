@@ -9,7 +9,6 @@ Run the development checks:
 ```bash
 uv sync --locked --python 3.11
 source .venv/bin/activate
-ruff format --check .
 ruff check .
 pyright
 python -m pytest -q
@@ -26,7 +25,7 @@ Ruff and Pyright use the repository settings in `pyproject.toml`. Pyright checks
 source, tests, scripts and experiments against `.venv`. SciPy stubs are included
 in the development dependencies. Missing CuPy imports are allowed at the optional
 GPU import sites, so type checks also work without installing the GPU extra.
-Run `ruff format .` to apply formatting changes.
+Run `ruff format --check PATH` to check formatting on a changed Python file.
 
 NVENC option validation, automatic CPU fallback, and failure cleanup are tested
 without NVIDIA hardware.
@@ -79,7 +78,7 @@ Supply the original at the same dimensions to also write a difference panel.
 
 ```bash
 luma-fattal compare assets/lantern-garden-fattal-1.png outputs/candidate.png \
-  --original assets/lantern-garden-original.png --output outputs/comparison
+  --original assets/lantern-garden-original.png --output outputs/image-diff
 ```
 
 Generate deterministic PNG inputs with `probes`, then use `evaluate` to run a
@@ -91,14 +90,15 @@ luma-fattal evaluate outputs/probes local_inputs/references outputs/evaluation \
   --config configs/fattal-1.yaml --filter both --output-format png
 ```
 
-Place references in `local_inputs/references/fattal_1/` and `fattal_2/`, using
-the input stem with a `.png`, `.jpg`, or `.jpeg` extension. The
-`evaluation.json` report lists comparisons and missing references. Use a fresh
-evaluation directory because the generated image outputs cannot be overwritten.
+Place references in `local_inputs/references/fattal_1/` and
+`local_inputs/references/fattal_2/`, using the input stem with a `.png`,
+`.jpg`, or `.jpeg` extension. The `evaluation.json` report lists comparisons
+and missing references. Use a fresh evaluation directory because the generated
+image outputs cannot be overwritten.
 
 ## README images
 
-Regenerate the opening comparison from its bundled input:
+Render the opening comparison from its bundled input:
 
 ```bash
 luma-fattal apply assets/lantern-garden-original.png outputs/readme-comparison-new \
@@ -109,7 +109,7 @@ This command applies both reference variants with shadow softness 6 and saves
 `fattal1.png`, `fattal2.png`, and their `.meta.json` run records. The source and
 published results are 880×1100 PNGs.
 
-Regenerate the image in the CLI example:
+Render the image in the CLI example:
 
 ```bash
 luma-fattal apply assets/tea-by-the-water-original.png outputs/readme-tea-new.png \
@@ -118,8 +118,10 @@ luma-fattal apply assets/tea-by-the-water-original.png outputs/readme-tea-new.pn
 
 Its source and filtered result are 1080×810 PNGs.
 
-README image sources and filtered results are kept in `assets/`. Use the ignored
-`local_inputs/` directory for experimental inputs and `outputs/` for generated artifacts.
+README image sources and illustrative results are kept in `assets/`. Use the
+frozen preset checker for exact-pixel regressions. Keep experimental inputs in
+`local_inputs/` and generated artifacts in `outputs/`.
+
 ## Workbench appearance
 
 The Electron shell in `desktop/` displays the workbench in a native window.
@@ -182,8 +184,9 @@ Run `python -m pytest -q tests/test_ui.py tests/test_video.py` for focused check
 
 Workbench textures, logos, and fonts are in `src/luma_fattal/ui/assets/`.
 The placement and color treatment of `viscera.png`, `panel-078-red.png`, and
-`logo-purple.png` are defined in `style.css`. The workbench serves these
-assets and all frontend code locally.
+`logo-purple.png` are defined in `style.css`. The outer-frame texture
+`viscera.png` was generated with the built-in image generator. The workbench
+serves assets and frontend code locally.
 
 ## Desktop builds and releases
 
