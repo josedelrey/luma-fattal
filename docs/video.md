@@ -237,10 +237,11 @@ to launch the desktop from source.
 1. Open a source video. Original playback depends on browser codec support.
    FFmpeg preview and rendering can still work for a source the browser cannot play.
 2. Choose a bundled preset or open a YAML, TOML, or JSON configuration.
-   The desktop resolves parent files named by `extends` automatically. In the
-   browser, use Open again to select each requested parent file. Cancel the file
-   picker to abandon an incomplete import. Bundled presets resolve inheritance
-   automatically.
+   The desktop automatically resolves parent files named by `extends` within
+   the folder of the recipe you opened, including its subfolders. It prompts
+   you to select missing parents or parents outside that folder. In the browser,
+   use Open again to select each requested parent. Cancel the file picker to
+   abandon an incomplete import. Bundled presets resolve inheritance automatically.
 3. Adjust the visible controls or open **More settings** for the effect curves,
    Pre and Post controls, video source treatments, encoding, and other settings.
    Auto preview updates after a slider release or a pause in typing. You can

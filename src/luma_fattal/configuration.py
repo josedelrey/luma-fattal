@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import sys
 import tomllib
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 from fractions import Fraction
 from functools import cached_property
@@ -638,17 +639,8 @@ class Config:
     @classmethod
     def from_sources(cls, path: str | Path, sources: Mapping[str, str]):
         """Load supplied file contents, resolving inheritance without disk access."""
-        contents = {Path(name).resolve(): content for name, content in sources.items()}
-
-        def read_source(source):
-            try:
-                return contents[source.resolve()]
-            except KeyError:
-                raise FileNotFoundError(
-                    2, "Select the parent configuration", str(source)
-                ) from None
-
-        return cls.from_dict(cls._load_data(Path(path), (), read_source=read_source))
+        contents = {Path(os.path.abspath(name)): content for name, content in sources.items()}
+        return cls.from_dict(cls._load_data(Path(path), (), contents=contents))
 
     @staticmethod
     def _parse_data(content: str, suffix: str):
@@ -673,16 +665,18 @@ class Config:
         path: Path,
         ancestors: tuple[Path, ...],
         sources: list[Path] | None = None,
-        read_source: Callable[[Path], str] | None = None,
+        contents: Mapping[Path, str] | None = None,
     ):
-        resolved = path.resolve()
+        resolved = path.resolve() if contents is None else Path(os.path.abspath(path))
         if resolved in ancestors:
             raise ValueError(f"Configuration inheritance cycle at {path}")
-        path = Path(path)
         try:
-            content = (
-                read_source(path) if read_source else path.read_text(encoding="utf-8")
-            )
+            if contents is None:
+                content = path.read_text(encoding="utf-8")
+            elif resolved in contents:
+                content = contents[resolved]
+            else:
+                raise FileNotFoundError(2, "Select the parent configuration", str(path))
             data = cls._parse_data(content, path.suffix)
         except (yaml.YAMLError, tomllib.TOMLDecodeError, json.JSONDecodeError) as error:
             raise ValueError(f"Invalid configuration file {path}: {error}") from error
@@ -700,7 +694,7 @@ class Config:
             path.parent / parent_name,
             (*ancestors, resolved),
             sources,
-            read_source=read_source,
+            contents=contents,
         )
         if not isinstance(parent, dict):
             raise ValueError("Inherited configuration must be an object")

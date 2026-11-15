@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import replace
 from io import BytesIO
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -613,3 +614,20 @@ def test_supplied_sources_reject_cycles_and_duplicate_json_keys():
         Config.from_sources(
             "recipe.json", {"recipe.json": '{"filter":"fattal1","filter":"fattal2"}'}
         )
+
+
+def test_supplied_sources_resolve_inheritance_lexically(tmp_path, monkeypatch):
+    def unexpected_access(*args, **kwargs):
+        pytest.fail("Resolving supplied recipes must avoid filesystem access")
+
+    monkeypatch.chdir(tmp_path)
+    root = "sub/recipe.yaml"
+    supplied = {root: "extends: ../base.yaml\n"}
+    with monkeypatch.context() as paths:
+        paths.setattr(Path, "resolve", unexpected_access)
+        paths.setattr(Path, "read_text", unexpected_access)
+        with pytest.raises(FileNotFoundError) as missing:
+            Config.from_sources(root, supplied)
+        assert missing.value.filename == str(Path("sub/../base.yaml"))
+        supplied[str(tmp_path / "base.yaml")] = "filter: fattal2\n"
+        assert Config.from_sources(root, supplied).filter == "fattal2"

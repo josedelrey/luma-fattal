@@ -5,6 +5,7 @@ const http = require('node:http')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
 const { download } = require('./download.cjs')
+const { importRecipe, recipeExtensions } = require('./recipes.cjs')
 const { dialog, ipcMain } = require('electron')
 
 function installFileDialogs(window, entry) {
@@ -46,35 +47,21 @@ function installFileDialogs(window, entry) {
   const open = async kind => {
     const video = kind === 'video'
     if (!video && kind !== 'preset') throw new Error('Invalid file type')
-    const choice = await dialog.showOpenDialog(window, {
+    const recipePicker = { properties: ['openFile'], filters: [{ name: 'Recipes', extensions: recipeExtensions }] }
+    const choice = await dialog.showOpenDialog(window, video ? {
       properties: ['openFile'],
-      filters: video
-        ? [{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'avi', 'webm'] }]
-        : [{ name: 'Recipes', extensions: ['yaml', 'yml', 'toml', 'json'] }],
-    })
+      filters: [{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'avi', 'webm'] }],
+    } : recipePicker)
     if (choice.canceled) return null
     const filename = choice.filePaths[0]
     if (video) return { name: path.basename(filename), upload: await postFile('/api/upload', filename) }
-    const root = path.basename(filename)
-    const files = Object.create(null)
-    let source = root
-    while (true) {
-      if (!['.yaml', '.yml', '.toml', '.json'].includes(path.extname(source).toLowerCase())) {
-        throw new Error('Parent recipes must use YAML, TOML or JSON')
-      }
-      files[source] = await fs.readFile(path.resolve(path.dirname(filename), source), 'utf8')
-      const content = JSON.stringify({ filename: root, files })
-      if (!files[source].length || Buffer.byteLength(content) > 1024 ** 2) throw new Error('Recipe is empty or too large')
-      const response = await fetch(endpoint('/api/import'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: content,
+    return importRecipe(filename, endpoint('/api/import'), async source => {
+      const parent = await dialog.showOpenDialog(window, {
+        ...recipePicker,
+        title: `Select ${path.basename(source)} to complete the recipe`,
       })
-      const result = await response.json()
-      if (response.ok) return { name: root, config: result }
-      if (!result.missing_source || Object.hasOwn(files, result.missing_source)) {
-        throw new Error(result.error || `Import failed (${response.status})`)
-      }
-      source = result.missing_source
-    }
+      return parent.canceled ? null : parent.filePaths[0]
+    })
   }
   const save = async (kind, mediaPath, content) => {
     const names = { video: 'luma-fattal.mp4', metadata: 'luma-fattal.meta.json', config: 'luma-fattal-config.json' }

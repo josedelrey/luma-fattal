@@ -8,8 +8,10 @@ const path = require('node:path')
 const { EventEmitter } = require('node:events')
 const { installDisplayScaling } = require('../desktop/layout.cjs')
 const { download } = require('../desktop/download.cjs')
+const { importRecipe } = require('../desktop/recipes.cjs')
 const http = require('node:http')
 const { Readable } = require('node:stream')
+const fs = require('node:fs/promises')
 const { mkdtemp, readFile, rm } = require('node:fs/promises')
 const os = require('node:os')
 
@@ -48,6 +50,111 @@ test('streams desktop exports and reports interrupted responses', async () => {
     http.get = original
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+async function recipeFixture(t) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'luma-recipes-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const recipes = path.join(directory, 'recipes')
+  const neighbor = path.join(directory, 'recipes-neighbor')
+  await Promise.all([fs.mkdir(recipes), fs.mkdir(neighbor)])
+  const root = path.join(recipes, 'root.yaml')
+  await fs.writeFile(root, 'filter: fattal1\n')
+  return { root, recipes, neighbor }
+}
+
+test('automatically supplies parents from the selected recipe folder and subfolders', async t => {
+  const { root, recipes } = await recipeFixture(t)
+  const first = path.join('parents', 'base.toml')
+  const second = path.join('parents', 'defaults.json')
+  await fs.mkdir(path.join(recipes, 'parents'))
+  await fs.writeFile(root, 'extends: parents/base.toml\nfilter: fattal1\n')
+  await fs.writeFile(path.join(recipes, first), 'extends = "defaults.json"')
+  await fs.writeFile(path.join(recipes, second), '{"filter": "fattal2"}')
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    const { filename, files } = JSON.parse(options.body)
+    assert.equal(filename, 'root.yaml')
+    if (!Object.hasOwn(files, first)) return Response.json({ missing_source: first }, { status: 400 })
+    assert.equal(files[first], 'extends = "defaults.json"')
+    if (!Object.hasOwn(files, second)) return Response.json({ missing_source: second }, { status: 400 })
+    assert.equal(files[second], '{"filter": "fattal2"}')
+    return Response.json({ filter: 'fattal1' })
+  })
+  assert.deepEqual(await importRecipe(root, entry, () => assert.fail('Unexpected picker')), {
+    name: 'root.yaml', config: { filter: 'fattal1' },
+  })
+})
+
+test('asks before even resolving external paths and keeps external selections explicit', async t => {
+  const { root, recipes, neighbor } = await recipeFixture(t)
+  const parent = path.join(neighbor, 'base.yaml')
+  const first = path.relative(recipes, parent)
+  const second = path.join(neighbor, 'defaults.yaml')
+  const originalResolve = fs.realpath
+  const resolved = t.mock.method(fs, 'realpath', originalResolve)
+  const parentContent = `extends: ${JSON.stringify(second)}\n`
+  await fs.writeFile(root, `extends: ${JSON.stringify(first)}\nfilter: fattal1\n`)
+  await fs.writeFile(parent, parentContent)
+  await fs.writeFile(second, 'filter: fattal2\n')
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    const { files } = JSON.parse(options.body)
+    if (!Object.hasOwn(files, first)) return Response.json({ missing_source: first }, { status: 400 })
+    assert.equal(files[first], parentContent)
+    if (!Object.hasOwn(files, second)) return Response.json({ missing_source: second }, { status: 400 })
+    assert.equal(files[second], 'filter: fattal2\n')
+    return Response.json({ filter: 'fattal1' })
+  })
+  const selected = []
+  const result = await importRecipe(root, entry, async source => {
+    selected.push(source)
+    return path.resolve(recipes, source)
+  })
+  assert.equal(result.config.filter, 'fattal1')
+  assert.deepEqual(selected, [first, second])
+  assert.deepEqual(resolved.mock.calls.map(call => call.arguments[0]), [recipes])
+})
+
+test('prompts for a parent reached through a link that escapes the recipe folder', async t => {
+  const { root, recipes, neighbor } = await recipeFixture(t)
+  const link = path.join(recipes, 'linked')
+  const source = path.join('linked', 'base.yaml')
+  await fs.writeFile(root, 'extends: linked/base.yaml\n')
+  await fs.writeFile(path.join(neighbor, 'base.yaml'), 'filter: fattal2\n')
+  try {
+    await fs.symlink(neighbor, link, process.platform === 'win32' ? 'junction' : 'dir')
+  } catch (error) {
+    if (error.code === 'EPERM' || error.code === 'EACCES') return t.skip('Creating directory links requires permission')
+    throw error
+  }
+  const opened = t.mock.method(fs, 'open', fs.open)
+  const request = t.mock.method(globalThis, 'fetch', async () => Response.json({ missing_source: source }, { status: 400 }))
+  const selected = []
+  assert.equal(await importRecipe(root, entry, async name => {
+    selected.push(name)
+    return null
+  }), null)
+  assert.deepEqual(selected, [source])
+  assert.deepEqual(opened.mock.calls.map(call => call.arguments[0]), [root])
+  assert.equal(request.mock.callCount(), 1)
+})
+
+test('rejects oversized roots and inherited files before opening them', async t => {
+  const { root, recipes } = await recipeFixture(t)
+  const source = 'base.yaml'
+  const base = path.join(recipes, source)
+  await fs.writeFile(root, Buffer.alloc(1024 ** 2 + 1))
+  const opened = t.mock.method(fs, 'open', fs.open)
+  const request = t.mock.method(globalThis, 'fetch', async () => Response.json({ missing_source: source }, { status: 400 }))
+  const selectParent = () => assert.fail('Unexpected picker')
+  await assert.rejects(importRecipe(root, entry, selectParent), /too large/)
+  assert.equal(opened.mock.callCount(), 0)
+  assert.equal(request.mock.callCount(), 0)
+
+  await fs.writeFile(root, ' '.repeat(128))
+  await fs.writeFile(base, Buffer.alloc(1024 ** 2 - 128))
+  await assert.rejects(importRecipe(root, entry, selectParent), /too large/)
+  assert.deepEqual(opened.mock.calls.map(call => call.arguments[0]), [root])
+  assert.equal(request.mock.callCount(), 1)
 })
 
 test('accepts the authenticated loopback URL printed by the UI server', () => {
