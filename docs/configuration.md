@@ -124,10 +124,12 @@ detail. Its slider spans 0 to 100. At 0, Cross-Scale acts on fine detail alone.
 At 100, the default, it applies the full relief response.
 
 **Relief width** sets the size of the bright and dark shading around contours.
-Its slider spans 0.5 to 2 times the default width. Lower values concentrate
+Its slider spans 0 to 20 times the default width. Lower values concentrate
 relief around edges, while higher values spread it over larger forms.
-The numeric fields accept values beyond these slider endpoints. The width
-limit keeps the Gaussian blur radius bounded.
+The numeric fields accept values beyond these slider endpoints. The maximum
+Relief width depends on the working image size. All sizes support 20 times
+the default width, and smaller images may support higher values. The Gaussian
+blur's standard deviation is capped at 280 working pixels.
 
 ```yaml
 mode: cross-scale

@@ -76,8 +76,6 @@ _STAGED_EFFECT_DEFAULTS = {
 MAX_SOLVER_ITERATIONS = 10_000
 MAX_CLEANUP_SIGMA = 128
 CROSS_SCALE_MAX_COARSE_SIGMA = 14.0
-# Separable Gaussian work grows with the blur radius.
-MAX_RELIEF_WIDTH = MAX_CLEANUP_SIGMA / CROSS_SCALE_MAX_COARSE_SIGMA
 _MAX_SHADOW_CONTROL = (2**31 - 1) // 2
 _LEGACY_SIZE_OPTIONS = {
     "device_class",
@@ -566,7 +564,7 @@ class CrossScaleConfig:
                 f"cross_scale.{name}", getattr(self, name),
                 -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT,
             )
-        _finite("cross_scale.relief_width", self.relief_width, 0, MAX_RELIEF_WIDTH)
+        _finite("cross_scale.relief_width", self.relief_width, 0, FLOAT32_CONTROL_LIMIT)
         amount = abs(self.strength) / 100
         relief_gain = 6 * amount**2 * (abs(self.relief) / 100)
         if self.coupling == "engrave" and relief_gain > FLOAT32_CONTROL_LIMIT:

@@ -328,10 +328,10 @@ config.cross_scale = {coupling: 'engrave', strength: 65, relief: 100, relief_wid
 panel.load(config);
 const reliefWidth = panel.controls.find(control => control.section === 'cross_scale' && control.key === 'relief_width');
 assert.equal(reliefWidth.row.hidden, false);
-assert.equal(Number(reliefWidth.range.min), 0.5);
-assert.equal(Number(reliefWidth.range.max), 2);
-change(reliefWidth, 2.5);
-assert.equal(config.cross_scale.relief_width, 2.5);
+assert.equal(Number(reliefWidth.range.min), 0);
+assert.equal(Number(reliefWidth.range.max), 20);
+change(reliefWidth, 21);
+assert.equal(config.cross_scale.relief_width, 21);
 reliefWidth.reset.click();
 assert.equal(config.cross_scale.relief_width, 1);
 assert.equal(relief.row.hidden, false);

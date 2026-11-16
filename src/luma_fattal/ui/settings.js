@@ -123,7 +123,7 @@ const settingGroups = [
   ['cross_scale', 'Cross-Scale', [
     ['strength', 'Coupling strength', 0, 100, 1],
     ['relief', 'Relief', 0, 100, 1],
-    ['relief_width', 'Relief width', 0.5, 2, 0.05],
+    ['relief_width', 'Relief width', 0, 20, 0.05],
   ]],
 ];
 

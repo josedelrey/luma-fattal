@@ -82,9 +82,19 @@ def test_maximum_strength_and_relief_round_trip(textured_ramps):
     assert np.any(apply_filter(textured_ramps, config=extended) != output)
     with pytest.raises(ValueError, match="Combined Cross-Scale"):
         CrossScaleConfig(strength=1e20, relief=1e20)
-    for invalid in (-0.1, 100):
+    for invalid in (-0.1, float("inf")):
         with pytest.raises(ValueError, match=r"cross_scale\.relief_width"):
             CrossScaleConfig(relief_width=invalid)
+
+
+def test_relief_width_limit_uses_working_image_size(textured_ramps):
+    larger = np.tile(textured_ramps, (4, 3, 1))
+    config = Config(mode="cross-scale", cross_scale=CrossScaleConfig(relief_width=20))
+    assert apply_filter(larger, config=config).shape == larger.shape
+    wider = replace(config, cross_scale=replace(config.cross_scale, relief_width=40))
+    assert apply_filter(textured_ramps, config=wider).shape == textured_ramps.shape
+    with pytest.raises(ValueError, match="Relief width is too large.*768×640.*20.0000"):
+        apply_filter(larger, config=wider)
 
 
 def test_cross_scale_presets_match_fattal_one_settings():
@@ -169,6 +179,7 @@ def test_cli_image_and_decoded_frames_use_same_coupling(tmp_path, textured_ramps
         ("engrave", 0, 2),
         ("engrave", 100, 0.5),
         ("engrave", 100, 2),
+        ("engrave", 100, 20),
     ],
 )
 def test_cross_scale_cuda_agrees_with_cpu(textured_ramps, coupling, relief, width):

@@ -216,6 +216,16 @@ def _cross_scale_detail(source, phi, settings: CrossScaleConfig, blur):
     else:
         scale = max(0.8, min(2.0, min(source.shape) / 128))
         coarse_scale = 3 * scale
+    relief_sigma = coarse_scale * settings.relief_width
+    # Allow 20× at the largest base scale and bound the cost on each image.
+    max_relief_sigma = 20 * CROSS_SCALE_MAX_COARSE_SIGMA
+    if engrave and settings.relief and relief_sigma > max_relief_sigma:
+        height, width = source.shape
+        limit = int(10_000 * max_relief_sigma / coarse_scale) / 10_000
+        raise ValueError(
+            f"Relief width is too large for this {width}×{height} working image. "
+            f"Use a value at or below {limit:.4f}."
+        )
     fine_base = blur(source, scale)
     detail = source - fine_base
     coarse = blur(source, coarse_scale)
@@ -238,7 +248,7 @@ def _cross_scale_detail(source, phi, settings: CrossScaleConfig, blur):
             relief_base = (
                 coarse
                 if settings.relief_width == 1.0
-                else blur(source, coarse_scale * settings.relief_width)
+                else blur(source, relief_sigma)
             )
             detail -= relief_gain * (fine_base - relief_base)
     else:
