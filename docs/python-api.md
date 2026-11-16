@@ -27,7 +27,9 @@ overrides, for example `fattal2(image, config=config, tone_strength=60)`.
 For Cross-Scale, load a recipe from `configs/cross-scale/` and pass it to
 `apply_filter` or `process_frames`. You can also construct
 `Config(mode="cross-scale", cross_scale=CrossScaleConfig(coupling="smooth", strength=70))`.
-For a single image, use `cross_scale(image, coupling="smooth", strength=70)`.
+For a single image, use `cross_scale(image, strength=70, relief=40)` to apply
+Engrave with reduced relief, or `cross_scale(image, coupling="smooth", strength=70)`
+to soften fine detail.
 `CrossScaleConfig` and `cross_scale` are both exported from `luma_fattal`.
 
 Configurations and their sections are immutable dataclasses. Modify a loaded

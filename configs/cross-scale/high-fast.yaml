@@ -4,6 +4,7 @@ mode: cross-scale
 cross_scale:
   coupling: engrave
   strength: 65
+  relief: 100
 parameters:
   alpha: 1
   beta: 80

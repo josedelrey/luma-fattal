@@ -87,6 +87,7 @@ def cross_scale(
     config: Config | None = None,
     coupling: str | None = None,
     strength: float | None = None,
+    relief: float | None = None,
     **parameters: float,
 ) -> Image.Image: ...
 
@@ -98,6 +99,7 @@ def cross_scale(
     config: Config | None = None,
     coupling: str | None = None,
     strength: float | None = None,
+    relief: float | None = None,
     **parameters: float,
 ) -> np.ndarray: ...
 
@@ -108,6 +110,7 @@ def cross_scale(
     config: Config | None = None,
     coupling: str | None = None,
     strength: float | None = None,
+    relief: float | None = None,
     **parameters: float,
 ) -> Image.Image | np.ndarray:
     """Apply Cross-Scale with Fattal 1 and optional coupling overrides."""
@@ -121,6 +124,7 @@ def cross_scale(
             settings,
             coupling=settings.coupling if coupling is None else coupling,
             strength=settings.strength if strength is None else strength,
+            relief=settings.relief if relief is None else relief,
         ),
     )
     return apply_filter(

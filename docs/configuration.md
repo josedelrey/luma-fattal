@@ -86,7 +86,8 @@ processing behavior.
 The **Mode** selector shows presets for the active mode. It also retains each
 mode's working settings while the app is open. Seven common effect controls
 are visible initially. Cross-Scale adds **Coupling** and **Coupling strength**
-below Beta. **More settings** contains collapsible groups for effects,
+below Beta, with **Relief** available for Engrave. **More settings** contains
+collapsible groups for effects,
 numerics, video source, encoding and performance, and image input and export.
 **Effect** opens by default. Processing settings, the numerical fields
 `gradient_threshold`, `log_offset`,
@@ -113,19 +114,27 @@ the sliders' practical increments. Blank GPU iterations use `numerics.iterations
 
 ## Cross-Scale
 
-Cross-Scale modifies fine detail where the image has broader local contrast.
-`engrave` strengthens that detail and `smooth` softens it. Strength ranges
-from 0 to 100. At 0, the output is the corresponding Fattal 1 result.
+Cross-Scale uses broad local contrast to guide detail. `engrave` brings out
+fine texture and reverses some of the shading around larger forms at higher
+strengths, producing bright and dark relief. `smooth` softens fine detail.
+Strength ranges from 0 to 100. At 0, the output is the corresponding Fattal 1
+result.
+
+**Relief** controls the medium-scale shading reversal separately from fine
+detail. At 0, Engrave acts on fine detail alone. At 100, the default, Engrave
+applies the full relief response for the chosen coupling strength.
 
 ```yaml
 mode: cross-scale
 cross_scale:
   coupling: engrave
   strength: 65
+  relief: 100
 ```
 
 Use `--mode cross-scale`, `--coupling engrave` or `--coupling smooth`,
-and `--coupling-strength 65` to set the same options from the CLI.
+`--coupling-strength 65`, and `--relief 100` to set the same options from the
+CLI.
 
 ```bash
 luma-fattal apply assets/tea-by-the-water-original.png outputs/engraved.png \

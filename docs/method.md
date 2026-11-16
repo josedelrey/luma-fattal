@@ -12,12 +12,15 @@ project variants of the approach described by
 [Fattal, Lischinski, and Werman (2002)](#references).
 The implementation operates on 8-bit SDR inputs.
 
-Cross-Scale starts with the Fattal 1 gradient target. It extracts a fine band
-by subtracting a Gaussian blur from log luminance. It estimates local contrast
-from gradients of a broader blur and uses that contrast to adjust the fine band's
-gradients before the Poisson solve. Engrave increases their gain and Smooth
-reduces it. Both responses saturate as broad contrast rises, with a fixed
-contrast scale so unrelated parts of a frame do not change the gain.
+Cross-Scale starts with the Fattal 1 gradient target. It separates log luminance
+into bands with two Gaussian blurs. Gradient energy in the broader blur sets
+the local gain before the Poisson solve. Smooth suppresses fine gradients.
+Engrave boosts fine gradients and pushes medium-scale shading in the opposite
+direction, so strong settings can invert local relief. This middle band
+contribution grows with the square of strength and is scaled independently by
+Relief. Both responses saturate as
+broad contrast rises, with a fixed contrast scale so unrelated parts of a frame
+do not change the gain.
 
 ## Processing order
 

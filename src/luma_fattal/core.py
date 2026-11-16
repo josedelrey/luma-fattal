@@ -202,21 +202,37 @@ def _divergence(log_luminance: np.ndarray, phi: np.ndarray) -> np.ndarray:
 
 
 def _cross_scale_detail(source, phi, settings: CrossScaleConfig, blur):
-    """Return the fine band and its signed change in gradient gain."""
-    scale = max(0.8, min(2.0, min(source.shape) / 128))
-    detail = source - blur(source, scale)
-    coarse = blur(source, 3 * scale)
+    """Return the detail correction and its local gradient weight."""
+    engrave = settings.coupling == "engrave"
+    amount = np.float32(settings.strength / 100)
+    if engrave:
+        scale = max(1.25, min(3.5, min(source.shape) / 160))
+        coarse_scale = 4 * scale
+    else:
+        scale = max(0.8, min(2.0, min(source.shape) / 128))
+        coarse_scale = 3 * scale
+    fine_base = blur(source, scale)
+    detail = source - fine_base
+    coarse = blur(source, coarse_scale)
     dx = coarse[:, 1:] - coarse[:, :-1]
     dy = coarse[1:, :] - coarse[:-1, :]
     energy = coarse - coarse
     energy[:, :-1] = dx * dx
     energy[:-1, :] += dy * dy
-    contrast = blur(energy, scale) ** np.float32(0.5) * np.float32(3 * scale)
+    contrast = blur(energy, scale) ** np.float32(0.5) * np.float32(coarse_scale)
     # Use a fixed knee in log contrast so one strong edge cannot change the
     # response in distant parts of a frame or across neighboring frames.
     response = contrast / (contrast + np.float32(0.12))
-    limit = 3.0 if settings.coupling == "engrave" else -1.0
-    return detail, phi * (response * np.float32(limit * settings.strength / 100))
+    if engrave:
+        # Build up the relief more slowly than the fine detail. At high
+        # strength the middle band can reverse contrast around strong forms.
+        detail *= np.float32(4)
+        if settings.relief:
+            relief_gain = np.float32(6) * amount * np.float32(settings.relief / 100)
+            detail -= relief_gain * (fine_base - coarse)
+    else:
+        amount = -amount
+    return detail, phi * (response * amount)
 
 
 @njit(cache=True, nogil=True)

@@ -553,10 +553,12 @@ class CrossScaleConfig:
 
     coupling: str = "engrave"
     strength: float = 65.0
+    relief: float = 100.0
 
     def __post_init__(self):
         _choice("cross_scale.coupling", self.coupling, ("engrave", "smooth"))
         _finite("cross_scale.strength", self.strength, 0, 100)
+        _finite("cross_scale.relief", self.relief, 0, 100)
 
 
 @dataclass(frozen=True)

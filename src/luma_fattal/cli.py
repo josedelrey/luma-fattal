@@ -106,7 +106,9 @@ def _settings(args: argparse.Namespace) -> Config:
             **{
                 key: value
                 for key, value in (
-                    ("coupling", args.coupling), ("strength", args.coupling_strength)
+                    ("coupling", args.coupling),
+                    ("strength", args.coupling_strength),
+                    ("relief", args.relief),
                 )
                 if value is not None
             },
@@ -485,6 +487,10 @@ def main(argv: list[str] | None = None) -> None:
         command.add_argument(
             "--coupling-strength", type=float, metavar="PERCENT",
             help="Cross-Scale strength from 0 to 100",
+        )
+        command.add_argument(
+            "--relief", type=float, metavar="PERCENT",
+            help="Cross-Scale Engrave relief from 0 to 100",
         )
     for command in (apply, video, compare, configuration):
         command.add_argument(

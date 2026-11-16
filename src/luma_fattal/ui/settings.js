@@ -123,6 +123,7 @@ const settingGroups = [
   ['cross_scale', 'Cross-Scale', [
     ['coupling', 'Coupling', ['engrave', 'smooth']],
     ['strength', 'Coupling strength', 0, 100, 1, {inputMin: 0, inputMax: 100}],
+    ['relief', 'Relief', 0, 100, 1, {inputMin: 0, inputMax: 100}],
   ]],
 ];
 
@@ -324,6 +325,7 @@ class ConfigurationPanel {
             else delete this.config.parameters.effect_stages[key];
           }
           this.config[section][key] = structuredClone(this.baseline[section][key]);
+          if (crossScale && key === 'coupling') this.syncCrossScale();
           if (route) this.syncStages(route);
           else {
             this.sync(control);
@@ -453,15 +455,23 @@ class ConfigurationPanel {
       }
     }
     this.baseline = structuredClone(baseline);
+    this.syncCrossScale();
     for (const control of this.controls) {
-      if (control.section === 'cross_scale') {
-        control.row.hidden = control.inactive = config.mode !== 'cross-scale';
-      }
-      if (!control.route && !control.inactive) this.sync(control);
+      if (control.section !== 'cross_scale' && !control.route && !control.inactive) this.sync(control);
     }
     for (const route of this.effectRoutes) this.syncStages(route);
     this.validate();
     this.drawCurve();
+  }
+
+  syncCrossScale() {
+    const {mode, cross_scale} = this.config;
+    for (const control of this.controls) {
+      if (control.section !== 'cross_scale') continue;
+      control.row.hidden = control.inactive = mode !== 'cross-scale' ||
+        (control.key === 'relief' && cross_scale.coupling !== 'engrave');
+      if (!control.inactive) this.sync(control);
+    }
   }
 
   drawCurve(wetPreview = null) {
@@ -523,12 +533,15 @@ class ConfigurationPanel {
     if (control.route) {
       if (!Number.isFinite(value) || !input.validity.valid) return;
     }
+    if (section === 'cross_scale' && key === 'relief' &&
+        (!Number.isFinite(value) || !input.validity.valid)) return;
     if (control.stage === 'pre') {
       const stages = this.stageSelection(key);
       this.config.parameters.effect_stages[key] = {...stages, pre_strength: value};
     } else {
       this.config[section][key] = value;
     }
+    if (section === 'cross_scale' && key === 'coupling') this.syncCrossScale();
     if (control.range && Number.isFinite(value)) control.range.value = value;
     this.validate();
     if (!control.route) this.drawCurve();

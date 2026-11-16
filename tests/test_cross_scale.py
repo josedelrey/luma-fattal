@@ -55,6 +55,22 @@ def test_cross_scale_locally_changes_fine_gradients(textured_ramps):
     )
 
 
+def test_engrave_can_reverse_relief_on_an_edge_without_fine_texture():
+    x = np.arange(256)
+    profile = np.round(120 + 28 * np.tanh((x - 100) / 4)).astype(np.uint8)
+    rgb = np.broadcast_to(profile[None, :, None], (160, x.size, 3)).copy()
+    config = Config.load(RECIPES / "normal/fattal-1.yaml")
+
+    def contrast(strength, relief=100):
+        filtered = cross_scale(rgb, config=config, strength=strength, relief=relief)
+        bright_side = filtered[40:120, 104, 0].mean()
+        dark_side = filtered[40:120, 95, 0].mean()
+        return bright_side - dark_side
+
+    assert contrast(0) > contrast(65) > 0
+    assert contrast(100, relief=0) > 0 > contrast(100)
+
+
 def test_cross_scale_presets_match_fattal_one_settings():
     originals = sorted(
         path
@@ -82,15 +98,17 @@ def test_cli_writes_cross_scale_recipe(tmp_path, suffix):
             "--mode",
             "cross-scale",
             "--coupling",
-            "smooth",
+            "engrave",
             "--coupling-strength",
             "72.5",
+            "--relief",
+            "38.25",
             "--output",
             str(recipe),
         ]
     )
     assert Config.load(recipe) == Config(
-        mode="cross-scale", cross_scale=CrossScaleConfig("smooth", 72.5)
+        mode="cross-scale", cross_scale=CrossScaleConfig("engrave", 72.5, 38.25)
     )
 
 
@@ -105,13 +123,13 @@ def test_cli_image_and_decoded_frames_use_same_coupling(tmp_path, textured_ramps
             str(result),
             "--config",
             str(recipe),
-            "--coupling",
-            "smooth",
+            "--relief",
+            "38.25",
             "--output-format",
             "png",
         ]
     )
-    config = replace(Config.load(recipe), cross_scale=CrossScaleConfig("smooth"))
+    config = replace(Config.load(recipe), cross_scale=CrossScaleConfig(relief=38.25))
     with Image.open(result) as output:
         np.testing.assert_array_equal(
             output, next(process_frames([textured_ramps], config=config))

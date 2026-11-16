@@ -4,6 +4,7 @@ mode: cross-scale
 cross_scale:
   coupling: engrave
   strength: 65
+  relief: 100
 # See docs/configuration.md for the range and units of each effect control.
 # Fade 0 applies the full effect. Fade 100 bypasses the effect.
 parameters:
