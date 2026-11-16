@@ -36,6 +36,10 @@ coverage.xml
 local_inputs/
 outputs/
 
+# Local project guidance and notes
+/AGENTS.md
+/notes.md
+
 # Editor and operating-system files
 .idea/
 .vscode/
