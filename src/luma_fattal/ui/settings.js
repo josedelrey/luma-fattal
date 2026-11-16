@@ -420,24 +420,21 @@ class ConfigurationPanel {
     editor.append(graph);
     const controls = document.createElement('div');
     controls.className = 'equalizer-controls';
-    const band = document.createElement('select');
-    band.setAttribute('aria-label', 'Equalizer band');
-    const bands = ['Broadest shading', 'Broad shading', 'Large forms', 'Medium forms',
-      'Small forms', 'Coarse texture', 'Fine texture', 'Finest detail'];
-    bands.forEach((name, index) => {
-      const option = document.createElement('option');
-      option.value = String(index);
-      option.textContent = `${index + 1} ${name}`;
-      band.append(option);
-    });
-    band.value = '0';
-    controls.append(band);
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = '1';
+    range.max = '1000';
+    range.step = '1';
+    range.value = '200';
+    range.setAttribute('aria-label', 'Equalizer graph maximum slider');
+    controls.append(range);
     const gain = document.createElement('input');
     gain.type = 'number';
     gain.step = 'any';
     gain.required = true;
-    gain.title = '0% uses Fattal 1. 100% uses Cross-Scale.';
-    gain.setAttribute('aria-label', 'Cross-Scale mix for selected band (%)');
+    gain.value = '200';
+    gain.title = 'Graph maximum. Changing it scales all eight bands.';
+    gain.setAttribute('aria-label', 'Equalizer graph maximum (%)');
     controls.append(gain);
     const useFattal = document.createElement('button');
     useFattal.type = 'button';
@@ -451,22 +448,38 @@ class ConfigurationPanel {
     reset.setAttribute('aria-label', reset.title);
     controls.append(reset);
     editor.append(controls);
-    this.eq = {editor, graph, band, gain, useFattal, reset, spectrum: null};
-    const select = index => {
-      band.value = String(Math.max(0, Math.min(7, index)));
-      this.syncEqualizer();
-    };
+    this.eq = {editor, graph, gain, range, useFattal, reset, spectrum: null, maximum: 200, selected: 0};
     const setGain = (value, commit) => {
-      this.config.cross_scale.eq_gains[Number(band.value)] = value;
-      this.syncEqualizer();
+      this.config.cross_scale.eq_gains[this.eq.selected] = value;
+      this.drawEqualizer();
       if (commit) this.onChange(true);
     };
-    band.addEventListener('change', () => this.syncEqualizer());
-    gain.addEventListener('input', () => {
-      if (!gain.validity.valid || !Number.isFinite(gain.valueAsNumber)) return;
-      this.config.cross_scale.eq_gains[Number(band.value)] = gain.valueAsNumber;
+    const setMaximum = (value, commit) => {
+      if (!Number.isFinite(value) || value <= 0 || !this.config?.cross_scale) {
+        gain.setCustomValidity('Enter a positive finite maximum.');
+        return;
+      }
+      const ratio = value / this.eq.maximum;
+      const next = this.config.cross_scale.eq_gains.map(current => current * ratio);
+      if (next.some(current => !Number.isFinite(current) || Math.abs(current) > 3.32306979e35)) {
+        gain.setCustomValidity('The resulting band values exceed the numerical range.');
+        return;
+      }
+      gain.setCustomValidity('');
+      this.config.cross_scale.eq_gains = next;
+      this.eq.maximum = value;
+      range.value = value;
       this.drawEqualizer();
-      this.onChange();
+      if (commit) this.onChange(true);
+    };
+    range.addEventListener('input', () => {
+      gain.value = range.value;
+      setMaximum(Number(range.value), false);
+    });
+    range.addEventListener('change', () => this.onChange(true));
+    gain.addEventListener('input', () => {
+      setMaximum(gain.valueAsNumber, false);
+      if (gain.validity.valid) this.onChange();
     });
     reset.addEventListener('click', () => {
       this.config.cross_scale.eq_gains = [...this.baseline.cross_scale.eq_gains];
@@ -487,17 +500,18 @@ class ConfigurationPanel {
     graph.addEventListener('pointerdown', event => {
       if (this.disabled || event.button !== 0 || drag) return;
       const [x, y] = coordinates(event);
-      select(Math.round((x - 28) * 7 / (graph.width - 56)));
-      drag = {id: event.pointerId, y, initial: Number(gain.value), moved: false};
+      this.eq.selected = Math.max(0, Math.min(7, Math.round((x - 28) * 7 / (graph.width - 56))));
+      this.drawEqualizer();
+      drag = {id: event.pointerId, y, initial: this.config.cross_scale.eq_gains[this.eq.selected], moved: false};
       graph.focus();
       graph.setPointerCapture(event.pointerId);
     });
     graph.addEventListener('pointermove', event => {
       if (drag?.id !== event.pointerId) return;
       const [, y] = coordinates(event);
-      const value = drag.initial + (drag.y - y) * 200 / (graph.height - 46);
+      const value = drag.initial + (drag.y - y) * this.eq.maximum / (graph.height - 46);
       drag.moved = true;
-      setGain(Math.round(Math.max(0, Math.min(200, value))), false);
+      setGain(Math.round(Math.max(0, Math.min(this.eq.maximum, value))), false);
     });
     graph.addEventListener('pointerup', event => {
       if (drag?.id !== event.pointerId) return;
@@ -511,11 +525,12 @@ class ConfigurationPanel {
     });
     graph.addEventListener('keydown', event => {
       if (this.disabled) return;
-      const index = Number(band.value);
+      const index = this.eq.selected;
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        select(index + (event.key === 'ArrowLeft' ? -1 : 1));
+        this.eq.selected = Math.max(0, Math.min(7, index + (event.key === 'ArrowLeft' ? -1 : 1)));
+        this.drawEqualizer();
       } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-        setGain(Number(gain.value) + (event.key === 'ArrowUp' ? 1 : -1), true);
+        setGain(this.config.cross_scale.eq_gains[index] + (event.key === 'ArrowUp' ? 1 : -1), true);
       } else return;
       event.preventDefault();
     });
@@ -523,7 +538,6 @@ class ConfigurationPanel {
   }
 
   syncEqualizer() {
-    this.eq.gain.value = this.config.cross_scale.eq_gains[Number(this.eq.band.value)];
     this.drawEqualizer();
   }
 
@@ -533,7 +547,7 @@ class ConfigurationPanel {
   }
 
   drawEqualizer() {
-    const {editor, graph, band, spectrum} = this.eq;
+    const {editor, graph, spectrum, maximum, selected} = this.eq;
     const gains = this.config?.cross_scale?.eq_gains;
     if (editor.hidden || this.equalizer.hidden || !gains) return;
     const ctx = graph.getContext?.('2d');
@@ -541,7 +555,7 @@ class ConfigurationPanel {
     const {width, height} = graph;
     const left = 28, top = 12, right = width - 28, bottom = height - 34;
     const x = index => left + index * (right - left) / 7;
-    const y = gain => bottom - Math.max(0, Math.min(200, gain)) * (bottom - top) / 200;
+    const y = gain => bottom - Math.max(0, Math.min(maximum, gain)) * (bottom - top) / maximum;
     ctx.fillStyle = '#120d14';
     ctx.fillRect(0, 0, width, height);
     if (spectrum?.length) {
@@ -562,7 +576,7 @@ class ConfigurationPanel {
       ctx.moveTo(x(index), top);
       ctx.lineTo(x(index), bottom);
     }
-    for (const gain of [0, 50, 100, 150, 200]) {
+    for (const gain of [0, maximum / 4, maximum / 2, maximum * 3 / 4, maximum]) {
       ctx.moveTo(left, y(gain));
       ctx.lineTo(right, y(gain));
     }
@@ -577,8 +591,8 @@ class ConfigurationPanel {
     ctx.textBaseline = 'middle';
     gains.forEach((gain, index) => {
       ctx.beginPath();
-      ctx.arc(x(index), y(gain), index === Number(band.value) ? 11 : 9, 0, 2 * Math.PI);
-      ctx.fillStyle = index === Number(band.value) ? '#ffe2a3' : '#ffb76a';
+      ctx.arc(x(index), y(gain), index === selected ? 11 : 9, 0, 2 * Math.PI);
+      ctx.fillStyle = index === selected ? '#ffe2a3' : '#ffb76a';
       ctx.fill();
       ctx.fillStyle = '#201116';
       ctx.fillText(String(index + 1), x(index), y(gain));
@@ -768,7 +782,7 @@ class ConfigurationPanel {
 
   setDisabled(value) {
     this.disabled = value;
-    this.eq.band.disabled = this.eq.gain.disabled = this.eq.useFattal.disabled =
+    this.eq.range.disabled = this.eq.gain.disabled = this.eq.useFattal.disabled =
       this.eq.reset.disabled = value;
     for (const {resetCurve} of this.curves) resetCurve.disabled = value;
     for (const {toggles} of this.effectRoutes) {

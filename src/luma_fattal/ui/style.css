@@ -499,8 +499,8 @@ summary {
   align-items: center;
   padding-bottom: 2px;
 }
-.equalizer-controls select { flex: 1; min-width: 0; }
-.equalizer-controls input { width: 4em; }
+.equalizer-controls input[type=range] { flex: 1; min-width: 0; }
+.equalizer-controls input[type=number] { width: 4em; }
 .setting-row label { flex: 1; }
 .setting-reset { height: 18px; padding: 0 4px; font-size: 14px; line-height: 14px; }
 .setting-row input:not([type=checkbox]), .setting-row select {

@@ -135,9 +135,10 @@ Open **8-band equalizer** below **Relief width** and drag a point vertically
 to set how much Cross-Scale affects that band. The points go from broad
 shading to fine detail. At 0%, the band uses Fattal 1. At 100%, it uses
 Cross-Scale. At 50%, it mixes the two halfway. Values above 100% extrapolate
-the Cross-Scale change. Type a value for the selected band to go beyond the
-graph's 0–200% range. The **Fattal 1** button sets all bands to 0%, and the
-reset button restores the preset's gains.
+the Cross-Scale change. The slider and number box below the graph set its
+maximum. Changing the maximum scales all eight gains proportionally. The
+**Fattal 1** button sets all bands to 0%, and the reset button restores the
+preset's gains.
 
 Lower the rightmost points toward 0% to retain Fattal 1 texture while keeping
 Cross-Scale relief on larger forms. The shaded spectrum behind the curve
