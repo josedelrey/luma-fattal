@@ -7,6 +7,7 @@
 Luma Fattal provides image and video stylization through gradient-domain
 filtering. Use the desktop or browser workbench, the
 command line, or the Python API.
+Choose Cross-Scale mode to engrave or soften fine detail near larger structures.
 
 | <img src="assets/lantern-garden-original.png" alt="Final Fantasy XIV input" width="280" height="350" align="middle"> | <img src="assets/lantern-garden-fattal-1.png" alt="Fattal 1 result" width="280" height="350" align="middle"> | <img src="assets/lantern-garden-fattal-2.png" alt="Fattal 2 result" width="280" height="350" align="middle"> |
 | :---: | :---: | :---: |
@@ -49,7 +50,7 @@ Apply both filters to the bundled image:
 
 ```bash
 luma-fattal apply assets/tea-by-the-water-original.png outputs/comparison \
-  --config configs/fattal-1.yaml --filter both --shadow-softness 6 --output-format png
+  --config configs/normal/fattal-1.yaml --filter both --shadow-softness 6 --output-format png
 ```
 
 | <img src="assets/tea-by-the-water-original.png" alt="Final Fantasy XIV input" width="420" height="315" align="middle"> | <img src="assets/tea-by-the-water-fattal-1.png" alt="Fattal 1 result" width="420" height="315" align="middle"> |
@@ -71,7 +72,7 @@ Install FFmpeg and ffprobe with `zscale` and `libx264` support, then run:
 
 ```bash
 luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
-  --config configs/fattal-1.yaml --progress
+  --config configs/normal/fattal-1.yaml --progress
 ```
 
 Video inputs are prepared automatically and exported as MP4 without audio.
@@ -88,7 +89,8 @@ See the [video guide](docs/video.md) for processing options and encoding setting
 uv run --locked python -m luma_fattal.ui
 ```
 
-Load a JPEG, PNG, or video, then choose or import a preset and adjust the
+Load a JPEG, PNG, or video, then select a mode in the Configuration title bar,
+choose or import a preset, and adjust the
 controls. The preview strip shows five samples from a video or the same
 filtered photo in each slot. Click a sample to enlarge it. Process the source
 to compare the original and result in the same monitor. Save photos as JPEG or

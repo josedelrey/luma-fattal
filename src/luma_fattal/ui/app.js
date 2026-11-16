@@ -19,6 +19,7 @@ for (const [surface, filename] of Object.entries({body: 'viscera', controls: 'pa
 }
 document.documentElement.style.setProperty('--monitor-texture', `url('${secured('/assets/panel-078-red.png')}')`);
 let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, revision = 0, previewRevision = -1, timer, resultConfig, pendingImport;
+const modeSessions = new Map(), importedNames = new Map();
 let previewRun, pendingSubmission = Promise.resolve(), importing = false;
 let processing = false, processJob, stopRequested = false;
 const player = $('player');
@@ -65,7 +66,8 @@ function setBusy(value) {
     previewRun = undefined;
   }
   updateJobControls();
-  for (const id of ['presets', 'import-preset', 'filter', 'reset', 'save-preset']) $(id).disabled = !config;
+  for (const id of ['presets', 'import-preset', 'mode', 'reset', 'save-preset']) $(id).disabled = !config;
+  $('filter').disabled = !config || configMode(config) === 'cross-scale';
   settingsPanel.setDisabled(!config);
   if (!value) schedulePreview();
 }
@@ -94,20 +96,40 @@ function changed(sliderCommit = false) {
   $('preview-state').textContent = upload ? 'Settings changed. Preview is out of date.' : 'Waiting for source';
   schedulePreview(sliderCommit ? 120 : 350);
 }
-function loadConfig(value, name = $('presets').value) {
+function configMode(value) { return value.mode ?? 'normal'; }
+function defaultPreset(mode) {
+  const preferred = mode === 'normal' ? 'fattal-1' : 'cross-scale/default';
+  return preferred in presets ? preferred : Object.keys(presets).find(name => configMode(presets[name]) === mode);
+}
+function rememberMode() {
+  if (config) modeSessions.set(configMode(config), {config, baseline, name: $('presets').value});
+}
+function loadConfig(value, name = $('presets').value, resetValue = value) {
+  const mode = configMode(value);
+  if (config && configMode(config) !== mode) rememberMode();
   config = structuredClone(value);
-  baseline = structuredClone(value);
-  settingsPanel.load(config);
+  baseline = structuredClone(resetValue);
+  settingsPanel.load(config, baseline);
+  $('mode').value = mode;
+  $('mode').closest('.controls').dataset.mode = mode;
   $('filter').value = config.filter;
+  $('filter').disabled = mode === 'cross-scale';
+  const options = Object.entries(presets).filter(([, preset]) => configMode(preset) === mode)
+    .map(([key]) => {
+      const option = document.createElement('option');
+      option.value = key;
+      option.textContent = importedNames.get(key) ?? key.split('/').at(-1).toUpperCase().replaceAll('-', ' ');
+      return option;
+    });
+  $('presets').replaceChildren(...options);
   $('presets').value = name;
   changed();
 }
 function loadImported(value, name) {
-  let option = $('presets').querySelector('option[value="imported"]');
-  if (!option) { option = document.createElement('option'); option.value = 'imported'; $('presets').append(option); }
-  option.textContent = name;
-  presets.imported = structuredClone(value);
-  loadConfig(value, 'imported');
+  const key = `imported/${configMode(value)}`;
+  importedNames.set(key, name);
+  presets[key] = structuredClone(value);
+  loadConfig(value, key);
 }
 let previewFrames = [], selectedFrame = null, previewError = false;
 function updateLightbox() {
@@ -279,6 +301,15 @@ $('video-file').onchange = async event => {
   await loadMedia(file); event.target.value = '';
 };
 $('presets').onchange = () => { pendingImport = undefined; loadConfig(presets[$('presets').value]); };
+$('mode').onchange = () => {
+  const mode = $('mode').value;
+  const session = modeSessions.get(mode);
+  if (session) loadConfig(session.config, session.name, session.baseline);
+  else {
+    const name = defaultPreset(mode);
+    loadConfig(presets[name], name);
+  }
+};
 $('reset').onclick = () => loadConfig(baseline);
 $('filter').onchange = () => { config.filter = $('filter').value; changed(); };
 $('auto-preview').onchange = () => { if ($('auto-preview').checked) preview(); else clearTimeout(timer); };
@@ -394,8 +425,8 @@ placeholders();
 setBusy(true);
 api('/api/presets').then(value => {
   presets = value;
-  Object.keys(value).forEach(name => { const option = document.createElement('option'); option.value = name; option.textContent = name.toUpperCase().replaceAll('-', ' '); $('presets').append(option); });
-  $('presets').value = value['fattal-1'] ? 'fattal-1' : Object.keys(value)[0]; loadConfig(value[$('presets').value]);
+  const name = defaultPreset('normal');
+  loadConfig(value[name], name);
   setBusy(false);
 }).catch(error => status(error.message, true));
 

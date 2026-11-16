@@ -138,7 +138,7 @@ def process_image(
         record = dict(
             implementation_version=__version__,
             fidelity_status=STATUS,
-            filter=f"Fattal {variant}",
+            filter="Cross-Scale" if config.mode == "cross-scale" else f"Fattal {variant}",
             parameters=params.to_dict(),
             runtime=dict(
                 python=platform.python_version(),

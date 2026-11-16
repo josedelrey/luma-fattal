@@ -221,7 +221,7 @@ def test_noise_wraps_selected_cleanup_without_changing_zero_noise(factory):
 @pytest.mark.parametrize("variant", [1, 2])
 @pytest.mark.parametrize("approach", ["noise", "fbm"])
 def test_noise_presets_match_requested_treatments(variant, approach):
-    root = Path(__file__).resolve().parents[1] / "configs"
+    root = Path(__file__).resolve().parents[1] / "configs" / "normal"
     parent = root / f"fattal-{variant}-compressed.yaml"
     child = root / f"fattal-{variant}-compressed-{approach}.yaml"
     base = Config.load(parent)
@@ -256,7 +256,7 @@ def test_video_cli_noise_presets_match_frame_pipeline_and_metadata(
     from luma_fattal.cli import main
 
     root = Path(__file__).resolve().parents[1]
-    preset = root / "configs" / f"fattal-{variant}-compressed-{approach}.yaml"
+    preset = root / "configs" / "normal" / f"fattal-{variant}-compressed-{approach}.yaml"
     config = Config.load(preset)
     source = make_clip(tmp_path / "input.mkv", tools, width=48, height=36, neutral=True)
     frames = reference_rgb(source, tools, 48, 36, deband="gentle")
@@ -294,7 +294,7 @@ def test_video_cli_noise_presets_match_frame_pipeline_and_metadata(
     assert record["video_configuration"] == config.to_dict()["video"]
     assert ("source_cleanup" in record) == (approach == "noise")
     assert "prenoise.py" in record["implementation_sources_sha256"]
-    inherited = root / "configs" / f"fattal-{variant}-compressed.yaml"
+    inherited = root / "configs" / "normal" / f"fattal-{variant}-compressed.yaml"
     assert record["config_source"]["inherits"] == [
         {
             "path": str(inherited.resolve()),
@@ -309,7 +309,7 @@ def test_cli_noise_overrides_and_disabled_path(tmp_path, tools, capsys):
     from luma_fattal.cli import main
 
     preset = (
-        Path(__file__).resolve().parents[1] / "configs/fattal-1-compressed-fbm.yaml"
+        Path(__file__).resolve().parents[1] / "configs/normal/fattal-1-compressed-fbm.yaml"
     )
     source = make_clip(tmp_path / "input.mkv", tools, width=48, height=36, neutral=True)
     frames = reference_rgb(source, tools, 48, 36, deband="gentle")

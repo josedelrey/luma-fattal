@@ -60,7 +60,7 @@ def test_video_experiments_prepare_untagged_rgb_and_encode_without_gpu(
         ],
         frames.tobytes(),
     )
-    config = Config.load(root / "configs/fattal-1-compressed.yaml")
+    config = Config.load(root / "configs/normal/fattal-1-compressed.yaml")
     config = replace(
         config, video=replace(config.video, encoder=encoder, crf=19, preset="fast")
     )

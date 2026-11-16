@@ -185,7 +185,7 @@ def test_gui_controls_cover_editable_configuration_fields():
             check=True,
         ).stdout
     )
-    defaults = Config().to_dict()
+    defaults = Config(mode="cross-scale").to_dict()
     config_only_fields = {
         # Point lists and stage selections have their own controls.
         "parameters": {"pre_curve_points", "curve_points", "effect_stages"},
@@ -215,7 +215,7 @@ def test_gui_controls_cover_editable_configuration_fields():
         for key, _, control, *rest in items:
             if isinstance(control, list):
                 for choice in control:
-                    candidate = Config().to_dict()
+                    candidate = Config(mode="cross-scale").to_dict()
                     candidate[section][key] = choice
                     Config.from_dict(candidate)
 
@@ -246,7 +246,7 @@ const outer = {open: false};
 const {ConfigurationPanel, settingGroups} = require(process.argv[1]);
 const basic = new Element(), advanced = new Element();
 const panel = new ConfigurationPanel(basic, advanced, () => {});
-assert.equal(advanced.children.length, settingGroups.length);
+assert.equal(advanced.children.length, settingGroups.filter(([section]) => section !== 'cross_scale').length);
 for (const [index, group] of advanced.children.entries()) {
   const toggle = group.children[0].children[0];
   assert.equal(toggle.getAttribute('aria-expanded'), String(index === 0));
@@ -362,13 +362,14 @@ def test_preview_fade_bypass_matches_normalized_video_frame(tmp_path, tools):
     )
 
 
-def test_workbench_preview_render_and_progress(tmp_path, tools):
+@pytest.mark.parametrize("mode", ["normal", "cross-scale"])
+def test_workbench_preview_render_and_progress(tmp_path, tools, mode):
     from test_video import make_clip
 
     source = tmp_path / "source.mp4"
     make_clip(source, tools)
     app = Workbench(tmp_path / "session", REPOSITORY / "configs")
-    config = Config(parameters=FilterParams(fade=100))
+    config = Config(mode=mode, parameters=FilterParams(fade=100 if mode == "normal" else 0))
     app.uploads["test"] = dict(path=source, duration=0.2)
     try:
         for kind in ("preview", "process"):
@@ -391,6 +392,7 @@ def test_workbench_preview_render_and_progress(tmp_path, tools):
                 assert _probe(output, tools[1])["codec_name"] == "h264"
                 record = json.loads(output.with_suffix(".meta.json").read_text())
                 assert job["completed"] == record["frame_count"]
+                assert Config.from_dict(record["configuration"]) == config
     finally:
         app.shutdown()
 

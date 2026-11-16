@@ -120,6 +120,10 @@ const settingGroups = [
     ['embed_icc', 'Embed image ICC', 'boolean'],
     ['jpeg_background', 'JPEG background RGB', 'rgb', {placeholder: 'None or 255, 255, 255'}],
   ]],
+  ['cross_scale', 'Cross-Scale', [
+    ['coupling', 'Coupling', ['engrave', 'smooth']],
+    ['strength', 'Coupling strength', 0, 100, 1, {inputMin: 0, inputMax: 100}],
+  ]],
 ];
 
 class ConfigurationPanel {
@@ -128,7 +132,9 @@ class ConfigurationPanel {
     this.controls = [];
     this.curves = [];
     this.effectRoutes = [];
+    const basicRows = [], couplingRows = [];
     for (const [section, title, definitions] of settingGroups) {
+      const crossScale = section === 'cross_scale';
       const group = document.createElement('fieldset');
       group.className = 'settings-group';
       const legend = document.createElement('legend');
@@ -144,7 +150,7 @@ class ConfigurationPanel {
       toggle.addEventListener('click', () => setExpanded(toggle.getAttribute('aria-expanded') !== 'true'));
       legend.append(toggle);
       group.append(legend);
-      advanced.append(group);
+      if (!crossScale) advanced.append(group);
       if (section === 'parameters') for (const [prefix, name] of [['pre_curve_', 'Pre'], ['curve_', 'Post']]) {
         const wrapper = document.createElement('div');
         const heading = document.createElement('div');
@@ -247,7 +253,7 @@ class ConfigurationPanel {
         const [key, label, type, max, step, options = {}] = definition;
         const numeric = typeof type === 'number';
         const settings = numeric ? options : (max || {});
-        const isBasic = section === 'parameters' && index < 7;
+        const isBasic = crossScale || (section === 'parameters' && index < 7);
         const isCurveControl = /^(?:pre_|post_)?curve_/.test(key);
         const route = section === 'parameters' && !isBasic && !isCurveControl
           ? this.stageButtons(key, label)
@@ -266,13 +272,13 @@ class ConfigurationPanel {
           for (const value of type) {
             const option = document.createElement('option');
             option.value = value;
-            option.textContent = value;
+            option.textContent = crossScale ? value[0].toUpperCase() + value.slice(1) : value;
             input.append(option);
           }
         } else {
           input.type = numeric ? 'number' : type === 'boolean' ? 'checkbox' : 'text';
           if (numeric) {
-            input.step = step === 1 && section !== 'parameters' ? '1' : 'any';
+            input.step = step === 1 && section !== 'parameters' && !crossScale ? '1' : 'any';
             input.required = !settings.nullable;
             if (settings.inputMin !== undefined) input.min = settings.inputMin;
             if (settings.inputMax !== undefined) input.max = settings.inputMax;
@@ -309,7 +315,7 @@ class ConfigurationPanel {
             }
           });
         }
-        const control = {section, key, input, range, reset, type, settings, route, expand: isBasic ? null : setExpanded};
+        const control = {section, key, input, range, reset, type, settings, route, row, expand: isBasic ? null : setExpanded};
         this.controls.push(control);
         reset.addEventListener('click', () => {
           if (route) {
@@ -377,11 +383,21 @@ class ConfigurationPanel {
           group.append(wrapper);
           rows.push(wrapper);
         } else if (!/^(?:pre_)?curve_\d+$/.test(key)) {
-          (isBasic ? basic : group).append(row);
-          if (!isBasic) rows.push(row);
+          if (crossScale) {
+            row.hidden = true;
+            couplingRows.push(row);
+          } else if (isBasic) {
+            basicRows.push(row);
+          } else {
+            group.append(row);
+            rows.push(row);
+          }
         }
       }
       setExpanded(section === 'parameters');
+    }
+    for (const row of [...basicRows.slice(0, 2), ...couplingRows, ...basicRows.slice(2)]) {
+      basic.append(row);
     }
   }
 
@@ -428,7 +444,7 @@ class ConfigurationPanel {
     route.sync(stages);
   }
 
-  load(config) {
+  load(config, baseline = config) {
     this.config = config;
     this.config.parameters.effect_stages ??= {};
     for (const [key, stages] of Object.entries(config.parameters.effect_stages)) {
@@ -436,9 +452,12 @@ class ConfigurationPanel {
         stages.pre_strength = config.parameters[key];
       }
     }
-    this.baseline = structuredClone(config);
+    this.baseline = structuredClone(baseline);
     for (const control of this.controls) {
-      if (!control.route) this.sync(control);
+      if (control.section === 'cross_scale') {
+        control.row.hidden = control.inactive = config.mode !== 'cross-scale';
+      }
+      if (!control.route && !control.inactive) this.sync(control);
     }
     for (const route of this.effectRoutes) this.syncStages(route);
     this.validate();

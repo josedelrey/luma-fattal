@@ -2,11 +2,11 @@
 
 Run from an installed project environment, for example:
     python experiments/investigate_cleanup.py still --input FRAME.png \
-        --config configs/fattal-1-compressed.yaml --output outputs/NEW-STUDY
+        --config configs/normal/fattal-1-compressed.yaml --output outputs/NEW-STUDY
     python experiments/investigate_cleanup.py synthetic \
-        --config configs/fattal-1-compressed.yaml --output outputs/NEW-SYNTHETIC
+        --config configs/normal/fattal-1-compressed.yaml --output outputs/NEW-SYNTHETIC
     python experiments/investigate_cleanup.py video --input CLIP.mp4 \
-        --start 18 --frames 48 --config configs/fattal-1-compressed.yaml \
+        --start 18 --frames 48 --config configs/normal/fattal-1-compressed.yaml \
         --output outputs/NEW-VIDEO
 
 Still inputs are decoded sRGB RGB8 images. Video input follows the production

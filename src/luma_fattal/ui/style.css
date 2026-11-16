@@ -317,6 +317,46 @@ main {
   padding: 9px;
   background: transparent;
 }
+.controls > .titlebar { position: relative; }
+.mode-picker {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: 11px/12px 'Luma Sans', Helvetica, sans-serif;
+}
+.mode-picker select { height: 18px; width: 90px; padding: 0 2px; }
+.mode-picker select:focus-visible { outline-offset: 0; }
+#parameters > [hidden] { display: none; }
+#parameters > [data-setting="cross_scale.coupling"] {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  font: 12px/14px 'Luma Sans', Helvetica, sans-serif;
+}
+#parameters > [data-setting="cross_scale.coupling"][hidden] { display: none; }
+#parameters > [data-setting="cross_scale.coupling"] label {
+  background: #000;
+  color: #0000ff;
+  width: fit-content;
+}
+.controls[data-mode="cross-scale"] .control-settings:not(:has(details[open])) #parameters {
+  /* Keep the height of seven standard slider rows, including their gaps. */
+  --slider-gap: 8px;
+  --first-slider-margin: 6px;
+  max-height: calc(7 * 32px + 6 * var(--slider-gap));
+  margin-block: var(--first-slider-margin) var(--slider-gap);
+  overflow: auto;
+}
+.desktop .controls[data-mode="cross-scale"] .control-settings:not(:has(details[open])) #parameters {
+  --slider-gap: 5px;
+  --first-slider-margin: 3px;
+}
+.controls[data-mode="cross-scale"] .control-settings:not(:has(details[open])) #parameters > :first-child { margin-top: 0; }
+.controls[data-mode="cross-scale"] .control-settings:not(:has(details[open])) #parameters > :last-child { margin-bottom: 0; }
 .section-label {
   color: #100000;
   letter-spacing: 0;

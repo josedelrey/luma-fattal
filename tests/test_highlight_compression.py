@@ -235,7 +235,7 @@ def test_video_cli_compression_works_with_tone_strength_and_fbm(
     from luma_fattal.prenoise import SourceNoise
 
     preset = (
-        Path(__file__).resolve().parents[1] / "configs/fattal-2-compressed-fbm.yaml"
+        Path(__file__).resolve().parents[1] / "configs/normal/fattal-2-compressed-fbm.yaml"
     )
     config = Config.load(preset)
     source = make_clip(tmp_path / "input.mkv", tools, width=48, height=36, neutral=True)

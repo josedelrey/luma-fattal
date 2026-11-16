@@ -1,0 +1,19 @@
+# Cross-Scale with fBm-like noise 0.75 and flat cleanup disabled.
+extends: cross-scale-compressed-fast.yaml
+video:
+  calibration_cache: true
+  gpu_iterations: 80
+  lighting_scale: 1.0
+  decode_prefetch: 0
+  pinned_frames: true
+  gpu_buffer_reuse: true
+  gpu_cleanup_graph: true
+  solver_halo: 64
+  pipeline_depth: 3
+  validation_mode: stream
+  flat_cleanup: 0.0
+  flat_cleanup_mode: standard
+  pre_noise_rms: 0.75
+  pre_noise_kind: fbm
+  pre_noise_masked: true
+  pre_noise_seed: 20261017

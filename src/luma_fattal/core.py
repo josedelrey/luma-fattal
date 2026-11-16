@@ -10,8 +10,9 @@ from typing import Generic, Protocol, Self, TypeVar
 
 import numpy as np
 from numba import njit
+from scipy.ndimage import gaussian_filter
 
-from .configuration import FilterParams, NumericsConfig
+from .configuration import CrossScaleConfig, FilterParams, NumericsConfig
 from .finishing import finish_rgb, finishing_active
 from .numerics import (
     gradient_scale,
@@ -198,6 +199,24 @@ def _divergence(log_luminance: np.ndarray, phi: np.ndarray) -> np.ndarray:
     result[1:, :] -= gy[:-1, :]
     result[0] = 0  # The first row is fixed by the solver boundary condition.
     return result
+
+
+def _cross_scale_detail(source, phi, settings: CrossScaleConfig, blur):
+    """Return the fine band and its signed change in gradient gain."""
+    scale = max(0.8, min(2.0, min(source.shape) / 128))
+    detail = source - blur(source, scale)
+    coarse = blur(source, 3 * scale)
+    dx = coarse[:, 1:] - coarse[:, :-1]
+    dy = coarse[1:, :] - coarse[:-1, :]
+    energy = coarse - coarse
+    energy[:, :-1] = dx * dx
+    energy[:-1, :] += dy * dy
+    contrast = blur(energy, scale) ** np.float32(0.5) * np.float32(3 * scale)
+    # Use a fixed knee in log contrast so one strong edge cannot change the
+    # response in distant parts of a frame or across neighboring frames.
+    response = contrast / (contrast + np.float32(0.12))
+    limit = 3.0 if settings.coupling == "engrave" else -1.0
+    return detail, phi * (response * np.float32(limit * settings.strength / 100))
 
 
 @njit(cache=True, nogil=True)
@@ -788,7 +807,9 @@ class ToneMapSlot(Generic[_Array]):
             budget.remaining -= size
 
 
-def _solve_tone_map(luminance, maximum, variant, params, numerics, solver):
+def _solve_tone_map(
+    luminance, maximum, variant, params, numerics, solver, *, cross_scale=None
+):
     # Add the offset in float64, then narrow before the scalar logarithm.
     log_source = scalar_math_f32(
         (
@@ -809,6 +830,11 @@ def _solve_tone_map(luminance, maximum, variant, params, numerics, solver):
                 numerics.power_mode,
             )
             rhs = _divergence(log_source, phi)
+            if cross_scale is not None:
+                detail, gain = _cross_scale_detail(
+                    log_source, phi, cross_scale, gaussian_filter
+                )
+                rhs += _divergence(detail, gain)
     except FloatingPointError as error:
         raise ValueError(
             "Gradient attenuation exceeds the solver's numeric range for this image"
@@ -827,7 +853,8 @@ def _solve_tone_map(luminance, maximum, variant, params, numerics, solver):
 
 
 def _filter_rgb(
-    original_rgb, variant, params, numerics, source_cleanup, solver, tone_map, pre
+    original_rgb, variant, params, numerics, source_cleanup, solver, tone_map, pre,
+    cross_scale,
 ):
     inputs = None if tone_map is None else tone_map.color_inputs
     if inputs is not None and inputs.source_rgb is not None:
@@ -898,8 +925,9 @@ def _filter_rgb(
             maximum = np.max(luminance)
             if maximum > 0:
                 if mapped is None:
+                    options = {} if cross_scale is None else {"cross_scale": cross_scale}
                     mapped = _solve_tone_map(
-                        luminance, maximum, variant, params, numerics, solver
+                        luminance, maximum, variant, params, numerics, solver, **options
                     )
                 if tone_map is not None:
                     tone_map.value = mapped
@@ -992,6 +1020,7 @@ def apply_core(
     source_cleanup=None,
     solver=None,
     tone_map: ToneMapSlot[np.ndarray] | None = None,
+    cross_scale: CrossScaleConfig | None = None,
 ) -> np.ndarray:
     """Apply the effect to decoded pixels with no file or resizing policies."""
     result = array.copy()
@@ -1012,6 +1041,7 @@ def apply_core(
                 solver,
                 tone_map,
                 pre,
+                cross_scale,
             )
             if tone_map is not None:
                 tone_map.base_key = key

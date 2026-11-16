@@ -166,6 +166,7 @@ class _PreviewSamples:
         key = (
             tuple(timestamps),
             config.filter,
+            config.active_cross_scale,
             config.processing,
             config.numerics,
             params.alpha,
@@ -352,6 +353,7 @@ def _filter_preview(
         config.numerics,
         source_cleanup=_preview_treatment(config),
         tone_map=None if tone_maps is None else tone_maps.cpu,
+        cross_scale=config.active_cross_scale,
     )
     return Image.fromarray(result)
 
@@ -412,12 +414,20 @@ class Workbench:
         self.directory = directory.resolve()
         self.directory.mkdir(parents=True, exist_ok=True)
         self.token = secrets.token_urlsafe(32)
-        self.presets = {
-            path.stem: Config.load(path).to_dict()
-            for path in sorted(presets.glob("*.yaml"))
-        }
-        if not self.presets:
-            self.presets = {"default": Config().to_dict()}
+        self.presets = {}
+        normal = presets / "normal"
+        if not normal.is_dir():
+            normal = presets / "fattal"
+        # Also accept a flat directory supplied with --presets.
+        for directory in (presets, normal, presets / "cross-scale"):
+            for path in sorted(directory.glob("*.yaml")):
+                config = Config.load(path)
+                key = f"cross-scale/{path.stem}" if config.mode == "cross-scale" else path.stem
+                self.presets[key] = config.to_dict()
+        if not any("/" not in key for key in self.presets):
+            self.presets["default"] = Config().to_dict()
+        if not any(key.startswith("cross-scale/") for key in self.presets):
+            self.presets["cross-scale/default"] = Config(mode="cross-scale").to_dict()
         self.jobs: dict[str, dict] = {}
         self.job_started: dict[str, float] = {}
         self.uploads: dict[str, dict] = {}

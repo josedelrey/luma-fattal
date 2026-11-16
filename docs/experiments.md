@@ -57,10 +57,10 @@ each time. Synthetic comparisons require no external media:
 
 ```bash
 python experiments/investigate_cleanup.py synthetic \
-  --config configs/fattal-1-compressed.yaml --output outputs/cleanup-synthetic-new
+  --config configs/normal/fattal-1-compressed.yaml --output outputs/cleanup-synthetic-new
 
 python experiments/investigate_prenoise.py synthetic \
-  --config configs/fattal-1-compressed.yaml \
+  --config configs/normal/fattal-1-compressed.yaml \
   --cases off current075 highpass035 highpass075 fbm075 clean075-highpass035 \
   --output outputs/prenoise-synthetic-new
 ```
@@ -72,12 +72,12 @@ on your own video clip, run:
 ```bash
 python experiments/investigate_cleanup.py video \
   --input local_inputs/clip.mp4 --start 0 --frames 48 \
-  --config configs/fattal-1-compressed.yaml \
+  --config configs/normal/fattal-1-compressed.yaml \
   --cases current075 split075-s12 split050-s12 --output outputs/cleanup-motion-new
 
 python experiments/investigate_prenoise.py video \
   --input local_inputs/clip.mp4 --start 0 --frames 48 \
-  --config configs/fattal-1-compressed.yaml --cases current075 configured \
+  --config configs/normal/fattal-1-compressed.yaml --cases current075 configured \
   --noise-rms 0.35 --noise-kind highpass --noise-cleanup 0.75 \
   --output outputs/prenoise-motion-new
 ```

@@ -43,7 +43,7 @@ def load_contract(path: Path = CONTRACT):
         # Frozen image baselines retain the original hard shadow cutoff.
         config = replace(config, numerics=replace(config.numerics, shadow_softness=0))
         data = yaml.safe_load(config_path.read_text())
-        if set(data) != {item.name for item in fields(Config)}:
+        if set(data) != set(config.to_dict()):
             raise ValueError(f"Preset must specify every section: {entry['name']}")
         for section in ("parameters", "processing", "image", "output", "numerics"):
             if set(data[section]) != {

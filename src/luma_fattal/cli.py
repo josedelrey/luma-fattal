@@ -58,7 +58,7 @@ def _settings(args: argparse.Namespace) -> Config:
     numerics = {
         name: getattr(args, name)
         for name in asdict(config.numerics)
-        if getattr(args, name) is not None
+        if getattr(args, name, None) is not None
     }
     video = {
         name: getattr(args, name)
@@ -96,9 +96,21 @@ def _settings(args: argparse.Namespace) -> Config:
         )
         if getattr(args, name, None) is not None
     }
+    mode = args.mode or config.mode
     return replace(
         config,
-        filter=args.filter or config.filter,
+        mode=mode,
+        filter=args.filter or ("fattal1" if mode == "cross-scale" else config.filter),
+        cross_scale=replace(
+            config.cross_scale,
+            **{
+                key: value
+                for key, value in (
+                    ("coupling", args.coupling), ("strength", args.coupling_strength)
+                )
+                if value is not None
+            },
+        ),
         parameters=replace(config.parameters, **parameters),
         processing=replace(config.processing, **processing),
         image=replace(config.image, **image),
@@ -132,7 +144,7 @@ def _comparison(
 
 def _evaluate(args: argparse.Namespace) -> dict:
     config = _settings(args)
-    if args.filter is None and args.config is None:
+    if config.mode == "normal" and args.filter is None and args.config is None:
         config = replace(config, filter="both")
     params = config.parameters
     rows = []
@@ -141,7 +153,7 @@ def _evaluate(args: argparse.Namespace) -> dict:
         raise ValueError(f"No PNG inputs found in {args.inputs}")
     variants = (1, 2) if config.filter == "both" else (int(config.filter[-1]),)
     for variant in variants:
-        label = f"fattal_{variant}"
+        label = "cross_scale" if config.mode == "cross-scale" else f"fattal_{variant}"
         for original in inputs:
             destination = args.output / label / (original.stem + config.output.suffix)
             run = process_image(
@@ -214,7 +226,11 @@ def _show_image(record: dict) -> None:
 def _show_video(record: dict) -> None:
     output = Path(record["output"])
     width, height = record["dimensions"]
-    print(f"Processed video with Fattal {record['filter'][-1]}: {output}")
+    label = (
+        "Cross-Scale" if record["configuration"].get("mode") == "cross-scale"
+        else f"Fattal {record['filter'][-1]}"
+    )
+    print(f"Processed video with {label}: {output}")
     print(
         f"  {record['frame_count']} frames at {record['frame_rate']} fps"
         f" | {width} × {height} | Run time: {record['seconds']:.2f} s"
@@ -456,6 +472,20 @@ def main(argv: list[str] | None = None) -> None:
         "config", help="Show defaults or write a reusable configuration file"
     )
     configuration.add_argument("--output", type=Path)
+    configuration.set_defaults(config=None, profile=None, filter=None)
+    for command in (apply, evaluate, video, configuration):
+        command.add_argument(
+            "--mode", choices=("normal", "cross-scale"),
+            type=lambda value: "normal" if value == "fattal" else value,
+            help="Processing mode. Cross-Scale uses Fattal 1",
+        )
+        command.add_argument(
+            "--coupling", choices=("engrave", "smooth"), help="Cross-Scale detail response",
+        )
+        command.add_argument(
+            "--coupling-strength", type=float, metavar="PERCENT",
+            help="Cross-Scale strength from 0 to 100",
+        )
     for command in (apply, video, compare, configuration):
         command.add_argument(
             "--json",
@@ -631,7 +661,7 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 _show_video(record)
         elif args.command == "config":
-            config = Config()
+            config = _settings(args)
             if args.output:
                 if args.output.exists():
                     raise ValueError(

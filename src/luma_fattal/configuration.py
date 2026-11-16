@@ -548,6 +548,18 @@ class VideoConfig:
 
 
 @dataclass(frozen=True)
+class CrossScaleConfig:
+    """Control how coarse contrast changes fine detail."""
+
+    coupling: str = "engrave"
+    strength: float = 65.0
+
+    def __post_init__(self):
+        _choice("cross_scale.coupling", self.coupling, ("engrave", "smooth"))
+        _finite("cross_scale.strength", self.strength, 0, 100)
+
+
+@dataclass(frozen=True)
 class Config:
     """Validated settings for filtering, input preparation, and export."""
 
@@ -559,11 +571,18 @@ class Config:
     numerics: NumericsConfig = field(default_factory=NumericsConfig)
     schema_version: int = 1
     video: VideoConfig = field(default_factory=VideoConfig)
+    mode: str = "normal"
+    cross_scale: CrossScaleConfig = field(default_factory=CrossScaleConfig)
 
     def __post_init__(self):
         if type(self.schema_version) is not int or self.schema_version != 1:
             raise ValueError("Unsupported configuration schema_version")
         _choice("filter", self.filter, ("fattal1", "fattal2", "both"))
+        if self.mode == "fattal":
+            object.__setattr__(self, "mode", "normal")
+        _choice("mode", self.mode, ("normal", "cross-scale"))
+        if self.mode == "cross-scale" and self.filter != "fattal1":
+            raise ValueError("Cross-Scale requires the Fattal 1 filter")
         for name, expected in (
             ("parameters", FilterParams),
             ("processing", ProcessingConfig),
@@ -571,9 +590,16 @@ class Config:
             ("output", OutputConfig),
             ("numerics", NumericsConfig),
             ("video", VideoConfig),
+            ("cross_scale", CrossScaleConfig),
         ):
             if not isinstance(getattr(self, name), expected):
                 raise ValueError(f"{name} must be a {expected.__name__}")
+
+    @property
+    def active_cross_scale(self) -> CrossScaleConfig | None:
+        if self.mode == "cross-scale" and self.cross_scale.strength:
+            return self.cross_scale
+        return None
 
     @classmethod
     def from_dict(cls, data):
@@ -586,17 +612,19 @@ class Config:
             "output": OutputConfig,
             "numerics": NumericsConfig,
             "video": VideoConfig,
+            "cross_scale": CrossScaleConfig,
         }
         if any(not isinstance(key, str) for key in data):
             raise ValueError("Configuration keys must be strings")
-        unknown = set(data) - set(types) - {"filter", "schema_version"}
+        root_keys = ("filter", "schema_version", "mode")
+        unknown = set(data) - set(types) - set(root_keys)
         if unknown:
             raise ValueError(
                 f"Unknown configuration sections: {', '.join(sorted(unknown))}"
             )
-        values = {key: data[key] for key in ("filter", "schema_version") if key in data}
+        values = {key: data[key] for key in root_keys if key in data}
         for name, section in data.items():
-            if name in ("filter", "schema_version"):
+            if name in root_keys:
                 continue
             if not isinstance(section, dict):
                 raise ValueError(f"{name} must be an object")
@@ -707,6 +735,7 @@ class Config:
                 "output",
                 "numerics",
                 "video",
+                "cross_scale",
             ):
                 inherited = parent.get(name, {})
                 if not isinstance(value, dict) or not isinstance(inherited, dict):
@@ -719,19 +748,27 @@ class Config:
     def to_dict(self):
         result = asdict(self)
         result["parameters"] = self.parameters.to_dict()
+        if self.mode == "normal":
+            # Preserve the schema 1 representation of existing recipes.
+            del result["mode"]
+            if self.cross_scale == CrossScaleConfig():
+                del result["cross_scale"]
         return result
 
     def to_yaml(self):
         return yaml.safe_dump(self.to_dict(), sort_keys=False)
 
     def to_toml(self):
+        config = self.to_dict()
         lines = [
             f"schema_version = {self.schema_version}",
             f"filter = {json.dumps(self.filter)}",
-            "",
         ]
-        for name, section in self.to_dict().items():
-            if name in ("filter", "schema_version"):
+        if "mode" in config:
+            lines.append(f"mode = {json.dumps(self.mode)}")
+        lines.append("")
+        for name, section in config.items():
+            if name in ("filter", "schema_version", "mode"):
                 continue
             lines.append(f"[{name}]")
             for key, value in section.items():

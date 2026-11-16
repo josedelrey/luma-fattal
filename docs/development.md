@@ -87,7 +87,7 @@ recipe over those inputs and compare the results with matching reference files:
 ```bash
 luma-fattal probes outputs/probes
 luma-fattal evaluate outputs/probes local_inputs/references outputs/evaluation \
-  --config configs/fattal-1.yaml --filter both --output-format png
+  --config configs/normal/fattal-1.yaml --filter both --output-format png
 ```
 
 Place references in `local_inputs/references/fattal_1/` and
@@ -102,7 +102,7 @@ Render the opening comparison from its bundled input:
 
 ```bash
 luma-fattal apply assets/lantern-garden-original.png outputs/readme-comparison-new \
-  --config configs/fattal-1.yaml --filter both --shadow-softness 6 --output-format png
+  --config configs/normal/fattal-1.yaml --filter both --shadow-softness 6 --output-format png
 ```
 
 This command applies both reference variants with shadow softness 6 and saves
@@ -113,7 +113,7 @@ Render the image in the CLI example:
 
 ```bash
 luma-fattal apply assets/tea-by-the-water-original.png outputs/readme-tea-new.png \
-  --config configs/fattal-1.yaml --filter fattal1 --shadow-softness 6 --output-format png
+  --config configs/normal/fattal-1.yaml --filter fattal1 --shadow-softness 6 --output-format png
 ```
 
 Its source and filtered result are 1080×810 PNGs.

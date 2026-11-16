@@ -206,7 +206,7 @@ def test_denoise_configuration_roundtrips(tmp_path, suffix):
 
 @pytest.mark.parametrize(
     "path",
-    sorted((Path(__file__).resolve().parents[1] / "configs").glob("*.yaml")),
+    sorted((Path(__file__).resolve().parents[1] / "configs" / "normal").glob("*.yaml")),
     ids=lambda p: p.stem,
 )
 def test_all_presets_leave_denoising_disabled_by_default(path):
@@ -283,7 +283,7 @@ def test_video_cli_denoise_override_matches_pixels_and_records_metadata(
     decoded = np.frombuffer(data, np.uint8).reshape(3, 128, 192, 3)
     preset = (
         Path(__file__).resolve().parents[1]
-        / "configs"
+        / "configs" / "normal"
         / f"fattal-{variant}-compressed.yaml"
     )
     output = tmp_path / "out.mp4"

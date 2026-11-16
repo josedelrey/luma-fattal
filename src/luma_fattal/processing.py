@@ -214,6 +214,7 @@ def process_pixels(
     source_cleanup=None,
     solver=None,
     tone_map=None,
+    cross_scale=None,
 ):
     """Apply area fitting, working-resolution filtering and progressive enlargement."""
     from .core import apply_core
@@ -232,6 +233,8 @@ def process_pixels(
         cleanup_options["solver"] = solver
     if tone_map is not None:
         cleanup_options["tone_map"] = tone_map
+    if cross_scale is not None:
+        cleanup_options["cross_scale"] = cross_scale
     if size == work_size:
         return apply_core(array, variant, params, numerics, **cleanup_options)
     # The effect operates at working resolution before output enlargement.

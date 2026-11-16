@@ -17,7 +17,7 @@ from scripts import check_presets
 
 @pytest.mark.parametrize(
     "path",
-    sorted((Path(__file__).resolve().parents[1] / "configs").glob("*.yaml")),
+    sorted((Path(__file__).resolve().parents[1] / "configs" / "normal").glob("*.yaml")),
     ids=lambda path: path.stem,
 )
 def test_presets_apply_full_effect(path):
@@ -29,7 +29,7 @@ def test_presets_apply_full_effect(path):
 
 
 def test_fast_presets_mirror_each_original_recipe():
-    root = Path(__file__).resolve().parents[1] / "configs"
+    root = Path(__file__).resolve().parents[1] / "configs" / "normal"
     originals = [
         path for path in root.glob("*.yaml") if not path.stem.endswith("-fast")
     ]
@@ -74,9 +74,9 @@ def test_frozen_recipes_are_complete():
 @pytest.mark.parametrize("variant", [1, 2])
 def test_compressed_presets_enable_smooth_shadows_debanding_and_cleanup(variant):
     root = Path(__file__).resolve().parents[1]
-    reference = configuration.Config.load(root / "configs" / f"fattal-{variant}.yaml")
+    reference = configuration.Config.load(root / "configs" / "normal" / f"fattal-{variant}.yaml")
     compressed = configuration.Config.load(
-        root / "configs" / f"fattal-{variant}-compressed.yaml"
+        root / "configs" / "normal" / f"fattal-{variant}-compressed.yaml"
     )
     assert compressed == replace(
         reference,

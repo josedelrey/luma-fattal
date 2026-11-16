@@ -16,7 +16,7 @@ activation. Commands split across lines with `\` use Bash syntax.
 
 Use `--config` to load a YAML, TOML, or JSON file. Explicit CLI options take
 precedence over file settings. Without `--config`, the application uses built-in
-defaults. It does not load `configs/default.yaml` automatically.
+defaults. It does not load `configs/normal/default.yaml` automatically.
 
 To export all built-in defaults, run:
 
@@ -51,13 +51,15 @@ to use their defaults.
 | Key | Default | Accepted values and behavior |
 | --- | --- | --- |
 | `schema_version` | `1` | Integer `1` is the only supported schema. |
-| `filter` | `fattal1` | `fattal1`, `fattal2`, or `both`. Fattal 1 accumulates gradient attenuation across scales. Fattal 2 replaces it at finer scales. The image CLI can export both variants. Video and single-result Python calls require one variant. |
+| `mode` | `normal` | `normal` or `cross-scale`. Recipes with no mode or the legacy value `fattal` use Normal. |
+| `filter` | `fattal1` | `fattal1`, `fattal2`, or `both`. Cross-Scale requires `fattal1`. The Fattal image CLI can export both variants. Video and single-result Python calls require one variant. |
 | `extends` | Omitted | Path to one parent configuration file, resolved relative to this file. Child values override parent values within each section. |
 
 ## Presets
 
-The [configs/](../configs/) directory contains all presets, with a matching
-`fattal-2` version for each `fattal-1` family.
+The [Normal presets](../configs/normal/) include Fattal 1 and Fattal 2 variants.
+The [Cross-Scale presets](../configs/cross-scale/) mirror the Fattal 1 presets,
+including default, fast, and compressed recipes.
 All bundled YAML presets use `numerics.shadow_softness: 6`, equivalent to
 `--shadow-softness 6`. API and CLI runs without a config keep the default of `0`.
 Each preset has a `-fast.yaml` counterpart for sustained video throughput. Fast
@@ -69,27 +71,28 @@ set separately to 80. CUDA filtering requires the optional GPU dependencies.
 
 | Preset | Purpose |
 | --- | --- |
-| [default.yaml](../configs/default.yaml) | General defaults |
-| [high.yaml](../configs/high.yaml) | Alias for general defaults |
-| [fattal-1.yaml](../configs/fattal-1.yaml), [fattal-2.yaml](../configs/fattal-2.yaml) | Full reference effect with smooth shadows |
-| [fattal-1-compressed.yaml](../configs/fattal-1-compressed.yaml) | Smooth shadows, gentle video debanding, standard cleanup 0.75 |
-| [fattal-1-compressed-multiscale.yaml](../configs/fattal-1-compressed-multiscale.yaml) | Compressed preset with scale-separated cleanup |
-| [fattal-1-compressed-noise.yaml](../configs/fattal-1-compressed-noise.yaml) | Compressed preset with masked high-pass noise at 0.35 RMS |
-| [fattal-1-compressed-fbm.yaml](../configs/fattal-1-compressed-fbm.yaml) | Masked fBm-like noise at 0.75 RMS, flat cleanup disabled |
+| [default.yaml](../configs/normal/default.yaml) | General defaults |
+| [high.yaml](../configs/normal/high.yaml) | Alias for general defaults |
+| [fattal-1.yaml](../configs/normal/fattal-1.yaml), [fattal-2.yaml](../configs/normal/fattal-2.yaml) | Full reference effect with smooth shadows |
+| [fattal-1-compressed.yaml](../configs/normal/fattal-1-compressed.yaml) | Smooth shadows, gentle video debanding, standard cleanup 0.75 |
+| [fattal-1-compressed-multiscale.yaml](../configs/normal/fattal-1-compressed-multiscale.yaml) | Compressed preset with scale-separated cleanup |
+| [fattal-1-compressed-noise.yaml](../configs/normal/fattal-1-compressed-noise.yaml) | Compressed preset with masked high-pass noise at 0.35 RMS |
+| [fattal-1-compressed-fbm.yaml](../configs/normal/fattal-1-compressed-fbm.yaml) | Masked fBm-like noise at 0.75 RMS, flat cleanup disabled |
 
 Loading a preset replaces the entire configuration, resolves inheritance, and
 fills omitted fields from `Config()` defaults. The resolved settings determine
 processing behavior.
 
-The GUI keeps the same controls for every preset. Seven common effect controls
-are visible initially. **More settings** contains collapsible groups for effects,
+The **Mode** selector shows presets for the active mode. It also retains each
+mode's working settings while the app is open. Seven common effect controls
+are visible initially. Cross-Scale adds **Coupling** and **Coupling strength**
+below Beta. **More settings** contains collapsible groups for effects,
 numerics, video source, encoding and performance, and image input and export.
 **Effect** opens by default. Processing settings, the numerical fields
 `gradient_threshold`, `log_offset`,
 `detail_level`, `power_mode`, and `luminance_mode`, and the video fields
 `pre_noise_seed`, `frame_rate`, `input_color`, and `input_range` are retained in
-configuration files and can be changed through the CLI or Python API. Visible
-controls stay available when their mode or backend is inactive.
+configuration files and can be changed through the CLI or Python API.
 Image input and image export settings are also editable and saved, although they
 do not affect video processing. Schema version `1` is fixed, and video requires
 one filter rather than `both`. `extends` selects inherited values and is resolved
@@ -107,6 +110,29 @@ or loaded through the CLI and Python API.
 
 Numeric fields retain the preset's exact values and allow finer changes than
 the sliders' practical increments. Blank GPU iterations use `numerics.iterations`.
+
+## Cross-Scale
+
+Cross-Scale modifies fine detail where the image has broader local contrast.
+`engrave` strengthens that detail and `smooth` softens it. Strength ranges
+from 0 to 100. At 0, the output is the corresponding Fattal 1 result.
+
+```yaml
+mode: cross-scale
+cross_scale:
+  coupling: engrave
+  strength: 65
+```
+
+Use `--mode cross-scale`, `--coupling engrave` or `--coupling smooth`,
+and `--coupling-strength 65` to set the same options from the CLI.
+
+```bash
+luma-fattal apply assets/tea-by-the-water-original.png outputs/engraved.png \
+  --config configs/cross-scale/default.yaml --output-format png
+```
+
+## Inheritance
 
 Use `extends` to inherit from a parent configuration and override selected settings.
 Parent paths are relative to the child file. Named sections merge by setting,
@@ -208,7 +234,7 @@ For a softer result:
 
 ```bash
 luma-fattal apply assets/lantern-garden-original.png outputs/softer.png \
-  --config configs/fattal-1.yaml --output-format png \
+  --config configs/normal/fattal-1.yaml --output-format png \
   --tone-strength 60 --highlight-compression 60 --black-level 5 --white-level 95
 ```
 

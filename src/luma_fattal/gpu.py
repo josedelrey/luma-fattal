@@ -656,6 +656,7 @@ class AdaptiveFrameProcessor:
             config.processing,
             config.numerics,
             source_cleanup=self.source_cleanup,
+            cross_scale=config.active_cross_scale,
         )
 
     def __call__(self, frame):

@@ -51,7 +51,7 @@ def apply_filter(
     profile: str | None = None,
     config: Config | None = None,
 ) -> Image.Image | np.ndarray:
-    """Apply Fattal variant 1 or 2 to 8-bit RGB/RGBA pixels or a Pillow image.
+    """Apply the configured mode to RGB8/RGBA8 pixels or a Pillow image.
 
     Filtering uses an 8 MP input-area budget and
     1536-pixel effect working limit. File sampling requires a lazy Pillow
@@ -71,6 +71,8 @@ def apply_filter(
         variant = int(config.filter[-1])
     if isinstance(variant, bool) or variant not in (1, 2):
         raise ValueError("variant must be 1 or 2")
+    if config.mode == "cross-scale" and variant != 1:
+        raise ValueError("Cross-Scale requires the Fattal 1 filter")
     pil_input = isinstance(image, Image.Image)
     if pil_input:
         if min(image.size) < 1:
@@ -97,7 +99,10 @@ def apply_filter(
         raise ValueError(
             'opaque pixels required, set processing.transparency="straight" for the unvalidated RGBA extension'
         )
-    result = process_pixels(array, variant, params, config.processing, config.numerics)
+    result = process_pixels(
+        array, variant, params, config.processing, config.numerics,
+        cross_scale=config.active_cross_scale,
+    )
     if pil_input:
         assert isinstance(image, Image.Image)
         output = Image.fromarray(result)
@@ -151,5 +156,6 @@ def process_frames(
                 config.parameters,
                 config.processing,
                 config.numerics,
+                cross_scale=config.active_cross_scale,
                 **options,
             )

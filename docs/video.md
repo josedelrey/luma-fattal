@@ -18,7 +18,7 @@ must remain stable, with strictly increasing presentation timestamps.
 
 ```bash
 luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
-  --config configs/fattal-1.yaml --progress
+  --config configs/normal/fattal-1.yaml --progress
 ```
 
 By default, a separate decoding pass checks timing, geometry, and color throughout
@@ -54,7 +54,7 @@ For missing or incorrect metadata, specify the source interpretation and cadence
 
 ```bash
 luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
-  --config configs/fattal-1.yaml --input-color bt709 --input-range limited \
+  --config configs/normal/fattal-1.yaml --input-color bt709 --input-range limited \
   --frame-rate 30000/1001 --progress
 ```
 
@@ -90,7 +90,7 @@ includes `h264_nvenc`. No additional Python packages are required.
 
 ```bash
 luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
-  --config configs/fattal-1.yaml --progress
+  --config configs/normal/fattal-1.yaml --progress
 ```
 
 NVENC accelerates output compression. The [optional CUDA backend](#gpu-filtering)
@@ -131,7 +131,7 @@ Install the optional GPU dependencies and run a video:
 ```bash
 uv sync --locked --extra gpu
 uv run --extra gpu luma-fattal video local_inputs/input.mp4 outputs/stylized.mp4 \
-  --config configs/fattal-1-compressed.yaml --progress
+  --config configs/normal/fattal-1-compressed.yaml --progress
 ```
 
 The extra supplies CuPy and matched CUDA 12.9 runtime/compiler libraries for
@@ -178,8 +178,8 @@ Compare complete runs and their filtered RGB fingerprints with:
 ```bash
 uv run python experiments/benchmark_video_throughput.py \
   --input local_inputs/input.mp4 \
-  --config configs/fattal-1-compressed.yaml \
-  --candidate configs/fattal-1-compressed-fast.yaml \
+  --config configs/normal/fattal-1-compressed.yaml \
+  --candidate configs/normal/fattal-1-compressed-fast.yaml \
   --output outputs/throughput-comparison --repeat 2
 ```
 
@@ -194,7 +194,7 @@ Use a [compressed-source preset](configuration.md#presets):
 
 ```bash
 luma-fattal video local_inputs/input.mp4 outputs/cleaned.mp4 \
-  --config configs/fattal-1-compressed.yaml --progress
+  --config configs/normal/fattal-1-compressed.yaml --progress
 ```
 
 Compressed presets use the same 8 MP input cap and 1536-pixel working edge

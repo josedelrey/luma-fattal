@@ -2,6 +2,7 @@
 
 from .configuration import (
     Config,
+    CrossScaleConfig,
     EffectStages,
     FilterParams,
     ImageConfig,
@@ -10,11 +11,12 @@ from .configuration import (
     ProcessingConfig,
     VideoConfig,
 )
-from .filters import fattal1, fattal2
+from .filters import cross_scale, fattal1, fattal2
 from .pipeline import apply_filter, process_frames
 
 __all__ = [
     "Config",
+    "CrossScaleConfig",
     "EffectStages",
     "FilterParams",
     "ImageConfig",
@@ -23,6 +25,7 @@ __all__ = [
     "ProcessingConfig",
     "VideoConfig",
     "apply_filter",
+    "cross_scale",
     "fattal1",
     "fattal2",
     "process_frames",

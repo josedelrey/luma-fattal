@@ -9,7 +9,7 @@ from PIL import Image
 
 from luma_fattal import Config, apply_filter
 
-config = Config.load("configs/fattal-1.yaml")
+config = Config.load("configs/normal/fattal-1.yaml")
 with Image.open("assets/lantern-garden-original.png") as image:
     result = apply_filter(image, config=config)
 ```
@@ -23,6 +23,12 @@ When the configuration specifies `filter: both`, pass `variant=1` or
 replaces the effect parameters from the config. The `fattal1` and `fattal2`
 convenience functions select the variant and accept individual parameter
 overrides, for example `fattal2(image, config=config, tone_strength=60)`.
+
+For Cross-Scale, load a recipe from `configs/cross-scale/` and pass it to
+`apply_filter` or `process_frames`. You can also construct
+`Config(mode="cross-scale", cross_scale=CrossScaleConfig(coupling="smooth", strength=70))`.
+For a single image, use `cross_scale(image, coupling="smooth", strength=70)`.
+`CrossScaleConfig` and `cross_scale` are both exported from `luma_fattal`.
 
 Configurations and their sections are immutable dataclasses. Modify a loaded
 preset with `dataclasses.replace`, which validates each updated section:
@@ -67,7 +73,7 @@ from luma_fattal.images import process_image
 record = process_image(
     "assets/lantern-garden-original.png",
     "outputs/api-image.jpg",
-    config_path="configs/fattal-1.yaml",
+    config_path="configs/normal/fattal-1.yaml",
 )
 ```
 
@@ -97,7 +103,7 @@ def report_progress(completed, total):
 record = process_video(
     "local_inputs/input.mp4",
     "outputs/api-video.mp4",
-    config=Config.load("configs/fattal-1.yaml"),
+    config=Config.load("configs/normal/fattal-1.yaml"),
     on_progress=report_progress,
 )
 ```

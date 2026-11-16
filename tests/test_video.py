@@ -242,7 +242,7 @@ def test_cli_yaml_encoder_fallback_and_cpu_override(
     import luma_fattal.video as video
 
     source = make_clip(tmp_path / "source.mkv", tools)
-    preset = Path(__file__).resolve().parents[1] / "configs" / "fattal-1.yaml"
+    preset = Path(__file__).resolve().parents[1] / "configs" / "normal" / "fattal-1.yaml"
     config = tmp_path / "inherited.yaml"
     config.write_text(f"extends: {preset.as_posix()}\nparameters:\n  fade: 100\n")
 
@@ -930,7 +930,7 @@ def test_compressed_preset_video_defaults_and_cli_overrides(
     source = make_clip(tmp_path / "compressed.mkv", tools)
     preset = (
         Path(__file__).resolve().parents[1]
-        / "configs"
+        / "configs" / "normal"
         / f"fattal-{variant}-compressed.yaml"
     )
     config = Config.load(preset)

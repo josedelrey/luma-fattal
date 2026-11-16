@@ -4,7 +4,7 @@
   "presets": [
     {
       "name": "Fattal 1",
-      "config": "configs/fattal-1.yaml",
+      "config": "configs/normal/fattal-1.yaml",
       "configuration": {
         "filter": "fattal1",
         "parameters": {
@@ -82,7 +82,7 @@
     },
     {
       "name": "Fattal 2",
-      "config": "configs/fattal-2.yaml",
+      "config": "configs/normal/fattal-2.yaml",
       "configuration": {
         "filter": "fattal2",
         "parameters": {

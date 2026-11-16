@@ -246,7 +246,7 @@ def test_video_cli_vibrance_works_with_tone_controls_and_fbm(tmp_path, tools, ca
     from luma_fattal.prenoise import SourceNoise
 
     preset = (
-        Path(__file__).resolve().parents[1] / "configs/fattal-2-compressed-fbm.yaml"
+        Path(__file__).resolve().parents[1] / "configs/normal/fattal-2-compressed-fbm.yaml"
     )
     config = Config.load(preset)
     source = make_clip(tmp_path / "input.mkv", tools, width=48, height=36)

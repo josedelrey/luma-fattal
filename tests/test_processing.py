@@ -156,7 +156,7 @@ def test_presets_use_fixed_working_grid(monkeypatch, preset):
     pixels = np.random.default_rng(55).integers(0, 256, (32, 2048, 3), np.uint8)
     calls = []
     config = Config.load(
-        Path(__file__).resolve().parents[1] / "configs" / f"{preset}.yaml"
+        Path(__file__).resolve().parents[1] / "configs" / "normal" / f"{preset}.yaml"
     )
 
     def record_core_call(image, variant, params, numerics):

@@ -1,0 +1,4 @@
+# Cross-Scale with scale-separated source cleanup.
+extends: cross-scale-compressed.yaml
+video:
+  flat_cleanup_mode: multiscale

@@ -265,7 +265,7 @@ def test_video_cli_levels_work_with_other_tone_controls_and_noise(
     from luma_fattal.prenoise import SourceNoise
 
     preset = (
-        Path(__file__).resolve().parents[1] / "configs/fattal-1-compressed-noise.yaml"
+        Path(__file__).resolve().parents[1] / "configs/normal/fattal-1-compressed-noise.yaml"
     )
     config = Config.load(preset)
     source = make_clip(tmp_path / "input.mkv", tools, width=48, height=36, neutral=True)

@@ -91,7 +91,7 @@ def test_invalid_settings_fail(arguments):
 
 @pytest.mark.parametrize("variant", [1, 2])
 def test_multiscale_presets_inherit_compressed_settings(variant):
-    root = Path(__file__).resolve().parents[1] / "configs"
+    root = Path(__file__).resolve().parents[1] / "configs" / "normal"
     parent = root / f"fattal-{variant}-compressed.yaml"
     child = root / f"fattal-{variant}-compressed-multiscale.yaml"
     standard = Config.load(parent)
@@ -155,7 +155,7 @@ def test_cli_multiscale_preset_matches_working_frame_pipeline_and_metadata(
     from luma_fattal.cli import main
 
     root = Path(__file__).resolve().parents[1]
-    preset = root / "configs" / f"fattal-{variant}-compressed-multiscale.yaml"
+    preset = root / "configs" / "normal" / f"fattal-{variant}-compressed-multiscale.yaml"
     source = make_clip(tmp_path / "input.mkv", tools, width=48, height=36)
     expected = hashlib.sha256()
     config = Config.load(preset)
@@ -189,10 +189,10 @@ def test_cli_multiscale_preset_matches_working_frame_pipeline_and_metadata(
     assert record["config_source"]["inherits"] == [
         {
             "path": str(
-                (root / "configs" / f"fattal-{variant}-compressed.yaml").resolve()
+                (root / "configs" / "normal" / f"fattal-{variant}-compressed.yaml").resolve()
             ),
             "sha256": hashlib.sha256(
-                (root / "configs" / f"fattal-{variant}-compressed.yaml").read_bytes()
+                (root / "configs" / "normal" / f"fattal-{variant}-compressed.yaml").read_bytes()
             ).hexdigest(),
         }
     ]
@@ -209,7 +209,7 @@ def test_cli_can_override_multiscale_settings_and_disable_cleanup(
 
     preset = (
         Path(__file__).resolve().parents[1]
-        / "configs/fattal-1-compressed-multiscale.yaml"
+        / "configs/normal/fattal-1-compressed-multiscale.yaml"
     )
     source = make_clip(tmp_path / "input.mkv", tools, width=48, height=36)
     destination = tmp_path / "override.mp4"

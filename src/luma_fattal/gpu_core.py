@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from .core import pre_tone_lut, pre_tones_active
+from .core import _cross_scale_detail, pre_tone_lut, pre_tones_active
 from .finishing import bleed_radius, finishing_active, guide_cell, posterize_lut
 from .gpu import CudaComposer, GPUUnavailable
 from .numerics import gradient_scale
@@ -1053,7 +1053,9 @@ class CudaCore:
             )
         return output
 
-    def solve_tone_map(self, lum, maximum, variant, params, numerics, lighting_scale):
+    def solve_tone_map(
+        self, lum, maximum, variant, params, numerics, lighting_scale, *, cross_scale=None
+    ):
         cp = self.cp
         h, w = lum.shape
         log_source = self.buffer("log-source", lum.shape, cp.float32)
@@ -1084,6 +1086,13 @@ class CudaCore:
         self.launch(
             "divergence", lum.shape, log_source, phi, rhs, np.int32(h), np.int32(w)
         )
+        if cross_scale is not None:
+            detail, gain = _cross_scale_detail(log_source, phi, cross_scale, self.filter)
+            correction = self.buffer("cross-scale-divergence", lum.shape, cp.float32)
+            self.launch(
+                "divergence", lum.shape, detail, gain, correction, np.int32(h), np.int32(w)
+            )
+            rhs += correction
         solution = self.solver.solve_device(
             rhs, numerics.iterations, numerics.relaxation
         )
@@ -1134,6 +1143,7 @@ class CudaCore:
         source_cleanup=None,
         lighting_scale=1.0,
         tone_map=None,
+        cross_scale=None,
     ):
         cp = self.cp
         if params.fade == 100 or min(rgb.shape[:2]) < 2:
@@ -1160,6 +1170,7 @@ class CudaCore:
                 tone_map,
                 np.float32(0) if defer_fade else fade,
                 pre,
+                cross_scale,
             )
             if output is None:
                 from .core import apply_core
@@ -1192,6 +1203,7 @@ class CudaCore:
         tone_map,
         fade,
         pre,
+        cross_scale,
     ):
         cp = self.cp
         original_rgb = rgb
@@ -1249,8 +1261,9 @@ class CudaCore:
             if float(maximum) <= 0:
                 return None
             if mapped is None:
+                options = {} if cross_scale is None else {"cross_scale": cross_scale}
                 mapped = self.solve_tone_map(
-                    lum, maximum, variant, params, numerics, lighting_scale
+                    lum, maximum, variant, params, numerics, lighting_scale, **options
                 )
                 if tone_map is not None:
                     # Normalization can return shared scratch storage.
@@ -1453,6 +1466,7 @@ class CudaCore:
                     source_cleanup=source_cleanup,
                     lighting_scale=config.video.lighting_scale,
                     tone_map=tone_map,
+                    cross_scale=config.active_cross_scale,
                 )
                 if size != work_size:
                     for intermediate in enlargement_sizes(work_size, size):
