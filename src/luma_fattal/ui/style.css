@@ -331,18 +331,6 @@ main {
 .mode-picker select { height: 18px; width: 90px; padding: 0 2px; }
 .mode-picker select:focus-visible { outline-offset: 0; }
 #parameters > [hidden] { display: none; }
-#parameters > [data-setting="cross_scale.coupling"] {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  font: 12px/14px 'Luma Sans', Helvetica, sans-serif;
-}
-#parameters > [data-setting="cross_scale.coupling"][hidden] { display: none; }
-#parameters > [data-setting="cross_scale.coupling"] label {
-  background: #000;
-  color: #0000ff;
-  width: fit-content;
-}
 .controls[data-mode="cross-scale"] .control-settings:not(:has(details[open])) #parameters {
   /* Keep the height of seven standard slider rows, including their gaps. */
   --slider-gap: 8px;
@@ -1217,20 +1205,20 @@ h1, h2, h3, strong, b { font-weight: normal; }
   flex: none;
   height: 1px;
 }
-.desktop .workbench::-webkit-scrollbar { width: 17px; background: #bdbdbd; }
-.desktop .workbench::-webkit-scrollbar-track {
+:is(.desktop .workbench, #parameters)::-webkit-scrollbar { width: 17px; background: #bdbdbd; }
+:is(.desktop .workbench, #parameters)::-webkit-scrollbar-track {
   background: repeating-linear-gradient(45deg, #e3e3e3 0 2px, #bcbcbc 2px 4px);
   border-left: 1px solid #5c5c5c;
   box-shadow: inset 1px 0 #fff;
 }
-.desktop .workbench::-webkit-scrollbar-thumb,
-.desktop .workbench::-webkit-scrollbar-button {
+:is(.desktop .workbench, #parameters)::-webkit-scrollbar-thumb,
+:is(.desktop .workbench, #parameters)::-webkit-scrollbar-button {
   background: #c0c0c0;
   border: 2px outset #efefef;
   box-shadow: inset -1px -1px #777;
 }
-.desktop .workbench::-webkit-scrollbar-thumb { min-height: 28px; }
-.desktop .workbench::-webkit-scrollbar-button:single-button { height: 17px; }
+:is(.desktop .workbench, #parameters)::-webkit-scrollbar-thumb { min-height: 28px; }
+:is(.desktop .workbench, #parameters)::-webkit-scrollbar-button:single-button { height: 17px; }
 
 /* Keep the footer below the settings, even when the status wraps. */
 .desktop .controls:not(:has(details[open])) {

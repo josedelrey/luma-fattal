@@ -187,6 +187,7 @@ def test_gui_controls_cover_editable_configuration_fields():
     )
     defaults = Config(mode="cross-scale").to_dict()
     config_only_fields = {
+        "cross_scale": {"coupling"},
         # Point lists and stage selections have their own controls.
         "parameters": {"pre_curve_points", "curve_points", "effect_stages"},
         "numerics": {
@@ -321,20 +322,26 @@ assert.equal(config.parameters.alpha, 1);
 assert.equal(Number(alpha.input.value), 1);
 assert.equal(Number(alpha.range.value), 1);
 const relief = panel.controls.find(control => control.section === 'cross_scale' && control.key === 'relief');
-const coupling = panel.controls.find(control => control.section === 'cross_scale' && control.key === 'coupling');
 assert.equal(relief.row.hidden, true);
 config.mode = 'cross-scale';
-config.cross_scale = {coupling: 'engrave', strength: 65, relief: 100};
+config.cross_scale = {coupling: 'engrave', strength: 65, relief: 100, relief_width: 1};
 panel.load(config);
+const reliefWidth = panel.controls.find(control => control.section === 'cross_scale' && control.key === 'relief_width');
+assert.equal(reliefWidth.row.hidden, false);
+assert.equal(Number(reliefWidth.range.min), 0.5);
+assert.equal(Number(reliefWidth.range.max), 2);
+change(reliefWidth, 2.5);
+assert.equal(config.cross_scale.relief_width, 2.5);
+reliefWidth.reset.click();
+assert.equal(config.cross_scale.relief_width, 1);
 assert.equal(relief.row.hidden, false);
 change(relief, 38.25);
-coupling.input.value = 'smooth';
-coupling.input.change();
-assert.equal(relief.row.hidden, true);
-coupling.input.value = 'engrave';
-coupling.input.change();
-assert.equal(relief.row.hidden, false);
 assert.equal(Number(relief.input.value), 38.25);
+assert.equal(Number(relief.range.max), 100);
+assert.equal(relief.input.max, undefined);
+const couplingStrength = panel.controls.find(control => control.section === 'cross_scale' && control.key === 'strength');
+assert.equal(Number(couplingStrength.range.max), 100);
+assert.equal(couplingStrength.input.max, undefined);
 relief.reset.click();
 assert.equal(config.cross_scale.relief, 100);
 panel.setDisabled(true);

@@ -14,11 +14,12 @@ The implementation operates on 8-bit SDR inputs.
 
 Cross-Scale starts with the Fattal 1 gradient target. It separates log luminance
 into bands with two Gaussian blurs. Gradient energy in the broader blur sets
-the local gain before the Poisson solve. Smooth suppresses fine gradients.
-Engrave boosts fine gradients and pushes medium-scale shading in the opposite
+the local gain before the Poisson solve. Cross-Scale boosts fine gradients and
+pushes medium-scale shading in the opposite
 direction, so strong settings can invert local relief. This middle band
 contribution grows with the square of strength and is scaled independently by
-Relief. Both responses saturate as
+Relief. Relief width changes the broader blur used for this contribution
+independently of the contrast guide. The gain saturates as
 broad contrast rises, with a fixed contrast scale so unrelated parts of a frame
 do not change the gain.
 

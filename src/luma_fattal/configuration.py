@@ -59,13 +59,6 @@ WORKING_MAX_EDGE = 1536
 INPUT_MAX_PIXELS = 8_000_000
 # Leave float32 headroom for byte scaling and weighted sums.
 FLOAT32_CONTROL_LIMIT = float(np.finfo(np.float32).max) / 1024
-_FINISHING_LIMITS = {
-    "halation": 500,
-    "posterize": 100,
-    "local_contrast": 300,
-    "chroma_bleed": 100,
-    "split_tone": 100,
-}
 _STAGED_EFFECT_DEFAULTS = {
     "highlight_compression": 0,
     "black_level": 0,
@@ -74,10 +67,17 @@ _STAGED_EFFECT_DEFAULTS = {
     "brightness": 0,
     "contrast": 0,
     "sharpen": 0,
-    **dict.fromkeys(_FINISHING_LIMITS, 0),
+    "halation": 0,
+    "posterize": 0,
+    "local_contrast": 0,
+    "chroma_bleed": 0,
+    "split_tone": 0,
 }
 MAX_SOLVER_ITERATIONS = 10_000
 MAX_CLEANUP_SIGMA = 128
+CROSS_SCALE_MAX_COARSE_SIGMA = 14.0
+# Separable Gaussian work grows with the blur radius.
+MAX_RELIEF_WIDTH = MAX_CLEANUP_SIGMA / CROSS_SCALE_MAX_COARSE_SIGMA
 _MAX_SHADOW_CONTROL = (2**31 - 1) // 2
 _LEGACY_SIZE_OPTIONS = {
     "device_class",
@@ -299,9 +299,9 @@ class FilterParams:
 
     @staticmethod
     def _validate_amount(name, value):
-        nonnegative = name in _FINISHING_LIMITS or name in ("alpha", "sharpen")
+        nonnegative = name == "alpha"
         minimum = 0 if nonnegative else -FLOAT32_CONTROL_LIMIT
-        _finite(name, value, minimum, _FINISHING_LIMITS.get(name, FLOAT32_CONTROL_LIMIT))
+        _finite(name, value, minimum, FLOAT32_CONTROL_LIMIT)
 
     @cached_property
     def pre_adjustments(self) -> FilterParams | None:
@@ -467,7 +467,10 @@ class VideoConfig:
             _integer(
                 "video gpu_iterations", self.gpu_iterations, 1, MAX_SOLVER_ITERATIONS
             )
-        _finite("video lighting_scale", self.lighting_scale, 0, 1, exclusive_min=True)
+        _finite(
+            "video lighting_scale", self.lighting_scale, 0, FLOAT32_CONTROL_LIMIT,
+            exclusive_min=True,
+        )
         _integer("video decode_prefetch", self.decode_prefetch, 0, 16)
         if not isinstance(self.pinned_frames, bool):
             raise ValueError("video pinned_frames must be a boolean")
@@ -554,11 +557,20 @@ class CrossScaleConfig:
     coupling: str = "engrave"
     strength: float = 65.0
     relief: float = 100.0
+    relief_width: float = 1.0
 
     def __post_init__(self):
         _choice("cross_scale.coupling", self.coupling, ("engrave", "smooth"))
-        _finite("cross_scale.strength", self.strength, 0, 100)
-        _finite("cross_scale.relief", self.relief, 0, 100)
+        for name in ("strength", "relief"):
+            _finite(
+                f"cross_scale.{name}", getattr(self, name),
+                -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT,
+            )
+        _finite("cross_scale.relief_width", self.relief_width, 0, MAX_RELIEF_WIDTH)
+        amount = abs(self.strength) / 100
+        relief_gain = 6 * amount**2 * (abs(self.relief) / 100)
+        if self.coupling == "engrave" and relief_gain > FLOAT32_CONTROL_LIMIT:
+            raise ValueError("Combined Cross-Scale strength and relief exceed the numerical range")
 
 
 @dataclass(frozen=True)

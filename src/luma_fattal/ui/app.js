@@ -109,6 +109,10 @@ function loadConfig(value, name = $('presets').value, resetValue = value) {
   if (config && configMode(config) !== mode) rememberMode();
   config = structuredClone(value);
   baseline = structuredClone(resetValue);
+  if (mode === 'cross-scale') {
+    config.cross_scale.coupling = 'engrave';
+    baseline.cross_scale.coupling = 'engrave';
+  }
   settingsPanel.load(config, baseline);
   $('mode').value = mode;
   $('mode').closest('.controls').dataset.mode = mode;

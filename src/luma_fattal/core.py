@@ -12,7 +12,12 @@ import numpy as np
 from numba import njit
 from scipy.ndimage import gaussian_filter
 
-from .configuration import CrossScaleConfig, FilterParams, NumericsConfig
+from .configuration import (
+    CROSS_SCALE_MAX_COARSE_SIGMA,
+    CrossScaleConfig,
+    FilterParams,
+    NumericsConfig,
+)
 from .finishing import finish_rgb, finishing_active
 from .numerics import (
     gradient_scale,
@@ -206,7 +211,7 @@ def _cross_scale_detail(source, phi, settings: CrossScaleConfig, blur):
     engrave = settings.coupling == "engrave"
     amount = np.float32(settings.strength / 100)
     if engrave:
-        scale = max(1.25, min(3.5, min(source.shape) / 160))
+        scale = max(1.25, min(CROSS_SCALE_MAX_COARSE_SIGMA / 4, min(source.shape) / 160))
         coarse_scale = 4 * scale
     else:
         scale = max(0.8, min(2.0, min(source.shape) / 128))
@@ -229,10 +234,22 @@ def _cross_scale_detail(source, phi, settings: CrossScaleConfig, blur):
         detail *= np.float32(4)
         if settings.relief:
             relief_gain = np.float32(6) * amount * np.float32(settings.relief / 100)
-            detail -= relief_gain * (fine_base - coarse)
+            # Only the relief band changes width. Keep the contrast guide fixed.
+            relief_base = (
+                coarse
+                if settings.relief_width == 1.0
+                else blur(source, coarse_scale * settings.relief_width)
+            )
+            detail -= relief_gain * (fine_base - relief_base)
     else:
         amount = -amount
     return detail, phi * (response * amount)
+
+
+def _cross_scale_exp_input(solution, xp):
+    """Keep extreme signed log values and their exponential ratio in float32."""
+    scale = xp.maximum(xp.max(xp.abs(solution)) / np.float32(40), np.float32(1))
+    return solution / scale
 
 
 @njit(cache=True, nogil=True)
@@ -860,6 +877,8 @@ def _solve_tone_map(
         numerics.iterations,
         numerics.relaxation,
     )
+    if cross_scale is not None:
+        solution = _cross_scale_exp_input(solution, np)
     return _normalize(
         scalar_math_f32(solution, True) + np.float32(-numerics.log_offset),
         numerics.normalization_low,

@@ -7,7 +7,7 @@
 Luma Fattal provides image and video stylization through gradient-domain
 filtering. Use the desktop or browser workbench, the
 command line, or the Python API.
-Choose Cross-Scale mode to engrave or soften fine detail near larger structures.
+Choose Cross-Scale mode to emphasize detail and sculpt shading near larger structures.
 
 | <img src="assets/lantern-garden-original.png" alt="Final Fantasy XIV input" width="280" height="350" align="middle"> | <img src="assets/lantern-garden-fattal-1.png" alt="Fattal 1 result" width="280" height="350" align="middle"> | <img src="assets/lantern-garden-fattal-2.png" alt="Fattal 2 result" width="280" height="350" align="middle"> |
 | :---: | :---: | :---: |

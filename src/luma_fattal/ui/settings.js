@@ -43,12 +43,12 @@ const settingGroups = [
     ['vibrance', 'Vibrance', -100, 500, 1],
     ['brightness', 'Brightness', -100, 100, 1],
     ['contrast', 'Contrast', -100, 100, 1],
-    ['sharpen', 'Sharpen', 0, 1000, 1, {inputMin: 0}],
-    ['halation', 'Halation', 0, 500, 1, {inputMin: 0, inputMax: 500}],
-    ['posterize', 'Posterize', 0, 100, 1, {inputMin: 0, inputMax: 100}],
-    ['local_contrast', 'Local contrast', 0, 300, 1, {inputMin: 0, inputMax: 300}],
-    ['chroma_bleed', 'Chroma bleed', 0, 100, 1, {inputMin: 0, inputMax: 100}],
-    ['split_tone', 'Split tone', 0, 100, 1, {inputMin: 0, inputMax: 100}],
+    ['sharpen', 'Sharpen', 0, 1000, 1],
+    ['halation', 'Halation', 0, 500, 1],
+    ['posterize', 'Posterize', 0, 100, 1],
+    ['local_contrast', 'Local contrast', 0, 300, 1],
+    ['chroma_bleed', 'Chroma bleed', 0, 100, 1],
+    ['split_tone', 'Split tone', 0, 100, 1],
     ['pre_curve_wet', 'Pre curve dry / wet', 0, 100, 1],
     ['post_curve_wet', 'Post curve dry / wet', 0, 100, 1],
     ['pre_curve_0', 'Pre curve / blacks', 0, 100, 1],
@@ -121,9 +121,9 @@ const settingGroups = [
     ['jpeg_background', 'JPEG background RGB', 'rgb', {placeholder: 'None or 255, 255, 255'}],
   ]],
   ['cross_scale', 'Cross-Scale', [
-    ['coupling', 'Coupling', ['engrave', 'smooth']],
-    ['strength', 'Coupling strength', 0, 100, 1, {inputMin: 0, inputMax: 100}],
-    ['relief', 'Relief', 0, 100, 1, {inputMin: 0, inputMax: 100}],
+    ['strength', 'Coupling strength', 0, 100, 1],
+    ['relief', 'Relief', 0, 100, 1],
+    ['relief_width', 'Relief width', 0.5, 2, 0.05],
   ]],
 ];
 
@@ -281,8 +281,6 @@ class ConfigurationPanel {
           if (numeric) {
             input.step = step === 1 && section !== 'parameters' && !crossScale ? '1' : 'any';
             input.required = !settings.nullable;
-            if (settings.inputMin !== undefined) input.min = settings.inputMin;
-            if (settings.inputMax !== undefined) input.max = settings.inputMax;
           } else input.required = type !== 'rgb' && type !== 'boolean';
           if (settings.placeholder) input.placeholder = settings.placeholder;
         }
@@ -325,7 +323,6 @@ class ConfigurationPanel {
             else delete this.config.parameters.effect_stages[key];
           }
           this.config[section][key] = structuredClone(this.baseline[section][key]);
-          if (crossScale && key === 'coupling') this.syncCrossScale();
           if (route) this.syncStages(route);
           else {
             this.sync(control);
@@ -354,8 +351,6 @@ class ConfigurationPanel {
           preInput.type = 'number';
           preInput.step = input.step;
           preInput.required = true;
-          if (settings.inputMin !== undefined) preInput.min = settings.inputMin;
-          if (settings.inputMax !== undefined) preInput.max = settings.inputMax;
           preInput.setAttribute('aria-label', `${label} Pre strength`);
           preRange.type = 'range';
           preRange.min = range.min;
@@ -465,11 +460,10 @@ class ConfigurationPanel {
   }
 
   syncCrossScale() {
-    const {mode, cross_scale} = this.config;
+    const {mode} = this.config;
     for (const control of this.controls) {
       if (control.section !== 'cross_scale') continue;
-      control.row.hidden = control.inactive = mode !== 'cross-scale' ||
-        (control.key === 'relief' && cross_scale.coupling !== 'engrave');
+      control.row.hidden = control.inactive = mode !== 'cross-scale';
       if (!control.inactive) this.sync(control);
     }
   }
@@ -533,7 +527,7 @@ class ConfigurationPanel {
     if (control.route) {
       if (!Number.isFinite(value) || !input.validity.valid) return;
     }
-    if (section === 'cross_scale' && key === 'relief' &&
+    if (section === 'cross_scale' &&
         (!Number.isFinite(value) || !input.validity.valid)) return;
     if (control.stage === 'pre') {
       const stages = this.stageSelection(key);
@@ -541,7 +535,6 @@ class ConfigurationPanel {
     } else {
       this.config[section][key] = value;
     }
-    if (section === 'cross_scale' && key === 'coupling') this.syncCrossScale();
     if (control.range && Number.isFinite(value)) control.range.value = value;
     this.validate();
     if (!control.route) this.drawCurve();

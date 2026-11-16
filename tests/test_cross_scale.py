@@ -71,6 +71,22 @@ def test_engrave_can_reverse_relief_on_an_edge_without_fine_texture():
     assert contrast(100, relief=0) > 0 > contrast(100)
 
 
+def test_maximum_strength_and_relief_round_trip(textured_ramps):
+    config = Config(mode="cross-scale", cross_scale=CrossScaleConfig("engrave", 100, 100))
+    assert Config.from_dict(config.to_dict()) == config
+    output = apply_filter(textured_ramps, config=config)
+    assert output.shape == textured_ramps.shape
+    assert output.dtype == np.uint8
+    extended = replace(config, cross_scale=CrossScaleConfig(strength=500, relief=500, relief_width=2.5))
+    assert Config.from_dict(extended.to_dict()) == extended
+    assert np.any(apply_filter(textured_ramps, config=extended) != output)
+    with pytest.raises(ValueError, match="Combined Cross-Scale"):
+        CrossScaleConfig(strength=1e20, relief=1e20)
+    for invalid in (-0.1, 100):
+        with pytest.raises(ValueError, match=r"cross_scale\.relief_width"):
+            CrossScaleConfig(relief_width=invalid)
+
+
 def test_cross_scale_presets_match_fattal_one_settings():
     originals = sorted(
         path
@@ -103,12 +119,15 @@ def test_cli_writes_cross_scale_recipe(tmp_path, suffix):
             "72.5",
             "--relief",
             "38.25",
+            "--relief-width",
+            "1.5",
             "--output",
             str(recipe),
         ]
     )
     assert Config.load(recipe) == Config(
-        mode="cross-scale", cross_scale=CrossScaleConfig("engrave", 72.5, 38.25)
+        mode="cross-scale",
+        cross_scale=CrossScaleConfig("engrave", 72.5, 38.25, relief_width=1.5),
     )
 
 
@@ -125,11 +144,15 @@ def test_cli_image_and_decoded_frames_use_same_coupling(tmp_path, textured_ramps
             str(recipe),
             "--relief",
             "38.25",
+            "--relief-width",
+            "0.5",
             "--output-format",
             "png",
         ]
     )
-    config = replace(Config.load(recipe), cross_scale=CrossScaleConfig(relief=38.25))
+    config = replace(
+        Config.load(recipe), cross_scale=CrossScaleConfig(relief=38.25, relief_width=0.5)
+    )
     with Image.open(result) as output:
         np.testing.assert_array_equal(
             output, next(process_frames([textured_ramps], config=config))
@@ -138,13 +161,25 @@ def test_cli_image_and_decoded_frames_use_same_coupling(tmp_path, textured_ramps
     assert Config.from_dict(metadata["configuration"]).cross_scale == config.cross_scale
 
 
-@pytest.mark.parametrize("coupling", ["engrave", "smooth"])
-def test_cross_scale_cuda_agrees_with_cpu(textured_ramps, coupling):
+@pytest.mark.parametrize(
+    "coupling,relief,width",
+    [
+        ("engrave", 100, 1),
+        ("smooth", 100, 1),
+        ("engrave", 0, 2),
+        ("engrave", 100, 0.5),
+        ("engrave", 100, 2),
+    ],
+)
+def test_cross_scale_cuda_agrees_with_cpu(textured_ramps, coupling, relief, width):
     try:
         cuda = CudaCore()
     except GPUUnavailable as error:
         pytest.skip(str(error))
-    config = Config(mode="cross-scale", cross_scale=CrossScaleConfig(coupling, 100))
+    config = Config(
+        mode="cross-scale",
+        cross_scale=CrossScaleConfig(coupling, 100, relief, relief_width=width),
+    )
     expected = apply_filter(textured_ramps, config=config)
     actual = cuda(textured_ramps, config)
     np.testing.assert_allclose(expected, actual, atol=1)

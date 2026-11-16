@@ -85,8 +85,8 @@ processing behavior.
 
 The **Mode** selector shows presets for the active mode. It also retains each
 mode's working settings while the app is open. Seven common effect controls
-are visible initially. Cross-Scale adds **Coupling** and **Coupling strength**
-below Beta, with **Relief** available for Engrave. **More settings** contains
+are visible initially. Cross-Scale adds **Coupling strength**, **Relief**,
+and **Relief width** below Beta. **More settings** contains
 collapsible groups for effects,
 numerics, video source, encoding and performance, and image input and export.
 **Effect** opens by default. Processing settings, the numerical fields
@@ -114,15 +114,20 @@ the sliders' practical increments. Blank GPU iterations use `numerics.iterations
 
 ## Cross-Scale
 
-Cross-Scale uses broad local contrast to guide detail. `engrave` brings out
+Cross-Scale uses broad local contrast to guide detail. It brings out
 fine texture and reverses some of the shading around larger forms at higher
-strengths, producing bright and dark relief. `smooth` softens fine detail.
-Strength ranges from 0 to 100. At 0, the output is the corresponding Fattal 1
-result.
+strengths, producing bright and dark relief. The Coupling strength slider spans 0
+to 100. At 0, the output is the corresponding Fattal 1 result.
 
 **Relief** controls the medium-scale shading reversal separately from fine
-detail. At 0, Engrave acts on fine detail alone. At 100, the default, Engrave
-applies the full relief response for the chosen coupling strength.
+detail. Its slider spans 0 to 100. At 0, Cross-Scale acts on fine detail alone.
+At 100, the default, it applies the full relief response.
+
+**Relief width** sets the size of the bright and dark shading around contours.
+Its slider spans 0.5 to 2 times the default width. Lower values concentrate
+relief around edges, while higher values spread it over larger forms.
+The numeric fields accept values beyond these slider endpoints. The width
+limit keeps the Gaussian blur radius bounded.
 
 ```yaml
 mode: cross-scale
@@ -130,11 +135,15 @@ cross_scale:
   coupling: engrave
   strength: 65
   relief: 100
+  relief_width: 1.0
 ```
 
-Use `--mode cross-scale`, `--coupling engrave` or `--coupling smooth`,
-`--coupling-strength 65`, and `--relief 100` to set the same options from the
-CLI.
+Use `--mode cross-scale`, `--coupling-strength 65`, `--relief 100`, and
+`--relief-width 1.0` to set the same options from the CLI.
+
+The CLI and Python API continue to accept the legacy `smooth` coupling for
+existing configurations. Opening a Smooth configuration in the workbench
+selects Engrave and retains its strength and relief values.
 
 ```bash
 luma-fattal apply assets/tea-by-the-water-original.png outputs/engraved.png \
@@ -184,12 +193,12 @@ noise combinations can exceed the solver's numeric range on some images.
 | `parameters.vibrance` | `0` | Signed. Positive values boost muted colors with a gain limited to keep channels in gamut. Negative values mute colors. The slider spans -100 to 500. Grays and fully saturated colors remain unchanged at this stage. |
 | `parameters.brightness` | `0` | Signed percentage of white added after vibrance. |
 | `parameters.contrast` | `0` | Signed adjustment around mid-gray. At -100 the result is mid-gray. |
-| `parameters.sharpen` | `0` | Nonnegative unsharp mask strength. `100` adds the difference between RGB and a 3×3 blur once. The slider reaches `1000` for pronounced edge contrast and halos. |
-| `parameters.halation` | `0` | `0–500`. Adds a red-orange glow around bright regions. |
-| `parameters.posterize` | `0` | `0–100`. Progressively reduces the number of levels per RGB channel from 256 to 4. |
-| `parameters.local_contrast` | `0` | `0–300`. Amplifies brightness differences from a broad local average. |
-| `parameters.chroma_bleed` | `0` | `0–100`. Trails colors horizontally to the right across roughly one eighth of the working width while preserving each pixel's weighted brightness before clipping. |
-| `parameters.split_tone` | `0` | `0–100`. Tints shadows violet-blue and highlights amber, with the strongest tint between the midtones and the black or white endpoints. |
+| `parameters.sharpen` | `0` | Signed unsharp mask strength. `100` adds the difference between RGB and a 3×3 blur once. The slider reaches `1000` for pronounced edge contrast and halos. |
+| `parameters.halation` | `0` | Slider: `0–500`. Adds a red-orange glow around bright regions. |
+| `parameters.posterize` | `0` | Slider: `0–100`. Progressively reduces the number of levels per RGB channel from 256 to 4 on the slider. Higher typed values can reach 2 levels. |
+| `parameters.local_contrast` | `0` | Slider: `0–300`. Amplifies brightness differences from a broad local average. |
+| `parameters.chroma_bleed` | `0` | Slider: `0–100`. Trails colors horizontally to the right across roughly one eighth of the working width while preserving each pixel's weighted brightness before clipping. |
+| `parameters.split_tone` | `0` | Slider: `0–100`. Tints shadows violet-blue and highlights amber, with the strongest tint between the midtones and the black or white endpoints. |
 | `parameters.pre_curve_0`, `pre_curve_25`, `pre_curve_50`, `pre_curve_75`, `pre_curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied to source pixels before luminance and filtering. |
 | `parameters.curve_0`, `curve_25`, `curve_50`, `curve_75`, `curve_100` | `0`, `25`, `50`, `75`, `100` | RGB curve applied after brightness and contrast. |
 | `parameters.pre_curve_wet`, `post_curve_wet` | `100` | Signed curve blend percentage. `0` bypasses the curve, `100` applies it fully, and values outside `0–100` extrapolate before clipping. |
@@ -325,7 +334,7 @@ requirements, input preparation, and examples. Output is silent SDR H.264 MP4.
 | `video.filter_backend` | `cpu` | `cpu` uses reference processing. `auto` benchmarks the complete CUDA frame pipeline, including transfers and setup cost, and checks RGB agreement with the CPU reference. It selects CUDA when the measured speedup justifies setup cost. Otherwise, or on GPU failure, it uses the CPU. Bundled YAML presets select `auto`. Independent of `video.encoder`. |
 | `video.calibration_cache` | `false` | Reuse compatible CUDA calibration across runs. A cache hit still compares the first GPU frame with the CPU reference. The cache is stored under `XDG_CACHE_HOME/luma-fattal` or the user's default cache directory. |
 | `video.gpu_iterations` | `null` | `null` uses `numerics.iterations` on both backends. An integer from `1–10000` overrides the GPU solver iteration count. CPU processing uses `numerics.iterations`. |
-| `video.lighting_scale` | `1.0` | Fraction greater than `0` and at most `1`. Below `1`, the GPU estimates the remaining lighting correction on a smaller grid and applies it at full resolution. Applies only to GPU processing. |
+| `video.lighting_scale` | `1.0` | Positive multiplier. Below `1`, the GPU estimates the remaining lighting correction on a smaller grid and applies it at full resolution. Values at or above `1` use the full resolution path. |
 | `video.decode_prefetch` | `0` | Integer `0–16`. Simple decoded-frame prefetch when `pipeline_depth` is `0`. Fast presets keep it off and use reusable pipeline slots instead. |
 | `video.pinned_frames` | `false` | Decode RGB frames into pinned host memory for GPU upload. Falls back to ordinary buffers if pinning is unavailable. Fast presets enable it. |
 | `video.gpu_buffer_reuse` | `false` | Reuse GPU fields and keep working cleanup history on the device. Asynchronous host checkpoints complete with each output frame so CPU fallback retains its history. Fast presets enable it. |

@@ -8,7 +8,12 @@ from dataclasses import replace
 
 import numpy as np
 
-from .core import _cross_scale_detail, pre_tone_lut, pre_tones_active
+from .core import (
+    _cross_scale_detail,
+    _cross_scale_exp_input,
+    pre_tone_lut,
+    pre_tones_active,
+)
 from .finishing import bleed_radius, finishing_active, guide_cell, posterize_lut
 from .gpu import CudaComposer, GPUUnavailable
 from .numerics import gradient_scale
@@ -1122,6 +1127,8 @@ class CudaCore:
                 numerics.relaxation,
             )
             solution += self.cubic(correction, (h, w))
+        if cross_scale is not None:
+            solution = _cross_scale_exp_input(solution, cp)
         mapped = self.buffer("exponential", lum.shape, cp.float32)
         self.launch(
             "exponential",

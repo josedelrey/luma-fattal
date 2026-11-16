@@ -35,7 +35,9 @@ def _posterize_lut(levels: int) -> np.ndarray:
 
 
 def posterize_lut(amount: float) -> np.ndarray:
-    return _posterize_lut(round(256 * 4 ** (-3 * amount / 100)))
+    # RGB8 can represent up to 256 levels. Below two levels the LUT divisor
+    # becomes zero, so saturate the level count at two.
+    return _posterize_lut(max(2, round(256 * 4 ** (-3 * max(amount, 0) / 100))))
 
 
 @njit(cache=True, inline="always")

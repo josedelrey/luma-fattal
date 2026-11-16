@@ -80,7 +80,7 @@ def test_effect_stage_config_round_trip_and_validation():
         {"curve": {"post": False}},
         {"brightness": {"pre": 1}},
         {"brightness": {"post_strength": 1}},
-        {"posterize": {"pre_strength": 101}},
+        {"posterize": {"pre_strength": float("inf")}},
     ):
         with pytest.raises(ValueError):
             Config.from_dict({"parameters": {"effect_stages": invalid}})

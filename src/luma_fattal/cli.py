@@ -109,6 +109,7 @@ def _settings(args: argparse.Namespace) -> Config:
                     ("coupling", args.coupling),
                     ("strength", args.coupling_strength),
                     ("relief", args.relief),
+                    ("relief_width", args.relief_width),
                 )
                 if value is not None
             },
@@ -486,11 +487,15 @@ def main(argv: list[str] | None = None) -> None:
         )
         command.add_argument(
             "--coupling-strength", type=float, metavar="PERCENT",
-            help="Cross-Scale strength from 0 to 100",
+            help="Cross-Scale strength as a percentage",
         )
         command.add_argument(
             "--relief", type=float, metavar="PERCENT",
-            help="Cross-Scale Engrave relief from 0 to 100",
+            help="Cross-Scale Engrave relief as a percentage",
+        )
+        command.add_argument(
+            "--relief-width", type=float, metavar="MULTIPLIER",
+            help="Cross-Scale Engrave relief width multiplier",
         )
     for command in (apply, video, compare, configuration):
         command.add_argument(
