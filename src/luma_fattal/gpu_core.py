@@ -11,6 +11,7 @@ import numpy as np
 from .core import (
     _cross_scale_detail,
     _cross_scale_exp_input,
+    _preview_or_solve_tone_map,
     pre_tone_lut,
     pre_tones_active,
 )
@@ -1162,7 +1163,7 @@ class CudaCore:
         pre, params = params.pre_adjustments, params.post_adjustments
         defer_fade = tone_map is not None or params.sharpen or finishing_active(params)
         fade = np.float32(params.fade) / np.float32(100)
-        key = None if tone_map is None else tone_map.recombination_key(params)
+        key = None if tone_map is None else tone_map.recombination_key(params, cross_scale)
         output = (
             None if tone_map is None or tone_map.base_key != key else tone_map.base_rgb
         )
@@ -1215,7 +1216,7 @@ class CudaCore:
         cp = self.cp
         original_rgb = rgb
         h, w = rgb.shape[:2]
-        mapped = None if tone_map is None else tone_map.value
+        maximum = None
         inputs = None if tone_map is None else tone_map.color_inputs
         if inputs is not None:
             lum, colors, reference = inputs.luminance, inputs.colors, inputs.reference
@@ -1267,14 +1268,6 @@ class CudaCore:
             maximum = cp.max(lum)
             if float(maximum) <= 0:
                 return None
-            if mapped is None:
-                options = {} if cross_scale is None else {"cross_scale": cross_scale}
-                mapped = self.solve_tone_map(
-                    lum, maximum, variant, params, numerics, lighting_scale, **options
-                )
-                if tone_map is not None:
-                    # Normalization can return shared scratch storage.
-                    tone_map.value = mapped.copy()
             if tone_map is not None:
                 try:
                     tone_map.retain_color_inputs(
@@ -1284,6 +1277,19 @@ class CudaCore:
                 except cp.cuda.memory.OutOfMemoryError:
                     # Prepared colors are optional. Keep the map-only cache.
                     pass
+        def solve(coupling):
+            nonlocal maximum
+            if maximum is None:
+                maximum = cp.max(lum)
+            options = {} if coupling is None else {"cross_scale": coupling}
+            return self.solve_tone_map(
+                lum, maximum, variant, params, numerics, lighting_scale, **options
+            )
+
+        mapped = _preview_or_solve_tone_map(
+            tone_map, cross_scale, solve, self.gaussian, self.cubic, cp,
+            shared_buffers=True,
+        )
         output = self.buffer("recombined", rgb.shape, cp.uint8)
         post_values = (
             params.curve_0,

@@ -110,6 +110,7 @@ def _settings(args: argparse.Namespace) -> Config:
                     ("strength", args.coupling_strength),
                     ("relief", args.relief),
                     ("relief_width", args.relief_width),
+                    ("eq_gains", tuple(args.eq_gains) if args.eq_gains is not None else None),
                 )
                 if value is not None
             },
@@ -496,6 +497,10 @@ def main(argv: list[str] | None = None) -> None:
         command.add_argument(
             "--relief-width", type=float, metavar="MULTIPLIER",
             help="Cross-Scale Engrave relief width multiplier",
+        )
+        command.add_argument(
+            "--eq-gains", type=float, nargs=8, metavar="GAIN",
+            help="Eight Cross-Scale mix percentages, broadest to finest (0 uses Fattal 1)",
         )
     for command in (apply, video, compare, configuration):
         command.add_argument(

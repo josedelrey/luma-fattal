@@ -467,6 +467,16 @@ for (let index = 0; index < spectrumSize; index++) {
 }
 const spectrumReal = new Float32Array(spectrumCount), spectrumImaginary = new Float32Array(spectrumCount);
 const spectrumTarget = new Float32Array(spectrumCount), spectrumDisplay = new Float32Array(spectrumCount);
+const eqSpectrumBins = new Uint8Array(spectrumCount);
+const eqSpectrumCounts = new Uint16Array(24);
+const eqSpectrumLevels = new Float32Array(eqSpectrumCounts.length);
+const maxLogRadius = Math.log2(Math.SQRT2 * spectrumSize / 2);
+for (let y = 0; y < spectrumSize; y++) for (let x = 0; x < spectrumSize; x++) {
+  const radius = Math.hypot(Math.min(x, spectrumSize - x), Math.min(y, spectrumSize - y));
+  const bin = Math.round(Math.log2(Math.max(1, radius)) / maxLogRadius * (eqSpectrumCounts.length - 1));
+  eqSpectrumBins[y * spectrumSize + x] = bin;
+  if (radius) eqSpectrumCounts[bin]++;
+}
 // Apply the same in-place FFT to rows and columns by changing the stride.
 function transformSpectrum(offset, stride) {
   for (let index = 0; index < spectrumSize; index++) {
@@ -557,6 +567,7 @@ function resetSpectrum() {
   $('analysis-state').textContent = 'NO SOURCE / WAITING';
   $('signal-readings').textContent = `${spectrumSize}×${spectrumSize} SPATIAL FREQUENCY\nLOAD A SOURCE`;
   drawSpectrum();
+  settingsPanel.setEqualizerSpectrum(null);
 }
 function sampleSpectrum() {
   if (document.hidden || (isPhoto() ? !photo.complete || !photo.naturalWidth : player.readyState < 2 || !player.videoWidth)) return;
@@ -581,16 +592,30 @@ function sampleSpectrum() {
   for (let y = 0; y < spectrumSize; y++) transformSpectrum(y * spectrumSize, 1);
   for (let x = 0; x < spectrumSize; x++) transformSpectrum(x, spectrumSize);
   let peak = 0, low = 0, middle = 0, high = 0, lowCount = 0, middleCount = 0, highCount = 0;
+  eqSpectrumLevels.fill(0);
   for (let fy = 0; fy < spectrumSize; fy++) for (let fx = 0; fx < spectrumSize; fx++) {
     const index = fy * spectrumSize + fx;
     const magnitude = Math.log1p(Math.hypot(spectrumReal[index], spectrumImaginary[index]));
     spectrumTarget[index] = magnitude; peak = Math.max(peak, magnitude);
+    if (index) eqSpectrumLevels[eqSpectrumBins[index]] += magnitude;
     const radius = Math.hypot(Math.min(fx, spectrumSize - fx), Math.min(fy, spectrumSize - fy));
     if (radius < spectrumSize / 8) { low += magnitude; lowCount++; }
     else if (radius < spectrumSize * 5 / 16) { middle += magnitude; middleCount++; }
     else { high += magnitude; highCount++; }
   }
   const scale = Math.max(1, peak);
+  // Reuse the monitor FFT. The graph only needs a small radial profile.
+  let left = 0;
+  for (let bin = 0; bin < eqSpectrumLevels.length; bin++) {
+    if (!eqSpectrumCounts[bin]) continue;
+    eqSpectrumLevels[bin] /= eqSpectrumCounts[bin] * scale;
+    for (let gap = left + 1; gap < bin; gap++) {
+      const mix = (gap - left) / (bin - left);
+      eqSpectrumLevels[gap] = (1 - mix) * eqSpectrumLevels[left] + mix * eqSpectrumLevels[bin];
+    }
+    left = bin;
+  }
+  settingsPanel.setEqualizerSpectrum(eqSpectrumLevels);
   for (let index = 0; index < spectrumCount; index++) spectrumTarget[index] = Math.pow(spectrumTarget[index] / scale, 2.2);
   if (!spectrumAvailable || player.paused) {
     spectrumDisplay.set(spectrumTarget);

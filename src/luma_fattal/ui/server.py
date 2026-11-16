@@ -161,12 +161,14 @@ class _PreviewSamples:
 
     def tone_maps_for(self, config: Config, timestamps: list[float]):
         params, video = config.parameters, config.video
+        coupling = config.active_cross_scale
         # Track inputs that can change the solve. Color controls and Fade are
         # applied afterward, including when the result is enlarged.
         key = (
             tuple(timestamps),
             config.filter,
-            config.active_cross_scale,
+            (coupling.coupling, coupling.strength, coupling.relief, coupling.relief_width)
+            if coupling is not None and coupling.strength else None,
             config.processing,
             config.numerics,
             params.alpha,

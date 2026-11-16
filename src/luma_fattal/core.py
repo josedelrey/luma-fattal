@@ -14,6 +14,7 @@ from scipy.ndimage import gaussian_filter
 
 from .configuration import (
     CROSS_SCALE_MAX_COARSE_SIGMA,
+    CROSS_SCALE_NEUTRAL_EQ,
     CrossScaleConfig,
     FilterParams,
     NumericsConfig,
@@ -260,6 +261,61 @@ def _cross_scale_exp_input(solution, xp):
     """Keep extreme signed log values and their exponential ratio in float32."""
     scale = xp.maximum(xp.max(xp.abs(solution)) / np.float32(40), np.float32(1))
     return solution / scale
+
+
+def _equalize_cross_scale(reference, mapped, gains, smooth, resize, xp):
+    """Add selected bands of the difference to the Fattal luminance map."""
+    base = xp.fmin(xp.fmax(reference, np.float32(0)), np.float32(1))
+    difference = xp.fmin(xp.fmax(mapped, np.float32(0)), np.float32(1)) - base
+    weights = tuple(np.float32(gain / 100) for gain in reversed(gains))
+    if all(weight == weights[0] for weight in weights):
+        return xp.clip(base + weights[0] * difference, 0, 1)
+    last = max(index for index, weight in enumerate(weights) if weight)
+    levels = [difference]
+    for _ in range(min(last + 1, 7)):
+        height, width = levels[-1].shape
+        levels.append(resize(smooth(levels[-1]), (max(1, height // 2), max(1, width // 2))))
+
+    correction = weights[7] * levels[7] if last == 7 else xp.zeros_like(levels[last + 1])
+    for index in range(min(last, 6), -1, -1):
+        level, smaller = levels[index:index + 2]
+        weight = weights[index]
+        if weight:
+            # Combine the correction and the low-pass part before resizing.
+            correction -= weight * smaller
+        correction = resize(correction, level.shape)
+        if weight:
+            correction += weight * level
+    return xp.clip(base + correction, 0, 1)
+
+
+def _preview_or_solve_tone_map(
+    slot, coupling, solve, smooth, resize, xp, *, shared_buffers=False
+):
+    """Reuse both luminance maps across equalizer edits."""
+    gains = CROSS_SCALE_NEUTRAL_EQ if coupling is None else coupling.eq_gains
+    need_reference = not all(gain == 100 for gain in gains)
+    need_cross_scale = any(gains)
+
+    def get_map(reference=False):
+        name = "reference_map" if reference else "value"
+        if slot is not None:
+            cached = getattr(slot, name)
+            if cached is not None:
+                return cached
+        result = solve(None if reference else coupling)
+        if shared_buffers and (slot is not None or (reference and need_cross_scale)):
+            result = result.copy()
+        if slot is not None:
+            setattr(slot, name, result)
+        return result
+
+    if not need_reference:
+        return get_map()
+    reference = get_map(reference=True)
+    if not need_cross_scale:
+        return reference
+    return _equalize_cross_scale(reference, get_map(), gains, smooth, resize, xp)
 
 
 @njit(cache=True, nogil=True)
@@ -793,11 +849,15 @@ class ToneMapSlot(Generic[_Array]):
     color_inputs: _ColorInputs[_Array] | None = None
     base_rgb: _Array | None = None
     base_key: tuple[object, ...] | None = None
+    reference_map: _Array | None = None
 
     @staticmethod
-    def recombination_key(params: FilterParams) -> tuple[object, ...]:
+    def recombination_key(
+        params: FilterParams, cross_scale: CrossScaleConfig | None = None
+    ) -> tuple[object, ...]:
         # The slot already belongs to one frame, source treatment, and solve.
         return (
+            None if cross_scale is None else cross_scale.eq_gains,
             params.saturation,
             params.output_gamma,
             params.tone_strength,
@@ -952,7 +1012,8 @@ def _filter_rgb(
                 params.white_level,
             )
     else:
-        mapped = None if tone_map is None else tone_map.value
+        maximum = None
+        mapped = None
         if inputs is not None:
             luminance = inputs.luminance
             color_rgb = inputs.colors
@@ -968,21 +1029,24 @@ def _filter_rgb(
                 shadow_luminance = luminance
                 color_rgb, luminance = source_cleanup(rgb, luminance)
             maximum = np.max(luminance)
-            if maximum > 0:
-                if mapped is None:
-                    options = {} if cross_scale is None else {"cross_scale": cross_scale}
-                    mapped = _solve_tone_map(
-                        luminance, maximum, variant, params, numerics, solver, **options
-                    )
-                if tone_map is not None:
-                    tone_map.value = mapped
-                    tone_map.retain_color_inputs(
-                        luminance, color_rgb, shadow_luminance,
-                        None if rgb is original_rgb else rgb,
-                    )
-            else:
-                mapped = None
-        if mapped is not None:
+            if maximum > 0 and tone_map is not None:
+                tone_map.retain_color_inputs(
+                    luminance, color_rgb, shadow_luminance,
+                    None if rgb is original_rgb else rgb,
+                )
+        if maximum is None or maximum > 0:
+            def solve(coupling):
+                nonlocal maximum
+                if maximum is None:
+                    maximum = np.max(luminance)
+                options = {} if coupling is None else {"cross_scale": coupling}
+                return _solve_tone_map(
+                    luminance, maximum, variant, params, numerics, solver, **options
+                )
+
+            mapped = _preview_or_solve_tone_map(
+                tone_map, cross_scale, solve, _gaussian3, _resize_cubic, np
+            )
             filtered = _recombine(
                 rgb,
                 luminance,
@@ -1072,7 +1136,7 @@ def apply_core(
     if params.fade != 100:
         pre, params = params.pre_adjustments, params.post_adjustments
         original_rgb = np.ascontiguousarray(array[..., :3])
-        key = None if tone_map is None else tone_map.recombination_key(params)
+        key = None if tone_map is None else tone_map.recombination_key(params, cross_scale)
         filtered = (
             None if tone_map is None or tone_map.base_key != key else tone_map.base_rgb
         )

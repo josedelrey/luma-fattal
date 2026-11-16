@@ -17,8 +17,10 @@ from luma_fattal import (
     process_frames,
 )
 from luma_fattal.cli import main
+from luma_fattal.core import ToneMapSlot, apply_core
 from luma_fattal.gpu import GPUUnavailable
 from luma_fattal.gpu_core import CudaCore
+from luma_fattal.ui.server import _PreviewSamples
 
 RECIPES = Path(__file__).resolve().parents[1] / "configs"
 
@@ -97,6 +99,35 @@ def test_relief_width_limit_uses_working_image_size(textured_ramps):
         apply_filter(larger, config=wider)
 
 
+def test_equalizer_blends_fattal_with_cross_scale_and_reuses_solves(textured_ramps, monkeypatch):
+    config = Config(mode="cross-scale")
+    fine_gains = (100,) * 7 + (0,)
+    edited = replace(config, cross_scale=replace(config.cross_scale, eq_gains=fine_gains))
+    zero = replace(config, cross_scale=replace(config.cross_scale, eq_gains=(0,) * 8))
+    monkeypatch.setattr("luma_fattal.ui.server._probe", lambda *_: {})
+    samples = _PreviewSamples(Path("unused.mp4"), config)
+    slot = samples.tone_maps_for(config, [0.0])[0.0].cpu
+
+    def render(recipe, **options):
+        return apply_core(
+            textured_ramps, 1, recipe.parameters, recipe.numerics,
+            cross_scale=recipe.active_cross_scale, **options,
+        )
+
+    base = render(config, tone_map=slot)
+    fattal = render(Config())
+    np.testing.assert_array_equal(render(zero, tone_map=slot), fattal)
+    expected = render(edited)
+    assert np.any(expected != base)
+    assert np.any(expected != fattal)
+    assert samples.tone_maps_for(edited, [0.0])[0.0].cpu is slot
+
+    def unexpected_solve(*_):
+        pytest.fail("Changing an equalizer band must reuse the preview solve")
+
+    np.testing.assert_array_equal(render(edited, tone_map=slot, solver=unexpected_solve), expected)
+
+
 def test_cross_scale_presets_match_fattal_one_settings():
     originals = sorted(
         path
@@ -131,13 +162,18 @@ def test_cli_writes_cross_scale_recipe(tmp_path, suffix):
             "38.25",
             "--relief-width",
             "1.5",
+            "--eq-gains",
+            *["100"] * 7,
+            "150",
             "--output",
             str(recipe),
         ]
     )
     assert Config.load(recipe) == Config(
         mode="cross-scale",
-        cross_scale=CrossScaleConfig("engrave", 72.5, 38.25, relief_width=1.5),
+        cross_scale=CrossScaleConfig(
+            "engrave", 72.5, 38.25, relief_width=1.5, eq_gains=(100,) * 7 + (150,)
+        ),
     )
 
 
@@ -194,3 +230,20 @@ def test_cross_scale_cuda_agrees_with_cpu(textured_ramps, coupling, relief, widt
     expected = apply_filter(textured_ramps, config=config)
     actual = cuda(textured_ramps, config)
     np.testing.assert_allclose(expected, actual, atol=1)
+
+
+def test_equalizer_cuda_reuses_distinct_maps_with_shared_buffers(textured_ramps):
+    try:
+        cuda = CudaCore()
+    except GPUUnavailable as error:
+        pytest.skip(str(error))
+    config = Config(mode="cross-scale")
+    config = replace(config, video=replace(config.video, gpu_buffer_reuse=True))
+    zero = replace(config, cross_scale=replace(config.cross_scale, eq_gains=(0,) * 8))
+    mixed = replace(config, cross_scale=replace(config.cross_scale, eq_gains=(100,) * 6 + (50, 0)))
+    samples = ToneMapSlot()
+    normal = cuda(textured_ramps, replace(config, mode="normal"))
+    np.testing.assert_array_equal(cuda(textured_ramps, zero, tone_map=samples), normal)
+    expected = apply_filter(textured_ramps, config=mixed)
+    np.testing.assert_allclose(cuda(textured_ramps, mixed, tone_map=samples), expected, atol=1)
+    np.testing.assert_array_equal(cuda(textured_ramps, zero, tone_map=samples), normal)

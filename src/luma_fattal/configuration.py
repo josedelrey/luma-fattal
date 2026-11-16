@@ -76,6 +76,7 @@ _STAGED_EFFECT_DEFAULTS = {
 MAX_SOLVER_ITERATIONS = 10_000
 MAX_CLEANUP_SIGMA = 128
 CROSS_SCALE_MAX_COARSE_SIGMA = 14.0
+CROSS_SCALE_NEUTRAL_EQ = (100.0,) * 8
 _MAX_SHADOW_CONTROL = (2**31 - 1) // 2
 _LEGACY_SIZE_OPTIONS = {
     "device_class",
@@ -556,6 +557,7 @@ class CrossScaleConfig:
     strength: float = 65.0
     relief: float = 100.0
     relief_width: float = 1.0
+    eq_gains: tuple[float, ...] = CROSS_SCALE_NEUTRAL_EQ
 
     def __post_init__(self):
         _choice("cross_scale.coupling", self.coupling, ("engrave", "smooth"))
@@ -565,6 +567,11 @@ class CrossScaleConfig:
                 -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT,
             )
         _finite("cross_scale.relief_width", self.relief_width, 0, FLOAT32_CONTROL_LIMIT)
+        if not isinstance(self.eq_gains, (list, tuple)) or len(self.eq_gains) != 8:
+            raise ValueError("cross_scale.eq_gains must contain eight gains, broadest to finest")
+        for gain in self.eq_gains:
+            _finite("Cross-Scale equalizer gain", gain, -FLOAT32_CONTROL_LIMIT, FLOAT32_CONTROL_LIMIT)
+        object.__setattr__(self, "eq_gains", tuple(self.eq_gains))
         amount = abs(self.strength) / 100
         relief_gain = 6 * amount**2 * (abs(self.relief) / 100)
         if self.coupling == "engrave" and relief_gain > FLOAT32_CONTROL_LIMIT:
@@ -760,6 +767,7 @@ class Config:
     def to_dict(self):
         result = asdict(self)
         result["parameters"] = self.parameters.to_dict()
+        result["cross_scale"]["eq_gains"] = list(self.cross_scale.eq_gains)
         if self.mode == "normal":
             # Preserve the schema 1 representation of existing recipes.
             del result["mode"]

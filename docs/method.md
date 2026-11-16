@@ -23,6 +23,14 @@ independently of the contrast guide. The gain saturates as
 broad contrast rises, with a fixed contrast scale so unrelated parts of a frame
 do not change the gain.
 
+The Cross-Scale equalizer builds a Laplacian pyramid of the difference between
+the normalized Cross-Scale and Fattal 1 luminance maps clipped to 0–1. It adds
+the weighted bands of this difference back to the clipped Fattal 1 map before
+color recombination. All 0% or all 100% use
+the corresponding single solve directly. Mixed settings need both maps.
+The preview caches each map once computed so subsequent equalizer edits can
+reuse both solves.
+
 ## Processing order
 
 1. Decode, orient, and interpret color. Fit inputs larger than 8,000,000 pixels

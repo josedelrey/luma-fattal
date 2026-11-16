@@ -187,7 +187,7 @@ def test_gui_controls_cover_editable_configuration_fields():
     )
     defaults = Config(mode="cross-scale").to_dict()
     config_only_fields = {
-        "cross_scale": {"coupling"},
+        "cross_scale": {"coupling", "eq_gains"},
         # Point lists and stage selections have their own controls.
         "parameters": {"pre_curve_points", "curve_points", "effect_stages"},
         "numerics": {
@@ -324,8 +324,21 @@ assert.equal(Number(alpha.range.value), 1);
 const relief = panel.controls.find(control => control.section === 'cross_scale' && control.key === 'relief');
 assert.equal(relief.row.hidden, true);
 config.mode = 'cross-scale';
-config.cross_scale = {coupling: 'engrave', strength: 65, relief: 100, relief_width: 1};
+config.cross_scale = {coupling: 'engrave', strength: 65, relief: 100, relief_width: 1, eq_gains: Array(8).fill(100)};
 panel.load(config);
+assert.equal(panel.equalizer.hidden, false);
+panel.equalizer.children[0].children[0].click();
+assert.equal(panel.eq.editor.hidden, false);
+assert.equal(panel.eq.band.children.length, 8);
+panel.eq.band.value = '7';
+panel.eq.band.change();
+panel.eq.gain.valueAsNumber = 250;
+panel.eq.gain.input();
+assert.equal(config.cross_scale.eq_gains[7], 250);
+panel.eq.useFattal.click();
+assert.ok(config.cross_scale.eq_gains.every(value => value === 0));
+panel.eq.reset.click();
+assert.equal(config.cross_scale.eq_gains[7], 100);
 const reliefWidth = panel.controls.find(control => control.section === 'cross_scale' && control.key === 'relief_width');
 assert.equal(reliefWidth.row.hidden, false);
 assert.equal(Number(reliefWidth.range.min), 0);

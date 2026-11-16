@@ -131,6 +131,18 @@ Relief width depends on the working image size. All sizes support 20 times
 the default width, and smaller images may support higher values. The Gaussian
 blur's standard deviation is capped at 280 working pixels.
 
+Open **8-band equalizer** below **Relief width** and drag a point vertically
+to set how much Cross-Scale affects that band. The points go from broad
+shading to fine detail. At 0%, the band uses Fattal 1. At 100%, it uses
+Cross-Scale. At 50%, it mixes the two halfway. Values above 100% extrapolate
+the Cross-Scale change. Type a value for the selected band to go beyond the
+graph's 0–200% range. The **Fattal 1** button sets all bands to 0%, and the
+reset button restores the preset's gains.
+
+Lower the rightmost points toward 0% to retain Fattal 1 texture while keeping
+Cross-Scale relief on larger forms. The shaded spectrum behind the curve
+comes from brightness frequencies in the frame shown in the monitor.
+
 ```yaml
 mode: cross-scale
 cross_scale:
@@ -138,10 +150,12 @@ cross_scale:
   strength: 65
   relief: 100
   relief_width: 1.0
+  eq_gains: [100, 100, 100, 100, 100, 75, 25, 0]
 ```
 
 Use `--mode cross-scale`, `--coupling-strength 65`, `--relief 100`, and
 `--relief-width 1.0` to set the same options from the CLI.
+`--eq-gains` takes eight numbers in order from broadest to finest.
 
 The CLI and Python API continue to accept the legacy `smooth` coupling for
 existing configurations. Opening a Smooth configuration in the workbench

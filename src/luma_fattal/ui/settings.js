@@ -120,7 +120,7 @@ const settingGroups = [
     ['embed_icc', 'Embed image ICC', 'boolean'],
     ['jpeg_background', 'JPEG background RGB', 'rgb', {placeholder: 'None or 255, 255, 255'}],
   ]],
-  ['cross_scale', 'Cross-Scale', [
+  ['cross_scale', '8-band equalizer', [
     ['strength', 'Coupling strength', 0, 100, 1],
     ['relief', 'Relief', 0, 100, 1],
     ['relief_width', 'Relief width', 0, 20, 0.05],
@@ -148,7 +148,10 @@ class ConfigurationPanel {
         toggle.setAttribute('aria-expanded', String(expanded));
         for (const row of rows) row.hidden = !expanded;
       };
-      toggle.addEventListener('click', () => setExpanded(toggle.getAttribute('aria-expanded') !== 'true'));
+      toggle.addEventListener('click', () => {
+        setExpanded(toggle.getAttribute('aria-expanded') !== 'true');
+        if (crossScale) this.drawEqualizer();
+      });
       legend.append(toggle);
       group.append(legend);
       if (!crossScale) advanced.append(group);
@@ -380,7 +383,7 @@ class ConfigurationPanel {
           group.append(wrapper);
           rows.push(wrapper);
         } else if (!/^(?:pre_)?curve_\d+$/.test(key)) {
-          if (crossScale) {
+          if (crossScale && isBasic) {
             row.hidden = true;
             couplingRows.push(row);
           } else if (isBasic) {
@@ -391,11 +394,198 @@ class ConfigurationPanel {
           }
         }
       }
+      if (crossScale) {
+        group.hidden = true;
+        this.equalizer = group;
+        const editor = this.createEqualizer();
+        group.append(editor);
+        rows.push(editor);
+        couplingRows.push(group);
+      }
       setExpanded(section === 'parameters');
     }
     for (const row of [...basicRows.slice(0, 2), ...couplingRows, ...basicRows.slice(2)]) {
       basic.append(row);
     }
+  }
+
+  createEqualizer() {
+    const editor = document.createElement('div');
+    const graph = document.createElement('canvas');
+    graph.className = 'tone-curve equalizer-graph';
+    graph.width = 480;
+    graph.height = 240;
+    graph.tabIndex = 0;
+    graph.setAttribute('aria-label', 'Cross-Scale equalizer. Drag a band vertically. Arrow keys select bands and adjust gain.');
+    editor.append(graph);
+    const controls = document.createElement('div');
+    controls.className = 'equalizer-controls';
+    const band = document.createElement('select');
+    band.setAttribute('aria-label', 'Equalizer band');
+    const bands = ['Broadest shading', 'Broad shading', 'Large forms', 'Medium forms',
+      'Small forms', 'Coarse texture', 'Fine texture', 'Finest detail'];
+    bands.forEach((name, index) => {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent = `${index + 1} ${name}`;
+      band.append(option);
+    });
+    band.value = '0';
+    controls.append(band);
+    const gain = document.createElement('input');
+    gain.type = 'number';
+    gain.step = 'any';
+    gain.required = true;
+    gain.title = '0% uses Fattal 1. 100% uses Cross-Scale.';
+    gain.setAttribute('aria-label', 'Cross-Scale mix for selected band (%)');
+    controls.append(gain);
+    const useFattal = document.createElement('button');
+    useFattal.type = 'button';
+    useFattal.textContent = 'Fattal 1';
+    useFattal.title = 'Set all equalizer bands to 0%';
+    controls.append(useFattal);
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = '↺';
+    reset.title = 'Reset all equalizer bands to preset';
+    reset.setAttribute('aria-label', reset.title);
+    controls.append(reset);
+    editor.append(controls);
+    this.eq = {editor, graph, band, gain, useFattal, reset, spectrum: null};
+    const select = index => {
+      band.value = String(Math.max(0, Math.min(7, index)));
+      this.syncEqualizer();
+    };
+    const setGain = (value, commit) => {
+      this.config.cross_scale.eq_gains[Number(band.value)] = value;
+      this.syncEqualizer();
+      if (commit) this.onChange(true);
+    };
+    band.addEventListener('change', () => this.syncEqualizer());
+    gain.addEventListener('input', () => {
+      if (!gain.validity.valid || !Number.isFinite(gain.valueAsNumber)) return;
+      this.config.cross_scale.eq_gains[Number(band.value)] = gain.valueAsNumber;
+      this.drawEqualizer();
+      this.onChange();
+    });
+    reset.addEventListener('click', () => {
+      this.config.cross_scale.eq_gains = [...this.baseline.cross_scale.eq_gains];
+      this.syncEqualizer();
+      this.onChange(true);
+    });
+    useFattal.addEventListener('click', () => {
+      this.config.cross_scale.eq_gains.fill(0);
+      this.syncEqualizer();
+      this.onChange(true);
+    });
+    let drag = null;
+    const coordinates = event => {
+      const rect = graph.getBoundingClientRect();
+      return [(event.clientX - rect.left) / rect.width * graph.width,
+        (event.clientY - rect.top) / rect.height * graph.height];
+    };
+    graph.addEventListener('pointerdown', event => {
+      if (this.disabled || event.button !== 0 || drag) return;
+      const [x, y] = coordinates(event);
+      select(Math.round((x - 28) * 7 / (graph.width - 56)));
+      drag = {id: event.pointerId, y, initial: Number(gain.value), moved: false};
+      graph.focus();
+      graph.setPointerCapture(event.pointerId);
+    });
+    graph.addEventListener('pointermove', event => {
+      if (drag?.id !== event.pointerId) return;
+      const [, y] = coordinates(event);
+      const value = drag.initial + (drag.y - y) * 200 / (graph.height - 46);
+      drag.moved = true;
+      setGain(Math.round(Math.max(0, Math.min(200, value))), false);
+    });
+    graph.addEventListener('pointerup', event => {
+      if (drag?.id !== event.pointerId) return;
+      if (drag.moved) this.onChange(true);
+      drag = null;
+    });
+    graph.addEventListener('pointercancel', event => {
+      if (drag?.id !== event.pointerId) return;
+      setGain(drag.initial, false);
+      drag = null;
+    });
+    graph.addEventListener('keydown', event => {
+      if (this.disabled) return;
+      const index = Number(band.value);
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        select(index + (event.key === 'ArrowLeft' ? -1 : 1));
+      } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        setGain(Number(gain.value) + (event.key === 'ArrowUp' ? 1 : -1), true);
+      } else return;
+      event.preventDefault();
+    });
+    return editor;
+  }
+
+  syncEqualizer() {
+    this.eq.gain.value = this.config.cross_scale.eq_gains[Number(this.eq.band.value)];
+    this.drawEqualizer();
+  }
+
+  setEqualizerSpectrum(levels) {
+    this.eq.spectrum = levels;
+    this.drawEqualizer();
+  }
+
+  drawEqualizer() {
+    const {editor, graph, band, spectrum} = this.eq;
+    const gains = this.config?.cross_scale?.eq_gains;
+    if (editor.hidden || this.equalizer.hidden || !gains) return;
+    const ctx = graph.getContext?.('2d');
+    if (!ctx) return;
+    const {width, height} = graph;
+    const left = 28, top = 12, right = width - 28, bottom = height - 34;
+    const x = index => left + index * (right - left) / 7;
+    const y = gain => bottom - Math.max(0, Math.min(200, gain)) * (bottom - top) / 200;
+    ctx.fillStyle = '#120d14';
+    ctx.fillRect(0, 0, width, height);
+    if (spectrum?.length) {
+      ctx.beginPath();
+      ctx.moveTo(left, bottom);
+      spectrum.forEach((level, index) => ctx.lineTo(
+        left + (right - left) * index / (spectrum.length - 1),
+        bottom - level * (bottom - top),
+      ));
+      ctx.lineTo(right, bottom);
+      ctx.closePath();
+      ctx.fillStyle = '#8d7d9c60';
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.strokeStyle = '#ab9ab33e';
+    for (let index = 0; index < 8; index++) {
+      ctx.moveTo(x(index), top);
+      ctx.lineTo(x(index), bottom);
+    }
+    for (const gain of [0, 50, 100, 150, 200]) {
+      ctx.moveTo(left, y(gain));
+      ctx.lineTo(right, y(gain));
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    gains.forEach((gain, index) => index ? ctx.lineTo(x(index), y(gain)) : ctx.moveTo(x(index), y(gain)));
+    ctx.strokeStyle = '#ffb76a';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    gains.forEach((gain, index) => {
+      ctx.beginPath();
+      ctx.arc(x(index), y(gain), index === Number(band.value) ? 11 : 9, 0, 2 * Math.PI);
+      ctx.fillStyle = index === Number(band.value) ? '#ffe2a3' : '#ffb76a';
+      ctx.fill();
+      ctx.fillStyle = '#201116';
+      ctx.fillText(String(index + 1), x(index), y(gain));
+    });
+    ctx.fillStyle = '#d9cadf';
+    ctx.fillText('Broad shading', 72, height - 13);
+    ctx.fillText('Fine detail', width - 61, height - 13);
   }
 
   stageButtons(key, label) {
@@ -461,11 +651,14 @@ class ConfigurationPanel {
 
   syncCrossScale() {
     const {mode} = this.config;
+    this.equalizer.hidden = mode !== 'cross-scale';
     for (const control of this.controls) {
       if (control.section !== 'cross_scale') continue;
-      control.row.hidden = control.inactive = mode !== 'cross-scale';
+      control.inactive = mode !== 'cross-scale';
+      control.row.hidden = control.inactive;
       if (!control.inactive) this.sync(control);
     }
+    if (!this.equalizer.hidden) this.syncEqualizer();
   }
 
   drawCurve(wetPreview = null) {
@@ -566,11 +759,17 @@ class ConfigurationPanel {
       invalid.expand?.(true);
       invalid.input.reportValidity();
     }
+    if (!invalid && !this.equalizer.hidden && !this.eq.editor.hidden && !this.eq.gain.validity.valid) {
+      if (report) this.eq.gain.reportValidity();
+      return false;
+    }
     return !invalid;
   }
 
   setDisabled(value) {
     this.disabled = value;
+    this.eq.band.disabled = this.eq.gain.disabled = this.eq.useFattal.disabled =
+      this.eq.reset.disabled = value;
     for (const {resetCurve} of this.curves) resetCurve.disabled = value;
     for (const {toggles} of this.effectRoutes) {
       for (const button of toggles) button.disabled = value;

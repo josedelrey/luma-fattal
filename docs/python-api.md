@@ -31,6 +31,9 @@ For a single image, use `cross_scale(image, strength=70, relief=40, relief_width
 to apply wider relief with reduced strength. The legacy Smooth coupling remains available
 for existing configurations.
 `CrossScaleConfig` and `cross_scale` are both exported from `luma_fattal`.
+Pass `eq_gains` as eight percentages ordered from broadest to finest. At 0%
+a band uses Fattal 1, and at 100% it uses Cross-Scale. For example,
+`eq_gains=(100,) * 6 + (0, 0)` keeps Fattal 1 in the two finest bands.
 
 Configurations and their sections are immutable dataclasses. Modify a loaded
 preset with `dataclasses.replace`, which validates each updated section:
