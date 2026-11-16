@@ -193,6 +193,17 @@ main {
   object-fit: contain;
   display: block;
 }
+#photo-display {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.photo-source .preview-note {
+  visibility: hidden;
+}
 .screen-label {
   position: absolute;
   top: 7px;

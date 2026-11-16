@@ -197,11 +197,12 @@ def test_gui_controls_cover_editable_configuration_fields():
             "luminance_mode",
         },
         "video": {"pre_noise_seed", "frame_rate", "input_color", "input_range"},
+        "processing": {"blend_mode", "working_resampler"},
     }
     expected = {
         (section, key)
         for section, values in defaults.items()
-        if isinstance(values, dict) and section != "processing"
+        if isinstance(values, dict)
         for key in values
         if key not in config_only_fields.get(section, ())
     }
@@ -515,6 +516,87 @@ def test_http_auth_import_ranges_and_path_boundaries(tmp_path, monkeypatch):
         head, body = request(bitmap_url)
         assert b"200" in head and b"image/bmp" in head
         assert body == buffer.getvalue()
+    finally:
+        app.shutdown()
+
+
+@pytest.mark.parametrize("format", ["JPEG", "PNG"])
+def test_workbench_photo_upload_preview_and_export(tmp_path, monkeypatch, format):
+    from luma_fattal import OutputConfig, ProcessingConfig
+    from luma_fattal.ui import server
+
+    def unexpected_video_call(*args, **kwargs):
+        pytest.fail("Photo processing must not use FFmpeg")
+
+    monkeypatch.setattr(server, "_probe", unexpected_video_call)
+    monkeypatch.setattr(server, "process_video", unexpected_video_call)
+    renders = []
+    render = server.render_image
+
+    def count_render(original, config):
+        renders.append(original.size)
+        return render(original, config)
+
+    monkeypatch.setattr(server, "render_image", count_render)
+    app = Workbench(tmp_path / "session", tmp_path / "no-presets")
+    request = partial(_request, app)
+    source = BytesIO()
+    if format == "JPEG":
+        image = Image.new("RGB", (31, 19), (192, 48, 64))
+        exif = Image.Exif()
+        exif[274] = 6
+        image.save(source, format=format, exif=exif)
+        expected_size = (19, 31)
+    else:
+        image = Image.new("P", (31, 19))
+        image.putpalette([192, 48, 64, 22, 45, 66] + [0] * 762)
+        image.paste(1, (0, 0, 10, 19))
+        image.save(source, format=format, transparency=1)
+        expected_size = image.size
+    config = Config(
+        parameters=FilterParams(fade=100 if format == "JPEG" else 0),
+        output=OutputConfig(format="png"),
+        processing=ProcessingConfig(transparency="straight"),
+    )
+
+    def run(kind, identifier):
+        payload = json.dumps(dict(upload=identifier, config=config.to_dict())).encode()
+        head, body = request(f"/api/{kind}", method="POST", body=payload)
+        assert b"200" in head, body
+        url = "/api/jobs/" + json.loads(body)["job"]
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            job = json.loads(request(url)[1])
+            if job["state"] != "running":
+                assert job["state"] == "done", job
+                return job
+            time.sleep(0.01)
+        pytest.fail(f"{kind} did not complete")
+
+    try:
+        head, body = request("/api/upload", method="POST", body=source.getvalue())
+        assert b"200" in head, body
+        upload = json.loads(body)
+        assert upload["media_type"] == "photo"
+        assert (upload["width"], upload["height"]) == expected_size
+        assert request(upload["url"])[1] == source.getvalue()
+        preview = run("preview", upload["upload"])
+        urls = {frame["url"] for frame in preview["frames"]}
+        assert len(preview["frames"]) == 5 and len(urls) == len(renders) == 1
+        head, preview_bytes = request(urls.pop())
+        assert b"image/png" in head
+        export = run("process", upload["upload"])
+        with (
+            Image.open(BytesIO(preview_bytes)) as rendered,
+            Image.open(BytesIO(request(export["url"])[1])) as saved,
+        ):
+            assert rendered.size == saved.size == expected_size
+            assert rendered.tobytes() == saved.tobytes()
+            if format == "PNG":
+                assert saved.mode == "RGBA"
+                assert saved.getchannel("A").getextrema() == (0, 255)
+        record = json.loads(request(export["metadata"])[1])
+        assert record["dimensions"] == list(expected_size)
     finally:
         app.shutdown()
 

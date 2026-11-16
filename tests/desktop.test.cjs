@@ -6,6 +6,8 @@ const { workbenchURL, windowSize, isWorkbenchNavigation } = require('../desktop/
 const { runtimePaths } = require('../desktop/paths.cjs')
 const path = require('node:path')
 const { EventEmitter } = require('node:events')
+const { createRequire } = require('node:module')
+const { runInThisContext } = require('node:vm')
 const { installDisplayScaling } = require('../desktop/layout.cjs')
 const { download } = require('../desktop/download.cjs')
 const { importRecipe } = require('../desktop/recipes.cjs')
@@ -50,6 +52,58 @@ test('streams desktop exports and reports interrupted responses', async () => {
     http.get = original
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+test('offers photos in the desktop picker and saves each result with its actual format', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'luma-media-'))
+  const handlers = new Map()
+  const filename = require.resolve('../desktop/files.cjs')
+  const localRequire = createRequire(filename)
+  const module = { exports: {} }
+  const window = new EventEmitter()
+  window.webContents = { mainFrame: {}, getURL: () => entry }
+  const event = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+  const saved = []
+  let opened
+  let destination
+  const electron = {
+    ipcMain: {
+      handle: (name, handler) => handlers.set(name, handler),
+    },
+    dialog: {
+      async showOpenDialog(_window, options) { opened = options; return { canceled: true } },
+      async showSaveDialog(_window, options) {
+        saved.push(options)
+        destination = path.join(directory, options.defaultPath)
+        return { filePath: destination }
+      },
+    },
+  }
+  const load = runInThisContext(`(function(require, module) {${await readFile(filename, 'utf8')}\n})`)
+  load(name => name === 'electron' ? electron : localRequire(name), module)
+  module.exports.installFileDialogs(window, entry)
+  t.after(async () => {
+    for (const options of saved) await fs.rm(path.join(directory, options.defaultPath), { force: true })
+    await fs.rmdir(directory)
+  })
+  const payload = 'rendered media'
+  t.mock.method(http, 'get', (url, callback) => {
+    assert.equal(url.searchParams.get('token'), 'session-secret')
+    const response = Readable.from([Buffer.from(payload)])
+    response.statusCode = 200
+    process.nextTick(() => callback(response))
+    return new EventEmitter()
+  })
+  await handlers.get('desktop:open')(event, 'media')
+  assert.ok(['mp4', 'jpg', 'jpeg', 'png'].every(ext => opened.filters[0].extensions.includes(ext)))
+  for (const ext of ['jpg', 'png', 'mp4']) {
+    const url = `/media/${'a'.repeat(32)}/processed.${ext}`
+    assert.equal(await handlers.get('desktop:save')(event, 'media', url), true)
+    assert.equal(saved.at(-1).defaultPath, `luma-fattal.${ext}`)
+    assert.deepEqual(saved.at(-1).filters[0].extensions, [ext])
+    assert.equal(await readFile(destination, 'utf8'), payload)
+  }
+  await assert.rejects(handlers.get('desktop:save')(event, 'media', `/media/${'a'.repeat(32)}/processed.html`), /Invalid media export path/)
 })
 
 async function recipeFixture(t) {

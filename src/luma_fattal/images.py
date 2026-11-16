@@ -17,7 +17,7 @@ from PIL import Image
 
 from . import __version__
 from .configuration import Config, resolve_config
-from .image_io import save_image
+from .image_io import prepare_image, save_image
 from .pipeline import apply_filter
 from .processing import enlargement_sizes, working_size
 
@@ -33,7 +33,8 @@ def _write_json(path: Path, value: object) -> None:
 
 
 def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open("rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _same_file(left: Path, right: Path) -> bool:
@@ -43,6 +44,25 @@ def _same_file(left: Path, right: Path) -> bool:
         return left.samefile(right)
     except FileNotFoundError:
         return False
+
+
+def render_image(original: Image.Image, config: Config) -> Image.Image:
+    """Render pixels for a file export or preview, before encoding."""
+    if config.parameters.fade != 100:
+        result = apply_filter(original, config=config)
+    else:
+        # Full Fade skips filtering and resizing. Export still interprets
+        # orientation and color before discarding source metadata.
+        result = prepare_image(original, config.image)
+        result.info.pop("exif", None)
+        result.info.pop("Raw profile type exif", None)
+    if config.image.color_space == "encoded":
+        profile = original.info.get("icc_profile")
+        if profile and original.mode in ("RGB", "RGBA"):
+            result.info["icc_profile"] = profile
+        else:
+            result.info.pop("icc_profile", None)
+    return result
 
 
 def process_image(
@@ -104,19 +124,16 @@ def process_image(
         source_icc = original.info.get("icc_profile")
         original_mode = original.mode
         source_orientation = original.getexif().get(274)
-        result = apply_filter(original, variant, config=config)
-        output_icc = (
-            result.info.get("icc_profile")
-            if config.image.color_space == "srgb"
-            else (source_icc if original_mode in ("RGB", "RGBA") else None)
-        )
+        result = render_image(original, config)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(
         prefix=".luma-fattal-", dir=output_path.parent
     ) as directory:
         temporary_image = Path(directory) / ("image" + output_path.suffix)
         temporary_meta = Path(directory) / "image.meta.json"
-        save_image(result, temporary_image, config.output, output_icc)
+        save_image(
+            result, temporary_image, config.output, result.info.get("icc_profile")
+        )
         work_size = working_size(result.size, config.processing.effective_max_edge)
         record = dict(
             implementation_version=__version__,

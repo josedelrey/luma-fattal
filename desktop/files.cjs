@@ -24,7 +24,7 @@ function installFileDialogs(window, entry) {
   }
   const postFile = async (pathname, filename) => {
     const { size } = await fs.stat(filename)
-    if (!size || size > 20 * 1024 ** 3) throw new Error('The video is empty or too large')
+    if (!size || size > 20 * 1024 ** 3) throw new Error('The file is empty or too large')
     return new Promise((resolve, reject) => {
       const request = http.request(endpoint(pathname), {
         method: 'POST', headers: { 'Content-Length': size },
@@ -45,16 +45,16 @@ function installFileDialogs(window, entry) {
     })
   }
   const open = async kind => {
-    const video = kind === 'video'
-    if (!video && kind !== 'preset') throw new Error('Invalid file type')
+    const media = kind === 'media'
+    if (!media && kind !== 'preset') throw new Error('Invalid file type')
     const recipePicker = { properties: ['openFile'], filters: [{ name: 'Recipes', extensions: recipeExtensions }] }
-    const choice = await dialog.showOpenDialog(window, video ? {
+    const choice = await dialog.showOpenDialog(window, media ? {
       properties: ['openFile'],
-      filters: [{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'avi', 'webm'] }],
+      filters: [{ name: 'Media', extensions: ['mp4', 'mov', 'mkv', 'avi', 'webm', 'jpg', 'jpeg', 'png'] }],
     } : recipePicker)
     if (choice.canceled) return null
     const filename = choice.filePaths[0]
-    if (video) return { name: path.basename(filename), upload: await postFile('/api/upload', filename) }
+    if (media) return { name: path.basename(filename), upload: await postFile('/api/upload', filename) }
     return importRecipe(filename, endpoint('/api/import'), async source => {
       const parent = await dialog.showOpenDialog(window, {
         ...recipePicker,
@@ -64,16 +64,19 @@ function installFileDialogs(window, entry) {
     })
   }
   const save = async (kind, mediaPath, content) => {
-    const names = { video: 'luma-fattal.mp4', metadata: 'luma-fattal.meta.json', config: 'luma-fattal-config.json' }
-    if (!Object.hasOwn(names, kind)) throw new Error('Invalid export type')
+    const names = { metadata: 'luma-fattal.meta.json', config: 'luma-fattal-config.json' }
+    const media = kind === 'media'
+    if (!media && !Object.hasOwn(names, kind)) throw new Error('Invalid export type')
     if (kind === 'config') {
       if (typeof content !== 'string' || Buffer.byteLength(content) > 1024 ** 2) throw new Error('Invalid config')
     } else if (typeof mediaPath !== 'string' || !/^\/media\/[a-f0-9]{32}\/[a-zA-Z0-9._-]+$/.test(mediaPath)) {
       throw new Error('Invalid export path')
     }
+    const extension = media ? /\/processed\.(mp4|jpg|png)$/.exec(mediaPath)?.[1] : 'json'
+    if (!extension) throw new Error('Invalid media export path')
     const choice = await dialog.showSaveDialog(window, {
-      defaultPath: names[kind],
-      filters: [{ name: kind === 'video' ? 'MP4 video' : 'JSON', extensions: [kind === 'video' ? 'mp4' : 'json'] }],
+      defaultPath: media ? `luma-fattal.${extension}` : names[kind],
+      filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
     })
     if (choice.canceled) return false
     const target = choice.filePath

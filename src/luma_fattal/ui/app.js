@@ -22,6 +22,9 @@ let config, baseline, presets, upload, originalUrl, resultUrl, busy = false, rev
 let previewRun, pendingSubmission = Promise.resolve(), importing = false;
 let processing = false, processJob, stopRequested = false;
 const player = $('player');
+const photo = $('photo-display');
+const isPhoto = () => upload?.media_type === 'photo';
+const transport = ['play', 'rewind', 'seek', 'mute'];
 const fileDialogs = window.desktopFiles;
 if (window.desktopWindow) {
   const {width, height} = window.desktopWindow.referenceSize;
@@ -76,6 +79,7 @@ function setProcessing(value) {
 }
 function updateProcessing(job) {
   if (job.kind !== 'process' || job.state !== 'running') return;
+  if (isPhoto()) return;
   $('process-speed').textContent = Number.isFinite(job.fps) && job.fps > 0 ? `${job.fps.toFixed(2)} frames/s` : 'Preparing…';
   $('process-eta').textContent = job.total && !job.total_estimated && job.completed >= job.total ? 'Finalizing…' :
     Number.isFinite(job.eta) ? `ETA ${job.total_estimated ? '~' : ''}${formatTime(Math.ceil(job.eta))}` : 'ETA —';
@@ -87,7 +91,7 @@ function schedulePreview(delay = 350) {
 function changed(sliderCommit = false) {
   revision++;
   $('preview-state').removeAttribute('title');
-  $('preview-state').textContent = upload ? 'Settings changed. Preview is out of date.' : 'Five evenly spaced frames:';
+  $('preview-state').textContent = upload ? 'Settings changed. Preview is out of date.' : 'Waiting for source';
   schedulePreview(sliderCommit ? 120 : 350);
 }
 function loadConfig(value, name = $('presets').value) {
@@ -135,18 +139,18 @@ function updatePreviewFrames(job) {
     const source = frame.url;
     let image = button.querySelector('img');
     if (source) {
-      if (!image) { image = document.createElement('img'); image.alt = `Filtered frame at ${formatTime(frame.time)}`; button.prepend(image); }
+      if (!image) { image = document.createElement('img'); image.alt = ''; button.prepend(image); }
       if (image.getAttribute('src') !== secured(source)) image.src = secured(source);
     }
-    button.querySelector('.frame-num').textContent = `${index + 1} / ${formatTime(frame.time)}`;
-    button.setAttribute('aria-label', `Enlarge filtered sample ${index + 1} at ${formatTime(frame.time)}`);
+    button.querySelector('.frame-num').textContent = isPhoto() ? String(index + 1) : `${index + 1} / ${formatTime(frame.time)}`;
+    button.setAttribute('aria-label', `Enlarge filtered sample ${index + 1}`);
   });
   if ($('lightbox').open) updateLightbox();
 }
 function placeholders() {
   selectedFrame = null;
   previewError = false;
-  previewFrames = Array.from({length: 5}, (_, index) => ({time: upload ? upload.duration * (index + .5) / 5 : 0}));
+  previewFrames = Array.from({length: 5}, (_, index) => ({time: (upload?.duration ?? 0) * (index + .5) / 5}));
   $('frames').replaceChildren();
   for (let index = 0; index < 5; index++) {
     const button = document.createElement('button'); button.className = 'frame'; button.disabled = !upload;
@@ -154,7 +158,7 @@ function placeholders() {
     button.append(label); button.setAttribute('aria-label', `Enlarge preview sample ${index + 1}, loading`);
     button.onclick = () => {
       selectedFrame = index;
-      $('frame-title').textContent = `SAMPLE ${index + 1} / ${formatTime(previewFrames[index].time)}`;
+      $('frame-title').textContent = `SAMPLE ${index + 1}${isPhoto() ? '' : ` / ${formatTime(previewFrames[index].time)}`}`;
       updateLightbox();
       if (!$('lightbox').open) $('lightbox').showModal();
     };
@@ -162,9 +166,23 @@ function placeholders() {
   }
 }
 
-function showVideo(processed) {
+function showMedia(processed) {
   if (processed && !resultUrl) return;
-  player.pause(); player.src = secured(processed ? resultUrl : originalUrl);
+  const source = secured(processed ? resultUrl : originalUrl);
+  player.pause();
+  for (const id of [...transport, 'fullscreen']) $(id).disabled = true;
+  photo.hidden = !isPhoto();
+  if (isPhoto()) {
+    if (player.hasAttribute('src')) { player.removeAttribute('src'); player.load(); }
+    $('timecode').textContent = '00:00 / 00:00';
+    $('seek').value = 0;
+    photo.alt = processed ? 'Processed photo' : 'Original photo';
+    photo.src = source;
+    if (photo.complete && photo.naturalWidth) photo.onload();
+  } else {
+    photo.removeAttribute('src');
+    player.src = source;
+  }
   $('original-tab').classList.toggle('active', !processed); $('result-tab').classList.toggle('active', processed);
   $('original-tab').setAttribute('aria-pressed', !processed); $('result-tab').setAttribute('aria-pressed', processed);
 }
@@ -176,6 +194,7 @@ function updateJobProgress(job) {
   else progress.removeAttribute('value');
   const label = job.kind === 'analyze' ? 'ANALYZING' : job.kind === 'preview' ? 'PREVIEW' : 'PROCESSING';
   if (job.state === 'cancelling') status('Stopping processing…');
+  else if (isPhoto()) status(label);
   else status(`${label} / ${job.completed}${job.total ? ` OF ${job.total_estimated ? '~' : ''}${job.total}` : ''} FRAMES`);
 }
 async function poll(identifier, onUpdate, current) {
@@ -215,13 +234,13 @@ async function preview() {
     placeholders();
     const job = await start('preview', job => {
       updatePreviewFrames(job);
-      $('preview-state').textContent = `Generating previews… ${job.completed} of ${job.total}`;
+      if (!isPhoto()) $('preview-state').textContent = `Generating previews… ${job.completed} of ${job.total}`;
       if (run.showProgress) updateJobProgress(job);
     }, current);
     if (!current() || !job) return;
     previewRevision = run.revision;
-    $('preview-state').textContent = 'Current settings / five independent frames';
-    if (run.showProgress) status('Preview ready. Click a frame to enlarge.');
+    $('preview-state').textContent = 'Current settings';
+    if (run.showProgress) status('Preview ready. Click a sample to enlarge.');
   } catch (error) {
     if (!current()) return;
     previewError = true;
@@ -233,15 +252,16 @@ async function preview() {
     if (previewRun === run) previewRun = undefined;
   }
 }
-async function loadVideo(file, nextUpload) {
+async function loadMedia(file, nextUpload) {
   setBusy(true); status('COPYING SOURCE TO LOCAL SESSION…'); $('progress').style.visibility = ''; $('progress').removeAttribute('value');
   try {
     nextUpload ??= await api('/api/upload', {method: 'POST', body: file});
     upload = nextUpload; originalUrl = upload.url; resultUrl = undefined;
     $('result-tab').disabled = true; $('export-panel').hidden = true; $('empty-screen').hidden = true;
-    $('signal-name').textContent = file.name; $('file-info').textContent = `${upload.width} × ${upload.height} / ${formatTime(upload.duration)}`;
-    resetSpectrum(); showVideo(false); placeholders(); revision++; previewRevision = -1;
-    status('Video loaded.'); $('progress').value = 0;
+    document.querySelector('.workbench').classList.toggle('photo-source', isPhoto());
+    $('signal-name').textContent = file.name; $('file-info').textContent = `${upload.width} × ${upload.height}${isPhoto() ? '' : ` / ${formatTime(upload.duration)}`}`;
+    resetSpectrum(); showMedia(false); placeholders(); revision++; previewRevision = -1;
+    status('Source loaded.'); $('progress').value = 0;
   } catch (error) { status(error.message, true); }
   finally { setBusy(false); }
   if (upload && $('auto-preview').checked) preview();
@@ -250,13 +270,13 @@ $('open-video').onclick = $('screen-load').onclick = async () => {
   if (busy || processing) return;
   if (!fileDialogs) return $('video-file').click();
   setBusy(true);
-  try { const selected = await fileDialogs.open('video'); if (selected) await loadVideo({name: selected.name}, selected.upload); }
+  try { const selected = await fileDialogs.open('media'); if (selected) await loadMedia({name: selected.name}, selected.upload); }
   catch (error) { status(error.message, true); }
   finally { setBusy(false); }
 };
 $('video-file').onchange = async event => {
   const file = event.target.files[0]; if (!file || busy || processing) return;
-  await loadVideo(file); event.target.value = '';
+  await loadMedia(file); event.target.value = '';
 };
 $('presets').onchange = () => { pendingImport = undefined; loadConfig(presets[$('presets').value]); };
 $('reset').onclick = () => loadConfig(baseline);
@@ -303,7 +323,7 @@ $('stop-process').onclick = async () => {
 };
 $('process').onclick = async () => {
   if (busy || processing || !upload || !settingsPanel.valid(true)) return;
-  setProcessing(true); $('export-panel').hidden = true; status('VALIDATING SOURCE / preparing encoder and filter');
+  setProcessing(true); $('export-panel').hidden = true; status('Preparing source…');
   $('progress').style.visibility = ''; $('progress').removeAttribute('value');
   const snapshot = structuredClone(config);
   try {
@@ -313,8 +333,9 @@ $('process').onclick = async () => {
     resultUrl = job.url; resultConfig = snapshot;
     $('result-tab').disabled = false; $('export-panel').hidden = false;
     $('save-video').href = secured(job.url); $('save-meta').href = secured(job.metadata);
-    $('export-info').textContent = `RENDER COMPLETE / ${job.encoder} / SILENT MP4`;
-    showVideo(true); $('progress').style.visibility = 'hidden'; status('Processing complete. Play or save the video.');
+    $('save-video').download = `luma-fattal.${job.url.split('.').at(-1)}`;
+    $('export-info').textContent = `RENDER COMPLETE / ${isPhoto() ? job.encoder.toUpperCase() : `${job.encoder} / SILENT MP4`}`;
+    showMedia(true); $('progress').style.visibility = 'hidden'; status('Processing complete.');
   } catch (error) { status(error.message, true); }
   finally { processJob = undefined; setProcessing(false); }
 };
@@ -330,7 +351,7 @@ async function saveConfig(value) {
 }
 $('save-config').onclick = () => saveConfig(resultConfig);
 $('save-preset').onclick = () => { if (config && settingsPanel.valid(true)) saveConfig(config); };
-for (const [id, kind] of [['save-video', 'video'], ['save-meta', 'metadata']]) {
+for (const [id, kind] of [['save-video', 'media'], ['save-meta', 'metadata']]) {
   $(id).addEventListener('click', async event => {
     if (!fileDialogs) return;
     event.preventDefault();
@@ -338,18 +359,24 @@ for (const [id, kind] of [['save-video', 'video'], ['save-meta', 'metadata']]) {
     catch (error) { status(error.message, true); }
   });
 }
-$('original-tab').onclick = () => { if (originalUrl) showVideo(false); };
-$('result-tab').onclick = () => showVideo(true);
+$('original-tab').onclick = () => { if (originalUrl) showMedia(false); };
+$('result-tab').onclick = () => showMedia(true);
 $('play').onclick = () => { if (player.paused) player.play().catch(error => status(error.message, true)); else player.pause(); };
 $('rewind').onclick = () => { player.currentTime = 0; };
 $('mute').onclick = () => { player.muted = !player.muted; $('mute').textContent = player.muted ? 'MUTE' : 'VOL'; };
-$('fullscreen').onclick = () => player.requestFullscreen().catch(error => status(error.message, true));
+$('fullscreen').onclick = () => (isPhoto() ? photo : player).requestFullscreen().catch(error => status(error.message, true));
 $('seek').oninput = () => { if (Number.isFinite(player.duration)) player.currentTime = player.duration * $('seek').value / 1000; };
-player.onloadedmetadata = () => { for (const id of ['play','rewind','seek','mute','fullscreen']) $(id).disabled = false; updateTime(); };
-player.ontimeupdate = updateTime;
+player.onloadedmetadata = () => {
+  if (isPhoto()) return;
+  for (const id of [...transport, 'fullscreen']) $(id).disabled = false;
+  updateTime();
+};
+photo.onload = () => { if (isPhoto()) { $('fullscreen').disabled = false; sampleSpectrum(); } };
+photo.onerror = () => { if (isPhoto()) status('Could not display the photo.', true); };
+player.ontimeupdate = () => { if (!isPhoto()) updateTime(); };
 function updateTime() { $('timecode').textContent = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`; $('seek').value = Number.isFinite(player.duration) ? player.currentTime / player.duration * 1000 : 0; }
 player.onplay = () => $('play').textContent = '❚❚'; player.onpause = () => $('play').textContent = '▶';
-player.onerror = () => status('This source codec cannot play in this browser. Preview and processing can still work through FFmpeg.', true);
+player.onerror = () => { if (!isPhoto()) status('This source codec cannot play in this browser. Preview and processing can still work through FFmpeg.', true); };
 $('lightbox').addEventListener('close', () => { selectedFrame = null; });
 $('close-preview').onclick = () => $('lightbox').close();
 $('lightbox').onclick = event => { if (event.target === $('lightbox')) $('lightbox').close(); };
@@ -471,7 +498,7 @@ function drawSpectrum(levels = null) {
   } else {
     context.fillStyle = '#180607'; context.fillRect(left, top, width, height);
     context.fillStyle = '#f5ad76'; context.font = '9px "Luma Mono"';
-    context.fillText('AWAITING VIDEO FRAME', 88, 106);
+    context.fillText('AWAITING SOURCE', 88, 106);
   }
   context.strokeStyle = '#ffffff55'; context.lineWidth = .5;
   for (let index = 0; index <= 4; index++) {
@@ -493,14 +520,15 @@ function resetSpectrum() {
   stopSpectrum();
   spectrumAvailable = false; spectrumVideoTime = null;
   $('analysis-state').textContent = 'NO SOURCE / WAITING';
-  $('signal-readings').textContent = `${spectrumSize}×${spectrumSize} SPATIAL FREQUENCY\nLOAD VIDEO TO ACQUIRE FRAME`;
+  $('signal-readings').textContent = `${spectrumSize}×${spectrumSize} SPATIAL FREQUENCY\nLOAD A SOURCE`;
   drawSpectrum();
 }
 function sampleSpectrum() {
-  if (player.readyState < 2 || !player.videoWidth || document.hidden) return;
+  if (document.hidden || (isPhoto() ? !photo.complete || !photo.naturalWidth : player.readyState < 2 || !player.videoWidth)) return;
   let rgba;
   try {
-    frameContext.drawImage(player, 0, 0, spectrumSize, spectrumSize);
+    frameContext.clearRect(0, 0, spectrumSize, spectrumSize);
+    frameContext.drawImage(isPhoto() ? photo : player, 0, 0, spectrumSize, spectrumSize);
     rgba = frameContext.getImageData(0, 0, spectrumSize, spectrumSize).data;
   } catch (error) { $('analysis-state').textContent = 'FRAME UNAVAILABLE'; return; }
   let mean = 0;
@@ -535,7 +563,8 @@ function sampleSpectrum() {
   }
   spectrumAvailable = true; spectrumVideoTime = player.currentTime;
   $('analysis-state').textContent = player.paused ? 'FRAME SPECTRUM / HOLD' : 'LIVE SPECTRUM / 8 HZ';
-  $('signal-readings').textContent = `FRAME ${player.currentTime.toFixed(2)}s / ${spectrumSize}×${spectrumSize} LUMA\nLOW ${(low / lowCount).toFixed(1)}  MID ${(middle / middleCount).toFixed(1)}  HIGH ${(high / highCount).toFixed(1)}`;
+  const timestamp = isPhoto() ? '' : `FRAME ${player.currentTime.toFixed(2)}s / `;
+  $('signal-readings').textContent = `${timestamp}${spectrumSize}×${spectrumSize} LUMA\nLOW ${(low / lowCount).toFixed(1)}  MID ${(middle / middleCount).toFixed(1)}  HIGH ${(high / highCount).toFixed(1)}`;
 }
 function animateSpectrum(now) {
   if (document.hidden || player.paused || player.ended) { stopSpectrum(); return; }
@@ -584,7 +613,7 @@ player.addEventListener('seeked', sampleSpectrum);
 player.addEventListener('play', startSpectrum);
 player.addEventListener('pause', () => { stopSpectrum(); sampleSpectrum(); });
 player.addEventListener('ended', () => { stopSpectrum(); sampleSpectrum(); });
-player.addEventListener('emptied', resetSpectrum);
+player.addEventListener('emptied', () => { if (!isPhoto()) resetSpectrum(); });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) stopSpectrum();
   else if (!player.paused && !player.ended) startSpectrum();

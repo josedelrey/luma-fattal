@@ -234,7 +234,8 @@ server and requires no Node build. The desktop starts and stops its own local
 server. See the [Electron development setup](development.md#workbench-appearance)
 to launch the desktop from source.
 
-1. Open a source video. Original playback depends on browser codec support.
+1. Click **Open file…** to load a JPEG, PNG, or video. Photos appear in the
+   same monitor with playback controls disabled. Original video playback depends on browser codec support.
    FFmpeg preview and rendering can still work for a source the browser cannot play.
 2. Choose a bundled preset or open a YAML, TOML, or JSON configuration.
    The desktop automatically resolves parent files named by `extends` within
@@ -248,18 +249,24 @@ to launch the desktop from source.
    keep editing while a preview runs. To batch changes, turn off **auto** and
    click **Refresh** when ready. **Save…** beside the filter exports the current
    configuration as JSON, and **Reset** restores the selected recipe.
-4. Inspect the samples at 10%, 30%, 50%, 70%, and 90% of the clip. Click a sample
-   to open the full-size filtered image. Escape closes it.
-5. Click **Process video**. The workbench shows progress, speed and ETA as
-   estimates become available. Click **Stop** to cancel. Auto preview and
+4. Inspect the samples at 10%, 30%, 50%, 70%, and 90% of the clip. For a photo,
+   all five slots show one shared preview. Click a sample to open the full-size
+   filtered image. Escape closes it.
+5. Click **Process**. The workbench shows speed and ETA for video as estimates
+   become available. Click **Stop** to cancel. Auto preview and
    Refresh remain available during export. Settings edits apply to previews
    and your next render. The current render uses its starting settings.
-6. When export finishes, switch between **Original** and **Processed** playback.
-   Use **Save video** for the MP4, **Run record** for the metadata, and
+6. When export finishes, switch between **Original** and **Processed**.
+   Use **Save result** for the MP4, JPEG, or PNG, **Run record** for the metadata, and
    **Save config** for the settings used in that render. The desktop uses
    native save dialogs, and the browser uses downloads.
 
-Full preview samples appear in order as they finish. Previews use the video
+Photo previews and exports use the same photo filtering pipeline. Set the
+format under **Image export**. To process transparency, select `straight`
+under **Transparency** and export PNG to keep alpha. A JPEG export requires a
+background color for compositing transparent pixels.
+
+Video preview samples appear in order as they finish. Previews use the video
 adapter's geometry, color conversion, source treatments, and normal filter
 resolution. Auto backend mode can reuse CUDA after background initialization.
 The CPU handles previews while CUDA is warming up, unavailable, or reserved
@@ -275,8 +282,8 @@ frame. Processing previews and export at the same time can slow both.
 
 ### Session storage
 
-Opening a video streams a local copy to the session directory, up to 20 GiB
-per file. The session also holds rendered MP4s and run records. Previews are
+Opening a source streams a local copy to the session directory, up to 20 GiB
+per file. The session also holds exports and run records. Previews are
 served from memory, with a lossless PNG on disk when the memory budget is
 exceeded. Browser sessions use `outputs/ui/<session>/` by default. Pass
 `--output-dir` to use a different base directory. Desktop sessions use
@@ -290,9 +297,9 @@ API and media. All files are processed locally.
 
 ### Frame / Spectrum
 
-The spectrum shows the spatial frequencies of luminance in the frame
-currently displayed by the video player. It uses a 64×64 sample and shows
+The spectrum shows the spatial frequencies of luminance in the photo or frame
+currently displayed by the monitor. It uses a 64×64 sample and shows
 low, mid, and high frequency readouts. It updates during playback and on
 seeks. Use **SAMPLE** to inspect the current frame manually. Switching from
-**Original** to **Processed** changes the video the panel samples. The
+**Original** to **Processed** changes the source the panel samples. The
 spectrum is a visual display and has no effect on processing or export.

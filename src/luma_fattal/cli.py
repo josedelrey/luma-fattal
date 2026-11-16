@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image
 
 from .configuration import VIDEO_COLOR_PROFILES, Config, FilterParams, resolve_config
-from .images import STATUS, _digest, _write_json, process_image
+from .images import STATUS, _digest, _write_json, process_image, render_image
 from .pipeline import _prepare_pillow_input
 from .probes import generate_probes
 from .processing import limit_input_pixels
@@ -172,7 +172,9 @@ def _evaluate(args: argparse.Namespace) -> dict:
                         )
                         interpreted = Image.fromarray(pixels)
                     else:
-                        interpreted = source_image.copy()
+                        interpreted = render_image(
+                            source_image, replace(config, filter=f"fattal{variant}")
+                        )
                 row.update(
                     status="compared",
                     metrics=_comparison(reference, destination, interpreted, output, 8),

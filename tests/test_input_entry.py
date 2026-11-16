@@ -106,7 +106,7 @@ def test_cli_records_sampling_and_evaluation_uses_matching_geometry(
     metadata = json.loads(destination.with_suffix(".meta.json").read_text())
     if fade == 100:
         assert metadata["input_decode"] is None
-        assert metadata["color_conversion"] is None
+        assert metadata["color_conversion"]["backend"] == "none"
         assert metadata["resolved_processing"]["prepared_dimensions"] == [24, 19]
         with Image.open(destination) as result, Image.open(source) as original:
             assert result.tobytes() == original.tobytes()

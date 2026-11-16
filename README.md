@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-MIT%20%2B%20BSD--3--Clause-22A559)](LICENSE)
 
 Luma Fattal provides image and video stylization through gradient-domain
-filtering. Configure it through the desktop or browser video workbench, the
+filtering. Use the desktop or browser workbench, the
 command line, or the Python API.
 
 | <img src="assets/lantern-garden-original.png" alt="Final Fantasy XIV input" width="280" height="350" align="middle"> | <img src="assets/lantern-garden-fattal-1.png" alt="Fattal 1 result" width="280" height="350" align="middle"> | <img src="assets/lantern-garden-fattal-2.png" alt="Fattal 2 result" width="280" height="350" align="middle"> |
@@ -82,16 +82,17 @@ Each YAML preset also has a `-fast.yaml` copy that reuses buffers, overlaps vide
 I/O, and validates compatible sources during decoding.
 See the [video guide](docs/video.md) for processing options and encoding settings.
 
-## Local video interface
+## Local workbench
 
 ```bash
 uv run --locked python -m luma_fattal.ui
 ```
 
-The local workbench opens in your browser. Load a video, choose or import a
-preset, adjust the controls, and inspect five evenly spaced filtered frames.
-Click a frame to enlarge it. Process the video, compare the original and result,
-and save the silent MP4. FFmpeg and ffprobe are required.
+Load a JPEG, PNG, or video, then choose or import a preset and adjust the
+controls. The preview strip shows five samples from a video or the same
+filtered photo in each slot. Click a sample to enlarge it. Process the source
+to compare the original and result in the same monitor. Save photos as JPEG or
+PNG and videos as silent MP4. Video processing requires FFmpeg and ffprobe.
 See the [video guide](docs/video.md#local-workbench) for storage and preview limits.
 
 ## Documentation

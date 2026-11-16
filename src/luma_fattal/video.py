@@ -34,6 +34,9 @@ from .prenoise import SourceNoise
 from .processing import input_size
 from .video_io import PooledVideoIO, write_frame
 
+if sys.platform == "win32":
+    from .windows_process import CREATE_SUSPENDED, MediaJob
+
 
 def _digest(path):
     digest = hashlib.sha256()
@@ -44,24 +47,26 @@ def _digest(path):
 
 
 def _stop_process(process):
-    if process.poll() is not None:
-        return
-    if os.name == "nt":
-        # Chocolatey shims launch a child that owns the files and pipes.
-        # Stop the tree before the launcher can leave that child orphaned.
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                timeout=5,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired):
+    job = getattr(process, "_media_job", None)
+    if job is None or not job.stop():
+        if process.poll() is not None:
+            return
+        if sys.platform == "win32":
+            # Fall back to the Windows tree command if a job could not be assigned.
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    timeout=5,
+                    check=True,
+                )
+            except (OSError, subprocess.SubprocessError):
+                if process.poll() is None:
+                    process.terminate()
+        else:
             process.terminate()
-    else:
-        process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
@@ -101,24 +106,40 @@ def _process(command, **kwargs):
             process = subprocess.Popen(
                 command,
                 stderr=log,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                creationflags=(
+                    subprocess.CREATE_NO_WINDOW | CREATE_SUSPENDED
+                    if sys.platform == "win32"
+                    else 0
+                ),
                 **kwargs,
             )
         except FileNotFoundError as error:
             raise ValueError(
                 f"Required executable not found: {command[0]}. Install FFmpeg and ffprobe"
             ) from error
+        job = None
         try:
+            if sys.platform == "win32":
+                try:
+                    job = MediaJob(process)
+                except OSError:
+                    process.kill()
+                    raise
+                setattr(process, "_media_job", job)
             yield process, log
         finally:
             # Also runs after cancellation, failed filtering or a broken encoder pipe.
-            _stop_process(process)
-            for pipe in (process.stdin, process.stdout):
-                if pipe is not None:
-                    try:
-                        pipe.close()
-                    except OSError:
-                        pass
+            try:
+                _stop_process(process)
+            finally:
+                if job is not None:
+                    job.close()
+                for pipe in (process.stdin, process.stdout):
+                    if pipe is not None:
+                        try:
+                            pipe.close()
+                        except OSError:
+                            pass
 
 
 def _check(process, log, operation, *, allow_info=False):

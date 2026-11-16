@@ -104,13 +104,16 @@ const settingGroups = [
     ['pipeline_depth', 'Pipeline depth', 0, 8, 1],
     ['validation_mode', 'Video validation', ['scan', 'stream']],
   ]],
-  ['image', 'Image input (no video effect)', [
+  ['image', 'Image input', [
     ['color_space', 'Image color space', ['encoded', 'srgb']],
     ['color_backend', 'Image color backend', ['matrix_trc', 'lcms']],
     ['exif_orientation', 'EXIF orientation', ['ignore', 'apply']],
     ['decode_sampling', 'Sample image decoding', 'boolean'],
   ]],
-  ['output', 'Image export (no video effect)', [
+  ['processing', 'Transparency', [
+    ['transparency', 'Alpha handling', ['reject', 'straight']],
+  ]],
+  ['output', 'Image export', [
     ['format', 'Image format', ['png', 'jpeg']],
     ['jpeg_quality', 'JPEG quality', 1, 100, 1],
     ['jpeg_subsampling', 'JPEG subsampling', ['444', '422', '420']],

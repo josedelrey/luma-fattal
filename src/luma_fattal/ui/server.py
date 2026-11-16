@@ -28,7 +28,7 @@ from uuid import uuid4
 
 import numpy as np
 import yaml
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from ..cleanup import MultiscaleSourceCleanup, SourceCleanup
 from ..configuration import Config, _ConfigLoader
@@ -36,6 +36,7 @@ from ..core import ColorInputBudget, ToneMapSlot
 from ..denoise import SourceDenoise
 from ..gpu import GPUUnavailable
 from ..gpu_core import CudaCore
+from ..images import process_image, render_image
 from ..prenoise import SourceNoise
 from ..processing import process_pixels
 from ..video import (
@@ -52,6 +53,7 @@ REPOSITORY = STATIC.parents[2]
 PREVIEW_CACHE_BYTES = 128 * 1024 * 1024
 PREVIEW_BITMAP_BYTES = 128 * 1024 * 1024
 PREVIEW_COLOR_BYTES = 96 * 1024 * 1024
+PHOTO_SUFFIXES = {"JPEG": ".jpg", "PNG": ".png"}
 
 
 class _ProcessingCancelled(Exception):
@@ -70,6 +72,22 @@ def sample_times(duration: float) -> list[float]:
     if not np.isfinite(duration) or duration <= 0:
         raise ValueError("Video duration must be finite and positive")
     return [duration * (index + 0.5) / 5 for index in range(5)]
+
+
+def photo_details(source: Path) -> tuple[str, int, int] | None:
+    try:
+        original = Image.open(source, formats=list(PHOTO_SUFFIXES))
+    except UnidentifiedImageError:
+        return None
+    with original:
+        if getattr(original, "n_frames", 1) != 1:
+            raise ValueError("Select a still JPEG or PNG image")
+        original.load()
+        filename = "source" + PHOTO_SUFFIXES[cast(str, original.format)]
+        width, height = original.size
+        if original.getexif().get(274) in (5, 6, 7, 8):
+            width, height = height, width
+    return filename, width, height
 
 
 def decoded_sample(
@@ -424,8 +442,11 @@ class Workbench:
     def submit(self, kind: str, data: dict) -> str:
         config = Config.from_dict(data["config"])
         if config.filter == "both":
-            raise ValueError("Choose one Fattal filter for video")
+            raise ValueError("Choose one Fattal filter")
         upload = self.uploads[data["upload"]]
+        is_photo = upload.get("media_type") == "photo"
+        if is_photo and kind == "analyze":
+            raise ValueError("The monitor samples the photo directly")
         with self.lock:
             if self.active_job is not None and (
                 kind != "preview" or self.jobs[self.active_job]["kind"] != "process"
@@ -448,7 +469,7 @@ class Workbench:
             self.jobs[identifier] = dict(
                 state="running",
                 completed=0,
-                total=16 if kind == "analyze" else 5 if kind == "preview" else None,
+                total={"analyze": 16, "preview": 5}.get(kind, 1 if is_photo else None),
                 kind=kind,
             )
             executor.submit(self.run, identifier, kind, upload, config)
@@ -500,6 +521,45 @@ class Workbench:
                     self.active_preview = None
                 else:
                     self.active_job = None
+
+    def run_photo_preview(
+        self, identifier: str, folder: Path, source: Path, config: Config
+    ):
+        with Image.open(source) as original:
+            image = render_image(original, config)
+        if not self.is_active(identifier):
+            return
+        buffer = BytesIO()
+        image.save(
+            buffer,
+            format="PNG",
+            compress_level=1,
+            icc_profile=image.info.get("icc_profile") if config.output.embed_icc else None,
+        )
+        url = f"/media/{identifier}/preview.png"
+        if buffer.tell() <= PREVIEW_BITMAP_BYTES:
+            with self.lock:
+                if self.active_preview != identifier:
+                    return
+                self.preview_bitmaps[url] = buffer.getvalue()
+        else:
+            folder.mkdir()
+            (folder / "preview.png").write_bytes(buffer.getbuffer())
+        frame = dict(time=0, url=url, width=image.width, height=image.height)
+        self.update(identifier, state="done", completed=5, frames=[frame] * 5)
+
+    def finish_export(self, identifier: str, filename: str, encoder: str, **values):
+        with self.lock:
+            if self.jobs[identifier]["state"] == "cancelling":
+                raise _ProcessingCancelled()
+            self.jobs[identifier].update(
+                state="done",
+                url=f"/media/{identifier}/{filename}",
+                metadata=f"/media/{identifier}/processed.meta.json",
+                encoder=encoder,
+                **values,
+            )
+            self.active_job = None
 
     def run_preview(self, identifier: str, folder: Path, upload: dict, config: Config):
         source = upload["path"]
@@ -630,7 +690,17 @@ class Workbench:
                 return
             if kind != "preview":
                 folder.mkdir()
-            if kind == "analyze":
+            if upload.get("media_type") == "photo":
+                if kind == "preview":
+                    self.run_photo_preview(identifier, folder, upload["path"], config)
+                else:
+                    self.check_cancelled(identifier)
+                    filename = "processed" + config.output.suffix
+                    process_image(upload["path"], folder / filename, config=config)
+                    self.finish_export(
+                        identifier, filename, config.output.format, completed=1
+                    )
+            elif kind == "analyze":
                 samples = []
                 previous = None
                 for index in range(16):
@@ -692,16 +762,9 @@ class Workbench:
                         **cuda_options,
                     )
                     check_cancelled()
-                with self.lock:
-                    if self.jobs[identifier]["state"] == "cancelling":
-                        raise _ProcessingCancelled()
-                    self.jobs[identifier].update(
-                        state="done",
-                        url=f"/media/{identifier}/processed.mp4",
-                        metadata=f"/media/{identifier}/processed.meta.json",
-                        encoder=record["encoding"]["encoder"],
-                    )
-                    self.active_job = None
+                self.finish_export(
+                    identifier, "processed.mp4", record["encoding"]["encoder"]
+                )
         except _ProcessingCancelled:
             shutil.rmtree(folder, ignore_errors=True)
             self.update(identifier, state="cancelled")
@@ -761,7 +824,10 @@ class Handler(BaseHTTPRequestHandler):
                     bitmap = app.preview_bitmaps.get(path)
                 if bitmap is not None:
                     self.send_response(200)
-                    self.send_header("Content-Type", "image/bmp")
+                    self.send_header(
+                        "Content-Type",
+                        "image/png" if path.endswith(".png") else "image/bmp",
+                    )
                     self.send_header("Content-Length", str(len(bitmap)))
                     self.send_header("Cache-Control", "no-store")
                     self.send_header("Referrer-Policy", "no-referrer")
@@ -855,7 +921,7 @@ class Handler(BaseHTTPRequestHandler):
                 identifier = uuid4().hex
                 folder = app.directory / identifier
                 folder.mkdir()
-                target = folder / "source.mp4"
+                target = folder / "incoming"
                 try:
                     with target.open("xb") as destination:
                         remaining = length
@@ -865,6 +931,22 @@ class Handler(BaseHTTPRequestHandler):
                                 raise ValueError("Upload interrupted")
                             destination.write(block)
                             remaining -= len(block)
+                    details = photo_details(target)
+                    if details is not None:
+                        filename, width, height = details
+                        source = target.rename(folder / filename)
+                        app.uploads[identifier] = dict(path=source, media_type="photo")
+                        self.send_json(
+                            dict(
+                                upload=identifier,
+                                media_type="photo",
+                                width=width,
+                                height=height,
+                                url=f"/media/{identifier}/{filename}",
+                            )
+                        )
+                        return
+                    target = target.rename(folder / "source.mp4")
                     stream = _probe(target, "ffprobe")
                     duration = float(stream.get("duration", 0))
                     if duration <= 0:
@@ -893,6 +975,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(
                         dict(
                             upload=identifier,
+                            media_type="video",
                             duration=duration,
                             width=stream["width"],
                             height=stream["height"],
@@ -910,7 +993,7 @@ class Handler(BaseHTTPRequestHandler):
                         config = Config.from_dict(request)
                         if config.filter == "both":
                             raise ValueError(
-                                "Choose fattal1 or fattal2 for a video recipe"
+                                "Choose fattal1 or fattal2 for the recipe"
                             )
                         self.send_json(config.to_dict())
                         return
@@ -937,7 +1020,7 @@ class Handler(BaseHTTPRequestHandler):
                     data = yaml.load(content, Loader=_ConfigLoader)
                     config = Config.from_dict(data)
                 if config.filter == "both":
-                    raise ValueError("Choose fattal1 or fattal2 for a video recipe")
+                    raise ValueError("Choose fattal1 or fattal2 for the recipe")
                 self.send_json(config.to_dict())
             elif path == "/api/config":
                 config = Config.from_dict(json.loads(self.rfile.read(length)))
@@ -955,6 +1038,7 @@ class Handler(BaseHTTPRequestHandler):
             TypeError,
             KeyError,
             OSError,
+            Image.DecompressionBombError,
             yaml.YAMLError,
             subprocess.SubprocessError,
         ) as error:
@@ -969,16 +1053,13 @@ class Server(ThreadingHTTPServer):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Open the local Luma Fattal video workbench"
+        description="Open the local Luma Fattal workbench"
     )
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--presets", type=Path, default=REPOSITORY / "configs")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/ui"))
     args = parser.parse_args()
-    for tool in ("ffmpeg", "ffprobe"):
-        if shutil.which(tool) is None:
-            parser.error(f"Install {tool} before starting the UI")
     directory = args.output_dir / uuid4().hex
     app = Workbench(directory, args.presets)
     server = Server(args.port, app)

@@ -96,7 +96,10 @@ def test_image_paths_reject_file_aliases(
         make_input(destination)
         existing, alias = destination, sidecar
     if link_kind == "hard":
-        os.link(existing, alias)
+        try:
+            os.link(existing, alias)
+        except PermissionError as error:
+            pytest.skip(f"Hard links are unavailable: {error}")
     else:
         try:
             alias.symlink_to(existing.name)

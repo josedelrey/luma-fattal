@@ -387,7 +387,7 @@ def test_orientation_is_configurable_and_recorded(tmp_path, capsys, fade):
                 policy,
             ]
         )
-        assert Image.open(output).size == ((35, 27) if fade == 100 else size)
+        assert Image.open(output).size == size
         record = json.loads(output.with_suffix(".meta.json").read_text())
         assert record["source_dimensions"] == [35, 27]
         assert record["source_mode"] == "RGB"
@@ -463,8 +463,7 @@ def test_photo_export_applies_exif_and_requested_jpeg_codec(tmp_path, capsys, fa
     main(["apply", str(source), str(outputs), "--filter", "both", "--fade", str(fade)])
     with Image.open(source) as decoded:
         pixels = np.asarray(decoded).copy()
-    if fade < 100:
-        pixels = np.rot90(pixels, k=3).copy()
+    pixels = np.rot90(pixels, k=3).copy()
     for variant in (1, 2):
         filtered = apply_filter(pixels, variant, FilterParams(fade=fade))
         control = BytesIO()
@@ -477,7 +476,7 @@ def test_photo_export_applies_exif_and_requested_jpeg_codec(tmp_path, capsys, fa
             with Image.open(output) as actual:
                 assert isinstance(actual, JpegImagePlugin.JpegImageFile)
                 assert actual.format == "JPEG"
-                assert actual.size == ((35, 27) if fade == 100 else (27, 35))
+                assert actual.size == (27, 35)
                 assert JpegImagePlugin.get_sampling(actual) == 2
                 assert all(
                     value == 1

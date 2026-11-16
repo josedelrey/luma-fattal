@@ -34,7 +34,7 @@ def decode_input(
     sample = max(1, min(width // target[0], height // target[1]))
     if not enabled or sample == 1 or image.format not in ("PNG", "JPEG"):
         return image
-    if image.mode not in ("RGB", "RGBA", "L"):
+    if image.mode not in ("RGB", "RGBA", "L") or "transparency" in image.info:
         # Palette, CMYK and high-depth modes use the full decode extension.
         return image
     if image.format == "JPEG":
@@ -89,7 +89,9 @@ def prepare_image(image: Image.Image, policy: ImageConfig) -> Image.Image:
     source = (
         ImageOps.exif_transpose(image) if policy.exif_orientation == "apply" else image
     )
-    mode = "RGBA" if source.getbands()[-1] == "A" else "RGB"
+    mode = "RGBA" if source.has_transparency_data else "RGB"
+    if mode == "RGBA" and source.mode in ("RGB", "P", "PA"):
+        source = source.convert("RGBA")
     if policy.color_space == "srgb":
         srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
         record = dict(
@@ -129,9 +131,14 @@ def prepare_image(image: Image.Image, policy: ImageConfig) -> Image.Image:
                             ) from error
                 if policy.color_backend == "lcms" or fallback:
                     profile = ImageCms.ImageCmsProfile(BytesIO(original_profile))
+                    cms_input = source.convert("L") if source.mode == "LA" else source
+                    if cms_input.mode == "P":
+                        cms_input = cms_input.convert("RGB")
                     result = ImageCms.profileToProfile(
-                        source, profile, srgb, outputMode=mode
+                        cms_input, profile, srgb, outputMode=mode
                     )
+                    if mode == "RGBA" and result is not None:
+                        result.putalpha(source.convert("RGBA").getchannel("A"))
                     record["backend"] = "lcms"
                     if fallback:
                         record["fallback_reason"] = fallback
@@ -144,11 +151,13 @@ def prepare_image(image: Image.Image, policy: ImageConfig) -> Image.Image:
             record["reason"] = "No embedded ICC profile, RGB is interpreted as sRGB"
         assert result is not None
         result.info["icc_profile"] = srgb.tobytes()
+        result.info.pop("transparency", None)
         result.info["_color_conversion"] = record
         if "_input_decode" in image.info:
             result.info["_input_decode"] = image.info["_input_decode"]
         return result
     result = source.convert(mode)
+    result.info.pop("transparency", None)
     result.info["_color_conversion"] = dict(
         requested_backend=policy.color_backend,
         backend="none",
